@@ -3,6 +3,8 @@ import { createPortal } from "preact/compat";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Notification } from "@silverbulletmd/silverbullet/type/client";
 import { Input } from "@silverbulletmd/silverbullet/ui";
+import "@m3e/web/app-bar";
+import "@m3e/web/icon-button";
 
 export type ActionButton = {
   icon: FunctionalComponent<any>;
@@ -113,36 +115,29 @@ function ActionButtons({
 }) {
   return (
     <div className={`sb-actions ${mobileMenuStyle ?? ""}`}>
-      {buttons.map((actionButton) => {
-        const btn = (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              actionButton.callback();
-            }}
-            onBlur={() => {
-              if (mobileMenuStyle === "hamburger") {
-                document
-                  .querySelector("#sb-top .sb-actions.hamburger")
-                  ?.classList.remove("open");
-              }
-            }}
-            title={actionButton.description}
-            className={actionButton.class}
-          >
-            <actionButton.icon size={18} />
-          </button>
-        );
-        return actionButton.href ? (
-          <a href={actionButton.href} key={actionButton.href}>
-            {btn}
-          </a>
-        ) : (
-          btn
-        );
-      })}
+      {buttons.map((actionButton, i) => (
+        <m3e-icon-button
+          key={`${actionButton.description}-${i}`}
+          href={actionButton.href || undefined}
+          title={actionButton.description}
+          aria-label={actionButton.description}
+          className={actionButton.class}
+          onClick={(e: MouseEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            actionButton.callback();
+          }}
+          onBlur={() => {
+            if (mobileMenuStyle === "hamburger") {
+              document
+                .querySelector("#sb-top .sb-actions.hamburger")
+                ?.classList.remove("open");
+            }
+          }}
+        >
+          <actionButton.icon size={18} />
+        </m3e-icon-button>
+      ))}
     </div>
   );
 }
@@ -157,10 +152,7 @@ function PageNameEditor({
   onRename: (newName?: string) => Promise<void>;
 }) {
   const [name, setName] = useState(pageName ?? "");
-  // Guards against the blur that fires when a successful rename refocuses the
-  // editor, which would otherwise trigger a second (same-name) commit.
   const committing = useRef(false);
-  // Re-sync when navigating to a different page.
   useEffect(() => setName(pageName ?? ""), [pageName]);
 
   const commit = (newName: string) => {
@@ -169,7 +161,6 @@ function PageNameEditor({
     }
     if (newName !== pageName) {
       committing.current = true;
-      // On failure, restore the previous name
       Promise.resolve(onRename(newName))
         .catch(() => setName(pageName ?? ""))
         .finally(() => {
@@ -230,44 +221,44 @@ export function TopBar({
   return (
     <div id="sb-top" className={isOnline ? undefined : "sb-sync-error"}>
       {lhs}
-      <div className="main">
-        <div className="inner">
-          <div className="wrapper">
-            <div className="sb-page-prefix">{pageNamePrefix}</div>
-            <span
-              id="sb-current-page"
-              className={pageNameClass(isLoading, unsavedChanges, cssClass)}
-            >
-              <PageNameEditor
-                pageName={pageName}
-                readOnly={readOnly}
-                onRename={onRename}
+      <m3e-app-bar className="main" size="small">
+        <span slot="title" className="sb-page-title">
+          <span className="sb-page-prefix">{pageNamePrefix}</span>
+          <span
+            id="sb-current-page"
+            className={pageNameClass(isLoading, unsavedChanges, cssClass)}
+          >
+            <PageNameEditor
+              pageName={pageName}
+              readOnly={readOnly}
+              onRename={onRename}
+            />
+          </span>
+        </span>
+        <span slot="trailing" className="sb-trailing">
+          <SyncProgressIndicator
+            percentage={progressPercentage}
+            type={progressType}
+          />
+          {mobileMenuStyle ? (
+            <>
+              <ActionButtons
+                buttons={actionButtons.filter((b) => b.dropdown === false)}
               />
-            </span>
-            <NotificationPanel
-              notifications={notifications}
-              onDismiss={onDismissNotification}
-            />
-            <SyncProgressIndicator
-              percentage={progressPercentage}
-              type={progressType}
-            />
-            {mobileMenuStyle ? (
-              <>
-                <ActionButtons
-                  buttons={actionButtons.filter((b) => b.dropdown === false)}
-                />
-                <ActionButtons
-                  buttons={actionButtons.filter((b) => b.dropdown !== false)}
-                  mobileMenuStyle={mobileMenuStyle}
-                />
-              </>
-            ) : (
-              <ActionButtons buttons={actionButtons} />
-            )}
-          </div>
-        </div>
-      </div>
+              <ActionButtons
+                buttons={actionButtons.filter((b) => b.dropdown !== false)}
+                mobileMenuStyle={mobileMenuStyle}
+              />
+            </>
+          ) : (
+            <ActionButtons buttons={actionButtons} />
+          )}
+        </span>
+      </m3e-app-bar>
+      <NotificationPanel
+        notifications={notifications}
+        onDismiss={onDismissNotification}
+      />
       {rhs}
     </div>
   );
