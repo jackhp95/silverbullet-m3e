@@ -109,44 +109,19 @@ function SyncProgressIndicator({
   );
 }
 
-function ActionButtons({ buttons }: { buttons: ActionButton[] }) {
-  return (
-    <div className="sb-actions">
-      {buttons.map((actionButton, i) => (
-        <m3e-icon-button
-          key={`${actionButton.description}-${i}`}
-          href={actionButton.href || undefined}
-          title={actionButton.description}
-          aria-label={actionButton.description}
-          className={actionButton.class}
-          // "small" (the m3e default) forces a 24px icon in a 40px target —
-          // correct for a standalone button, but heavy for this many
-          // buttons packed into a 55px-tall bar. "extra-small" (20px icon /
-          // 32px target) is the documented next rung down, not a guessed
-          // override. Per-icon sizing on the Feather/mdi child itself
-          // (previously `size={18}`) has no effect either way: m3e-icon-button
-          // forces all slotted icon content to `1em`, which it then sets via
-          // its own `font-size` per the `size` attribute above — so a size
-          // prop on the child was always dead code.
-          size="extra-small"
-          onClick={(e: MouseEvent) => {
-            e.preventDefault();
-            e.stopPropagation();
-            actionButton.callback();
-          }}
-        >
-          <actionButton.icon />
-        </m3e-icon-button>
-      ))}
-    </div>
-  );
-}
-
-// Real anchored dropdown (m3e-menu) for actions that don't fit the bar,
-// replacing the old hover/CSS-class hamburger fly-out hack. The trigger
-// stays an m3e-icon-button (same sizing rationale as ActionButtons above);
-// m3e-menu-trigger marks its icon content as the thing that opens the menu,
-// same pattern the m3e menu card documents for m3e-button triggers.
+// Real anchored dropdown (m3e-menu) for every top-bar action, replacing the
+// old hover/CSS-class hamburger fly-out hack. Every actionButton lives here
+// now, full stop — including SB's own built-in "home"/"book" defaults
+// (libraries/Library/Std/Config.md sets `dropdown = false` on those two,
+// a policy written for upstream's old flat hamburger-icon-row UI where a
+// standalone-vs-hidden split made sense). This reskin's whole point is
+// consolidation into one clean kebab (2026-09-15: "home and book should be
+// in there too, stuff like search would go in there") — nothing in a
+// minimal notes app's top bar is more "primary" than the page-title field
+// itself, so `ActionButton.dropdown` is intentionally NOT consulted here.
+// The trigger stays an m3e-icon-button; m3e-menu-trigger marks its icon
+// content as the thing that opens the menu, same pattern the m3e menu card
+// documents for m3e-button triggers.
 function OverflowMenu({ buttons }: { buttons: ActionButton[] }) {
   if (buttons.length === 0) return null;
   return (
@@ -165,6 +140,7 @@ function OverflowMenu({ buttons }: { buttons: ActionButton[] }) {
           <m3e-menu-item
             key={`${actionButton.description}-${i}`}
             href={actionButton.href || undefined}
+            className={actionButton.class}
             onClick={(e: MouseEvent) => {
               e.preventDefault();
               actionButton.callback();
@@ -258,7 +234,11 @@ export function TopBar({
   readOnly: boolean;
 }) {
   return (
-    <div id="sb-top" className={isOnline ? undefined : "sb-sync-error"}>
+    <div
+      id="sb-top"
+      className={isOnline ? undefined : "sb-sync-error"}
+      data-mobile-menu-style={mobileMenuStyle}
+    >
       {lhs}
       <m3e-app-bar className="main" size="small">
         <span slot="title" className="sb-page-title">
@@ -279,18 +259,19 @@ export function TopBar({
             percentage={progressPercentage}
             type={progressType}
           />
-          {mobileMenuStyle ? (
-            <>
-              <ActionButtons
-                buttons={actionButtons.filter((b) => b.dropdown === false)}
-              />
-              <OverflowMenu
-                buttons={actionButtons.filter((b) => b.dropdown !== false)}
-              />
-            </>
-          ) : (
-            <ActionButtons buttons={actionButtons} />
-          )}
+          {
+            // Every actionButton lives in the kebab now — not gated on
+            // mobileMenuStyle/isMobile, and not filtered by the upstream
+            // `dropdown` field (see OverflowMenu's own doc comment above).
+            // That gate used to mean the overflow menu only ever rendered
+            // on a true mouse-less/touch device (viewState.isMobile is
+            // `!mouseDetected`, not a viewport-width check) — on every
+            // mouse-equipped desktop browser, every actionButton rendered
+            // as its own standalone icon, all the time. That was the exact
+            // bug Jack flagged: home/book/search sitting as separate
+            // always-visible icons instead of living in the kebab.
+          }
+          <OverflowMenu buttons={actionButtons} />
         </span>
       </m3e-app-bar>
       <NotificationPanel

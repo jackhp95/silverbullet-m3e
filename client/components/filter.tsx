@@ -107,10 +107,24 @@ export function FilterList({
   }
 
   const returnEl = (
+    // mode="fullscreen", not "docked": FilterList is always-mounted-when-
+    // shown (no separate closed/collapsed search-bar state to preserve),
+    // and "docked" mode renders its own persistent anchored container +
+    // scrim on top of the .sb-modal-box chrome below — literally the
+    // "container within a container within a container" nesting Jack
+    // flagged (confirmed live: DOM-inspecting the open modal showed
+    // .sb-modal-box's own border/box-shadow/background wrapping
+    // m3e-search-view's own docked-mode container/scrim wrapping the
+    // results list). "fullscreen" gives m3e-search-view a single native
+    // top-level chrome instead. The .sb-modal-box CLASS stays (its child
+    // selectors in modals.scss/colors.scss still theme .sb-help-text/
+    // .sb-result-list/.sb-option/.sb-hint here) — see the
+    // `m3e-search-view.sb-modal-box` override in modals.scss that cancels
+    // just the outer box-chrome properties (border/shadow/background/
+    // fixed width) so they don't stack on top of the native chrome.
     <m3e-search-view
       class="sb-modal-box"
-      mode="docked"
-      contained
+      mode="fullscreen"
       open
       hide-search-icon
     >

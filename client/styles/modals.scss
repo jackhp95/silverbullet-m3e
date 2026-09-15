@@ -103,3 +103,27 @@
     border-radius: 5px;
   }
 }
+
+// m3e-search-view (client/components/filter.tsx) keeps the .sb-modal-box
+// class so its .sb-help-text/.sb-result-list/.sb-option/.sb-hint child
+// theming above (and colors.scss's color/border/shadow rules) still apply,
+// but it must NOT also get .sb-modal-box's own outer box chrome —
+// m3e-search-view (mode="fullscreen") already renders its own native
+// container/elevation, and stacking both was the "container within a
+// container within a container" bug. Element+class beats the bare class
+// selector, so this wins regardless of source order.
+m3e-search-view.sb-modal-box {
+  margin-top: 0;
+  padding: 0;
+  width: auto;
+  max-width: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background-color: transparent;
+  overflow: visible;
+
+  &::backdrop {
+    background-color: transparent;
+  }
+}
