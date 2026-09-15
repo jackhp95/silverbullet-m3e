@@ -1,7 +1,6 @@
 import type { Command } from "./command.ts";
 import type {
   FilterOption,
-  Notification,
   PanelMode,
 } from "@silverbulletmd/silverbullet/type/client";
 
@@ -42,7 +41,6 @@ export type AppViewState = {
 
   panels: { [key: string]: PanelConfig };
   commands: Map<string, Command>;
-  notifications: Notification[];
 
   uiOptions: {
     vimMode: boolean;
@@ -101,7 +99,6 @@ export const initialViewState: AppViewState = {
   allDocuments: [],
   commands: new Map(),
 
-  notifications: [],
   showFilterBox: false,
   filterBoxHelpText: "",
   filterBoxLabel: "",
@@ -132,8 +129,6 @@ export type Action =
     }
   | { type: "show-palette"; context?: string; commands: Map<string, Command> }
   | { type: "hide-palette" }
-  | { type: "show-notification"; notification: Notification }
-  | { type: "dismiss-notification"; id: number }
   | {
       type: "show-panel";
       id: "rhs" | "lhs" | "bhs" | "modal";

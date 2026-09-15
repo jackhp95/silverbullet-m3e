@@ -33,7 +33,14 @@
     align-items: baseline;
     min-width: 0;
     width: 100%;
-    font-size: 28px;
+    // No manual font-size override here on purpose (2026-09-15): the old
+    // hardcoded 28px made this read as a second, competing page heading —
+    // directly on top of a page's own in-content `# H1` (most pages open
+    // with one matching the page name). Leaving this unset lets m3e's own
+    // "small" app-bar title token (--m3e-app-bar-small-title-text-font-size,
+    // Material's "Title Large" scale, ~22px) cascade in through the slot
+    // instead — still legible, editable, and rename-able, just no longer
+    // sized to duplicate the content's own heading.
   }
 
   #sb-current-page {
@@ -52,12 +59,11 @@
       font-size: inherit;
       // Match the line box the old CodeMirror title used so the text stays
       // vertically centred in the bar (a native input defaults to a shorter
-      // `line-height: normal`, which pulls the title upward).
-      //
-      // Must leave the row fitting inside #sb-top's 55px: at font-size 28px
-      // this line box plus .inner's 16px of vertical padding is the bar's
-      // whole height, and .main's `overflow-y: auto` turns any excess into a
-      // permanently visible scrollbar. 1.4 overflowed it by 0.2px.
+      // `line-height: normal`, which pulls the title upward). Must still fit
+      // inside #sb-top's fixed 55px row at whatever font-size the app-bar's
+      // own small-title token resolves to (see .sb-page-title above) — check
+      // visually after any token/size change, .main's `overflow-y: auto`
+      // silently turns any overflow into a permanent scrollbar.
       line-height: 1.35;
       color: inherit;
       background-color: transparent;
@@ -81,30 +87,6 @@
     flex: 0 0 auto;
   }
 
-  .sb-actions {
-    display: flex;
-    flex: 0 0 auto;
-    text-align: right;
-  }
-
-  // m3e-menu-item is a light-DOM child of the m3e-menu inside .sb-actions
-  // above, so it inherits that `text-align: right` (a plain CSS-inherited
-  // property, unaffected by the anchored popover's visual positioning) —
-  // that's why overflow-menu item labels weren't reading left-aligned.
-  // Un-inherit it here so menu rows read like every other list row.
-  m3e-menu-item {
-    text-align: left;
-  }
-
-  // m3e-menu-item's icon slot renders whatever's given it (Feather/mdi SVG
-  // here, same icon set the rest of the action-button system already uses)
-  // at its native size unless constrained — match the 20px m3e uses for its
-  // own icon-slot content elsewhere in this bar.
-  .sb-menu-item-icon svg {
-    width: 20px;
-    height: 20px;
-  }
-
   .progress-wrapper {
     position: relative;
     margin-top: 4px;
@@ -125,67 +107,22 @@
   }
 }
 
-// The overflow trigger + its m3e-menu (see OverflowMenu in top_bar.tsx)
-// replace the old hover/CSS-class hamburger and bottom-bar fly-outs — a real
-// anchored menu positions and dismisses itself, no bespoke CSS needed here.
-
-// Real, persistent FAB (client/editor_ui.tsx), positioned per Material's own
-// FAB placement guidance (fixed, screen corner, above other chrome).
-// m3e-fab is `display: inline-block` — placement is the app's job, this is
-// that placement, not a themed-token override.
-#sb-fab {
+// The floating vertical toolbar (client/components/floating_toolbar.tsx)
+// consolidates what used to be two separate fixed-position elements here —
+// the app-bar's kebab/overflow menu (now gone, its contents are toolbar
+// icons) and this exact FAB placement rule (formerly `#sb-fab`). Same
+// Material placement guidance as before: fixed, screen corner, above other
+// chrome. m3e-toolbar supplies no positioning of its own (see its own doc
+// comment in floating_toolbar.tsx) — this is that placement.
+.sb-floating-toolbar {
   position: fixed;
   right: 24px;
   bottom: 24px;
   z-index: 30;
 }
 
-// Rendered via portal into document.body, so it sits outside #sb-top's
-// stacking context and can render above the modal (z-index 100).
-.sb-notifications {
-  position: fixed;
-  left: max(20px, calc((100vw - var(--#{"editor-width"})) / 2 + 20px));
-  right: max(20px, calc((100vw - var(--#{"editor-width"})) / 2 + 20px));
-  top: 60px;
-
-  font-size: 15px;
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-
-  >div {
-    padding: 3px 8px;
-    margin-bottom: 3px;
-    border-radius: 5px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .sb-notification-actions {
-    display: flex;
-    gap: 4px;
-    flex-shrink: 0;
-
-    .sb-button {
-      font-size: 0.85em;
-      padding: 1px 6px;
-      white-space: nowrap;
-    }
-  }
-
-  .sb-notification-dismiss {
-    background: none;
-    border: none;
-    color: inherit;
-    cursor: pointer;
-    font-size: 1.1em;
-    padding: 0 2px;
-    opacity: 0.7;
-
-    &:hover {
-      opacity: 1;
-    }
-  }
-}
+// m3e-snackbar (client/editor_ui.tsx's flashNotification) and
+// m3e-bottom-sheet (client/components/idea_capture_sheet.tsx) both manage
+// their own fixed positioning/z-index internally (native popover API) — no
+// placement CSS needed here, unlike the old portal-rendered
+// `.sb-notifications` this replaced.

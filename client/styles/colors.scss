@@ -51,25 +51,9 @@
   background-color: var(--bhs-background-color);
 }
 
-.sb-notifications {
-  font-family: var(--editor-font);
-}
-
-.sb-notifications > div {
-  border: var(--notifications-border-color) 1px solid;
-}
-
-.sb-notification-info {
-  background-color: var(--notification-info-background-color);
-}
-
-.sb-notification-error {
-  background-color: var(--notification-error-background-color);
-}
-
-.sb-notification-warning {
-  background-color: var(--notification-warning-background-color);
-}
+// m3e-snackbar (client/editor_ui.tsx's flashNotification) replaced the old
+// portal-rendered `.sb-notifications`/`.sb-notification-*` toast — it ships
+// its own Material container styling, so those rules are gone, not moved.
 
 .sb-actions button {
   width: 28px;

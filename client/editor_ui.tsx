@@ -3,6 +3,8 @@ import { CommandPalette, keyboardHint } from "./components/command_palette.tsx";
 import { FilterList } from "./components/filter.tsx";
 import { AnythingPicker } from "./components/anything_picker.tsx";
 import { TopBar } from "./components/top_bar.tsx";
+import { FloatingToolbar } from "./components/floating_toolbar.tsx";
+import { IdeaCaptureSheet } from "./components/idea_capture_sheet.tsx";
 import reducer from "./reducer.ts";
 import {
   type Action,
@@ -12,12 +14,10 @@ import {
 import * as featherIcons from "preact-feather";
 import * as mdi from "./filtered_material_icons.ts";
 import "@m3e/web/theme";
-import "@m3e/web/fab";
-import "@m3e/web/fab-menu";
-import "@m3e/web/icon";
+import "@m3e/web/snackbar";
 import "./components/m3e-jsx.d.ts";
 import { h, render as preactRender } from "preact";
-import { useEffect, useReducer } from "preact/hooks";
+import { useEffect, useReducer, useState } from "preact/hooks";
 import { closeSearchPanel } from "@codemirror/search";
 import { runScopeHandlers } from "@codemirror/view";
 import type { Client } from "./client.ts";
@@ -144,6 +144,23 @@ export class MainUI {
 
   viewDispatch: (action: Action) => void = () => {};
 
+  // Real m3e-snackbar (node_modules/@m3e/web/dist/src/snackbar/Snackbar.d.ts,
+  // v2.7.12) replaces the old ad hoc `viewState.notifications` + portal-
+  // rendered toast (top_bar.tsx's old NotificationPanel). `M3eSnackbar.open`
+  // is the component's own documented global imperative API — a real
+  // singleton snackbar element it creates/appends/removes itself, not a
+  // hand-rolled store. External signature is unchanged (this is still the
+  // exact method `editor.flashNotification` — a public, Space-Lua-facing
+  // syscall, client/plugos/syscalls/editor.ts — calls), only the rendering
+  // is swapped, matching every other component patch this round.
+  //
+  // One real simplification, noted rather than hidden: m3e-snackbar has no
+  // `type`/severity attribute (single neutral Material style), so error/
+  // warning severity is now conveyed by a text prefix instead of color. The
+  // old system also allowed multiple stacked toasts; Material's snackbar
+  // pattern is deliberately one-at-a-time (`M3eSnackbarElement.current`), so
+  // a second flashNotification while one is showing replaces it rather than
+  // stacking — matches the component's own designed behavior, not a bug.
   flashNotification(
     message: string,
     type: NotificationType = "info",
@@ -152,32 +169,19 @@ export class MainUI {
       actions?: NotificationAction[];
     },
   ) {
-    const id = Math.floor(Math.random() * 1000000);
-    const dismiss = () => {
-      this.viewDispatch({ type: "dismiss-notification", id });
-    };
     const persistent = options?.timeout === 0;
-    const actions = options?.actions?.map((action) => ({
-      name: action.name,
-      run: () => {
-        action.run();
-        dismiss();
-      },
-    }));
-    this.viewDispatch({
-      type: "show-notification",
-      notification: {
-        id,
-        type,
-        message,
-        date: new Date(),
-        actions,
-        persistent,
-      },
-    });
-    if (!persistent) {
-      const timeout = options?.timeout ?? notificationDismissTimeouts[type];
-      setTimeout(dismiss, timeout);
+    const duration = persistent
+      ? 0
+      : (options?.timeout ?? notificationDismissTimeouts[type]);
+    const prefix = type === "error" ? "Error: " : type === "warning" ? "Warning: " : "";
+    const primaryAction = options?.actions?.[0];
+    if (primaryAction) {
+      globalThis.M3eSnackbar.open(`${prefix}${message}`, primaryAction.name, true, {
+        duration,
+        actionCallback: primaryAction.run,
+      });
+    } else {
+      globalThis.M3eSnackbar.open(`${prefix}${message}`, persistent, { duration });
     }
   }
 
@@ -256,6 +260,9 @@ export class MainUI {
     const [viewState, dispatch] = useReducer(reducer, initialViewState);
     this.viewState = viewState;
     this.viewDispatch = dispatch;
+    // Controls the "Jot down an idea" m3e-bottom-sheet (floating toolbar's
+    // New menu) — fully Preact-controlled, see idea_capture_sheet.tsx.
+    const [ideaSheetOpen, setIdeaSheetOpen] = useState(false);
 
     const client = this.client;
 
@@ -315,6 +322,55 @@ export class MainUI {
       "actionButtons",
       [],
     );
+    // Same filter/priority/icon-resolution logic the old TopBar
+    // `actionButtons` prop used to run inline — moved here, unchanged,
+    // because it's now shared: the floating toolbar is the only consumer
+    // (the app bar's kebab is gone), not TopBar.
+    const toolbarActions = actionButtons
+      .filter(
+        (button) =>
+          button.icon &&
+          (typeof button.mobile === "undefined" ||
+            button.mobile === viewState.isMobile) &&
+          (typeof button.standalone === "undefined" ||
+            button.standalone === viewState.isStandalone),
+      )
+      .map((button, index) => ({
+        ...button,
+        priority: button.priority ?? actionButtons.length - index,
+      }))
+      .sort((a, b) => b.priority - a.priority)
+      .map((button) => {
+        const mdiIcon = (mdi as any)[kebabToCamel(button.icon)];
+        let featherIcon = (featherIcons as any)[kebabToCamel(button.icon)];
+        if (!featherIcon) {
+          featherIcon = featherIcons.HelpCircle;
+        }
+        let description = button.description || "";
+        if (button.command) {
+          const cmd = viewState.commands.get(button.command);
+          if (cmd) {
+            const hint = keyboardHint(cmd);
+            if (hint) {
+              description = description ? `${description} (${hint})` : hint;
+            }
+          }
+        }
+        return {
+          icon: mdiIcon ? mdiIcon : featherIcon,
+          description,
+          callback: button.command
+            ? () => this.client.runCommandByName(button.command!)
+            : button.run ||
+              (() => {
+                this.flashNotification(
+                  "actionButton did not specify a command or run() callback",
+                  "error",
+                );
+              }),
+          href: "",
+        };
+      });
     return (
       // m3e components read Material color-role tokens (--md-sys-color-*)
       // that only exist once something computes them — @m3e/web ships no
@@ -497,10 +553,6 @@ export class MainUI {
           pageName={
             !viewState.current ? "" : getNameFromPath(viewState.current.path)
           }
-          notifications={viewState.notifications}
-          onDismissNotification={(id) => {
-            dispatch({ type: "dismiss-notification", id });
-          }}
           isOnline={viewState.isOnline}
           unsavedChanges={viewState.unsavedChanges}
           isLoading={viewState.isLoading}
@@ -532,68 +584,6 @@ export class MainUI {
               client.focus();
             }
           }}
-          actionButtons={[
-            // Custom action buttons. The overflow trigger itself is no
-            // longer a synthetic entry in this array — TopBar's OverflowMenu
-            // renders a real m3e-menu-trigger/m3e-menu when mobileMenuStyle
-            // is set, replacing the old hand-toggled ".hamburger.open" hack.
-            ...actionButtons
-              .filter(
-                (
-                  // Filter out buttons without icons (invalid) and mobile buttons when not in mobile mode
-                  button,
-                ) =>
-                  button.icon &&
-                  (typeof button.mobile === "undefined" ||
-                    button.mobile === viewState.isMobile) &&
-                  (typeof button.standalone === "undefined" ||
-                    button.standalone === viewState.isStandalone),
-              )
-              // Then ensure all buttons have a priority set (by default based on array index)
-              .map((button, index) => ({
-                ...button,
-                priority: button.priority ?? actionButtons.length - index,
-              }))
-              .sort((a, b) => b.priority - a.priority)
-              .map((button) => {
-                const mdiIcon = (mdi as any)[kebabToCamel(button.icon)];
-                let featherIcon = (featherIcons as any)[
-                  kebabToCamel(button.icon)
-                ];
-                if (!featherIcon) {
-                  featherIcon = featherIcons.HelpCircle;
-                }
-                // Build description with keyboard shortcut hint
-                let description = button.description || "";
-                if (button.command) {
-                  const cmd = viewState.commands.get(button.command);
-                  if (cmd) {
-                    const hint = keyboardHint(cmd);
-                    if (hint) {
-                      description = description
-                        ? `${description} (${hint})`
-                        : hint;
-                    }
-                  }
-                }
-
-                return {
-                  icon: mdiIcon ? mdiIcon : featherIcon,
-                  description,
-                  dropdown: button.dropdown,
-                  callback: button.command
-                    ? () => this.client.runCommandByName(button.command!)
-                    : button.run ||
-                      (() => {
-                        this.flashNotification(
-                          "actionButton did not specify a command or run() callback",
-                          "error",
-                        );
-                      }),
-                  href: "",
-                };
-              }),
-          ]}
           rhs={
             !!viewState.panels.rhs.mode && (
               <div
@@ -650,76 +640,118 @@ export class MainUI {
           </div>
         )}
         {
-          // Real, persistent FAB speed-dial — not a widget.sandbox hack.
-          // 2026-09-15 fix: this previously called
-          // client.startPageNavigate("page"), which opens the fuzzy PAGE
-          // PICKER — i.e. search — not page creation; a mislabel/miswire
-          // (the button said "New page" but behaved like Ctrl-K). None of
-          // the three actions below touch search or page-navigate at all.
-          //
-          // Opens a real m3e-fab-menu (@m3e/web/fab-menu) of quick-capture
-          // actions instead of doing anything directly on click — "the FAB
-          // would be a way to capture possible ideas," per the brief.
-          // "New task"/"Jot down an idea" use appendCaptureLine (above):
-          // a single prompt, then append one line to a dedicated inbox
-          // page, zero navigation — the fastest possible capture, doesn't
-          // interrupt whatever page you're on. "New journal entry" reuses
-          // SB's own built-in `Journal: Today` command
-          // (Library/Std/Journal/Journal.md) via client.runCommandByName
-          // rather than reinventing journaling — that one does navigate,
-          // because a journal entry is a canvas to write in, not a
-          // one-line capture. size="small" (not the "medium" default) per
-          // Jack's ask — this FAB sits over page content, not a full-page
-          // action surface, so the default/large sizing read as too heavy.
+          // ONE floating vertical toolbar, bottom-right — replaces both the
+          // old app-bar kebab (former OverflowMenu, top_bar.tsx) and the old
+          // FAB speed-dial that used to live right here. `toolbarActions`
+          // (computed above) is exactly the old kebab's contents (home/book/
+          // any CONFIG-defined actionButton.define entries); "New journal
+          // entry" stays a direct top-level action (Journal is already a
+          // first-class SB feature, worth one click rather than a submenu
+          // hop); "New" opens the expanded add-menu. Quick-capture actions
+          // (task/event/contact/idea) append one line to a dedicated inbox
+          // page and never navigate — "New note" is the one exception, since
+          // creating a page is inherently "go write in it," not a one-line
+          // capture, so it reuses the exact same valid-name-check +
+          // client.open(ref) path the page picker's own "type a name that
+          // doesn't exist yet" flow already uses (see the onNavigate handler
+          // above) rather than reinventing page creation.
         }
-        <m3e-fab id="sb-fab" size="small" aria-label="Quick capture" title="Quick capture">
-          <m3e-fab-menu-trigger for="sb-fab-menu">
-            <m3e-icon name="add"></m3e-icon>
-          </m3e-fab-menu-trigger>
-        </m3e-fab>
-        <m3e-fab-menu id="sb-fab-menu" variant="primary">
-          <m3e-fab-menu-item
-            onClick={() =>
-              safeRun(async () => {
-                const text = await this.prompt("New task");
-                if (!text) return;
-                await appendCaptureLine(
-                  client,
-                  "Tasks",
-                  "# Tasks",
-                  `* [ ] ${text}`,
-                );
-                this.flashNotification(`Task added: ${text}`);
-              })
-            }
-          >
-            <m3e-icon slot="icon" name="checklist"></m3e-icon>
-            New task
-          </m3e-fab-menu-item>
-          <m3e-fab-menu-item
-            onClick={() =>
+        <FloatingToolbar
+          actions={toolbarActions}
+          journal={{
+            iconName: "edit_calendar",
+            label: "New journal entry",
+            onClick: () =>
               safeRun(async () => {
                 await client.runCommandByName("Journal: Today");
-              })
-            }
-          >
-            <m3e-icon slot="icon" name="edit_calendar"></m3e-icon>
-            New journal entry
-          </m3e-fab-menu-item>
-          <m3e-fab-menu-item
-            onClick={() =>
-              safeRun(async () => {
-                const text = await this.prompt("Jot down an idea");
-                if (!text) return;
-                await appendCaptureLine(client, "Ideas", "# Ideas", `- ${text}`);
-                this.flashNotification("Idea captured");
-              })
-            }
-          >
-            <m3e-icon slot="icon" name="lightbulb"></m3e-icon>
-            Jot down an idea
-          </m3e-fab-menu-item>
-        </m3e-fab-menu>
+              }),
+          }}
+          newMenuItems={[
+            {
+              iconName: "checklist",
+              label: "New task",
+              onClick: () =>
+                safeRun(async () => {
+                  const text = await this.prompt("New task");
+                  if (!text) return;
+                  await appendCaptureLine(
+                    client,
+                    "Tasks",
+                    "# Tasks",
+                    `* [ ] ${text}`,
+                  );
+                  this.flashNotification(`Task added: ${text}`);
+                }),
+            },
+            {
+              iconName: "event",
+              label: "New event",
+              onClick: () =>
+                safeRun(async () => {
+                  const text = await this.prompt("New event");
+                  if (!text) return;
+                  await appendCaptureLine(
+                    client,
+                    "Events",
+                    "# Events",
+                    `- ${text}`,
+                  );
+                  this.flashNotification(`Event added: ${text}`);
+                }),
+            },
+            {
+              iconName: "person_add",
+              label: "New contact",
+              onClick: () =>
+                safeRun(async () => {
+                  const text = await this.prompt("New contact");
+                  if (!text) return;
+                  await appendCaptureLine(
+                    client,
+                    "Contacts",
+                    "# Contacts",
+                    `- ${text}`,
+                  );
+                  this.flashNotification(`Contact added: ${text}`);
+                }),
+            },
+            {
+              iconName: "lightbulb",
+              label: "New idea",
+              onClick: () => setIdeaSheetOpen(true),
+            },
+            {
+              iconName: "note_add",
+              label: "New note",
+              onClick: () =>
+                safeRun(async () => {
+                  const name = await this.prompt("New note");
+                  if (!name) return;
+                  const ref = parseToRef(name);
+                  if (!isValidName(name) || !ref) {
+                    this.flashNotification(
+                      `Couldn't create page ${name}, name is invalid`,
+                      "error",
+                    );
+                    return;
+                  }
+                  await client.open(ref);
+                }),
+            },
+          ]}
+        />
+        <IdeaCaptureSheet
+          open={ideaSheetOpen}
+          onCancel={() => setIdeaSheetOpen(false)}
+          onSubmit={(text) =>
+            safeRun(async () => {
+              setIdeaSheetOpen(false);
+              if (!text.trim()) return;
+              await appendCaptureLine(client, "Ideas", "# Ideas", `- ${text}`);
+              this.flashNotification("Idea captured");
+            })
+          }
+        />
       </m3e-theme>
     );
   }

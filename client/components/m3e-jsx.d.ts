@@ -156,6 +156,57 @@ type M3eFabMenuTriggerAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   for?: string | null;
 };
 
+// m3e-toolbar: the floating vertical toolbar shell (bottom-right of the
+// page) that consolidates the old kebab overflow menu + FAB speed-dial.
+// See @m3e/web/toolbar card / ToolbarElement.d.ts.
+type M3eToolbarAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  /** @default false */
+  elevated?: boolean;
+  /** @default "square" */
+  shape?: "rounded" | "square";
+  /** @default "standard" */
+  variant?: "standard" | "vibrant";
+  /** Whether the element is oriented vertically. @default false */
+  vertical?: boolean;
+};
+
+// m3e-bottom-sheet: hosts the "Jot down an idea" capture input. See
+// @m3e/web/bottom-sheet card / BottomSheetElement.d.ts.
+type M3eBottomSheetAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  /** Zero-based index of the detent the sheet should open to. */
+  detent?: number;
+  /** Detents (discrete height states) the sheet can snap to. */
+  detents?: string;
+  /** Whether to display a drag handle (and enable drag-to-resize). @default false */
+  handle?: boolean;
+  "handle-label"?: string;
+  /** Whether the sheet can be dismissed by swiping down. @default false */
+  hideable?: boolean;
+  "hide-friction"?: number;
+  /** Whether the sheet behaves as modal (scrim + focus trap). @default false */
+  modal?: boolean;
+  /** Whether the sheet is open. @default false */
+  open?: boolean;
+  "overshoot-limit"?: number;
+  // Custom (non-native) events — `oncancel` is already covered by
+  // PreactJSX.HTMLAttributes (shared with native <dialog>), these aren't.
+  onOpening?: (e: Event) => void;
+  onOpened?: (e: Event) => void;
+  onClosing?: (e: Event) => void;
+  onClosed?: (e: Event) => void;
+};
+
+// m3e-form-field: Material container for a native form control (label,
+// prefix/suffix, hint/error subscript). See @m3e/web/form-field card /
+// FormFieldElement.d.ts.
+type M3eFormFieldAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  "float-label"?: "always" | "auto";
+  "hide-required-marker"?: boolean;
+  "hide-subscript"?: "always" | "auto" | "never";
+  /** @default "outlined" */
+  variant?: "filled" | "outlined";
+};
+
 interface M3eIntrinsicElements {
   "m3e-search-view": M3eSearchViewAttributes;
   "m3e-list": M3eListAttributes;
@@ -171,6 +222,9 @@ interface M3eIntrinsicElements {
   "m3e-fab-menu": M3eFabMenuAttributes;
   "m3e-fab-menu-item": M3eFabMenuItemAttributes;
   "m3e-fab-menu-trigger": M3eFabMenuTriggerAttributes;
+  "m3e-toolbar": M3eToolbarAttributes;
+  "m3e-bottom-sheet": M3eBottomSheetAttributes;
+  "m3e-form-field": M3eFormFieldAttributes;
 }
 
 declare module "preact" {
