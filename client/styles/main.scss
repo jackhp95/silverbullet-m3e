@@ -35,6 +35,25 @@
   font-style: italic;
 }
 
+// m3e-icon (Material Symbols) renders text-as-ligature against a font named
+// exactly "Material Symbols Outlined" — it does not ship or inject that font
+// itself (confirmed against node_modules/@m3e/web/dist/icon.js: the only
+// loading guidance in its own source is a Google Fonts CDN <link>). Without
+// this, m3e-icon silently falls back to rendering the icon `name` as literal
+// text. Self-hosted here (client/fonts/, same convention as the iA-Mono
+// faces above) rather than a runtime fonts.googleapis.com dependency, since
+// this is a self-hosted, offline-first client. Static (non-variable) face —
+// sufficient for the fixed, non-animated icon usage in this fork; if a
+// future use needs the fill/weight/grade/optical-size axes to morph live,
+// swap in the variable-font file from the same Google Fonts CSS API source.
+@font-face {
+  font-family: "Material Symbols Outlined";
+  src: url("MaterialSymbolsOutlined.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
 html,
 body {
   margin: 0;

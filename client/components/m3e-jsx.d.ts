@@ -60,12 +60,94 @@ type M3eIconButtonAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   width?: "default" | "narrow" | "wide";
 };
 
+// m3e-theme: applies dynamic Material color-role (--md-sys-color-*) custom
+// properties to its subtree. Display: contents — safe drop-in for a bare
+// Preact Fragment. See @m3e/web/theme card, ThemeElement.ts.
+type M3eThemeAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  /** Hex seed color the dynamic palette is derived from. @default "#6750A4" */
+  color?: string;
+  contrast?: "high" | "medium" | "standard";
+  density?: number;
+  /** @default "auto" */
+  scheme?: "light" | "dark" | "auto";
+  "strong-focus"?: boolean;
+  variant?:
+    | "monochrome"
+    | "neutral"
+    | "tonal-spot"
+    | "vibrant"
+    | "expressive"
+    | "fidelity"
+    | "content"
+    | "rainbow"
+    | "fruit-salad";
+  motion?: "standard" | "expressive";
+};
+
+type M3eIconAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  name?: string;
+  filled?: boolean;
+  weight?: "100" | "200" | "300" | "400" | "500" | "600" | "700";
+  grade?: "low" | "medium" | "high";
+  "optical-size"?: number;
+  variant?: "outlined" | "rounded" | "sharp";
+};
+
+// m3e-menu family: anchored dropdown, replaces the hand-rolled
+// hover/CSS-class hamburger overflow. See @m3e/web/menu card.
+type M3eMenuAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  id?: string;
+  "position-x"?: "before" | "after";
+  "position-y"?: "above" | "below";
+  variant?: "standard" | "vibrant";
+  submenu?: boolean;
+};
+
+type M3eMenuItemAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  disabled?: boolean;
+  href?: string;
+  rel?: string;
+  target?: "_self" | "_blank" | "_parent" | "_top" | (string & {});
+};
+
+type M3eMenuTriggerAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  for?: string | null;
+};
+
+// m3e-fab: the single primary constructive action for the screen. See
+// @m3e/web/fab card.
+type M3eFabAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  disabled?: boolean;
+  "disabled-interactive"?: boolean;
+  extended?: boolean;
+  href?: string;
+  lowered?: boolean;
+  /** @default "medium" */
+  size?: "small" | "medium" | "large";
+  target?: "_self" | "_blank" | "_parent" | "_top" | (string & {});
+  /** @default "primary-container" */
+  variant?:
+    | "primary"
+    | "primary-container"
+    | "secondary"
+    | "secondary-container"
+    | "tertiary"
+    | "tertiary-container"
+    | "surface";
+};
+
 interface M3eIntrinsicElements {
   "m3e-search-view": M3eSearchViewAttributes;
   "m3e-list": M3eListAttributes;
   "m3e-list-item": M3eListItemAttributes;
   "m3e-app-bar": M3eAppBarAttributes;
   "m3e-icon-button": M3eIconButtonAttributes;
+  "m3e-theme": M3eThemeAttributes;
+  "m3e-icon": M3eIconAttributes;
+  "m3e-menu": M3eMenuAttributes;
+  "m3e-menu-item": M3eMenuItemAttributes;
+  "m3e-menu-trigger": M3eMenuTriggerAttributes;
+  "m3e-fab": M3eFabAttributes;
 }
 
 declare module "preact" {
