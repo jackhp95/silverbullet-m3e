@@ -85,10 +85,15 @@
     display: flex;
     flex: 0 0 auto;
     text-align: right;
+  }
 
-    &.hamburger m3e-icon-button.expander {
-      display: none;
-    }
+  // m3e-menu-item's icon slot renders whatever's given it (Feather/mdi SVG
+  // here, same icon set the rest of the action-button system already uses)
+  // at its native size unless constrained — match the 20px m3e uses for its
+  // own icon-slot content elsewhere in this bar.
+  .sb-menu-item-icon svg {
+    width: 20px;
+    height: 20px;
   }
 
   .progress-wrapper {
@@ -111,93 +116,19 @@
   }
 }
 
-@media only screen and (max-width: 600px) {
+// The overflow trigger + its m3e-menu (see OverflowMenu in top_bar.tsx)
+// replace the old hover/CSS-class hamburger and bottom-bar fly-outs — a real
+// anchored menu positions and dismisses itself, no bespoke CSS needed here.
 
-  /* Let the hamburger fly-out escape the top bar's scroll container */
-  #sb-top .main {
-    overflow: visible;
-  }
-
-  /* Style the menu as a vertical fly-out */
-  #sb-top .cm-scroller:has(.hamburger) {
-    position: relative;
-  }
-
-  #sb-top .sb-actions.hamburger {
-    width: 2.8rem;
-    margin-top: 2px;
-    background: color-mix(in srgb,
-        var(--top-background-color) 90%,
-        transparent);
-    backdrop-filter: blur(20px);
-    overflow: hidden;
-    flex-direction: column;
-    align-items: center;
-    z-index: 10;
-    transition:
-      max-height 0.3s ease-in-out,
-      box-shadow 0.3s ease-in-out;
-
-    /* Initial collapsed height */
-    max-height: 2.2rem;
-
-    m3e-icon-button {
-      &.expander {
-        display: initial;
-      }
-
-      &:not(.sb-code-copy-button) {
-        display: block;
-        height: 1.8rem;
-        text-align: center;
-        margin: 4px 0;
-        padding: 4px 0;
-      }
-
-      &:not(:first-of-type) {
-        margin: 8px 0;
-        opacity: 0;
-        transform: translateY(-10px);
-        transition:
-          opacity 0.3s ease-in-out,
-          transform 0.3s ease-in-out;
-      }
-    }
-
-    // CSS class for toggling the hamburger menu, so it can be toggled via JS
-    &.open:hover {
-      /* Expanded height limited to the viewport height minus some padding */
-      max-height: calc(100vh - 24px);
-
-      m3e-icon-button {
-        opacity: 1;
-        transform: translateY(0) translateX(0);
-      }
-    }
-  }
-
-  /* Style the menu as a bottom bar */
-  #sb-top .sb-actions.bottom-bar {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    padding: 10px 0;
-    background: var(--top-background-color);
-    width: 100vw;
-    box-shadow: 0px 4px 8px black;
-    justify-content: space-around;
-
-    m3e-icon-button {
-      padding: 1em;
-      margin: 0;
-      height: unset;
-      width: unset;
-
-      svg {
-        margin-bottom: -5px;
-      }
-    }
-  }
+// Real, persistent FAB (client/editor_ui.tsx), positioned per Material's own
+// FAB placement guidance (fixed, screen corner, above other chrome).
+// m3e-fab is `display: inline-block` — placement is the app's job, this is
+// that placement, not a themed-token override.
+#sb-fab {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 30;
 }
 
 // Rendered via portal into document.body, so it sits outside #sb-top's

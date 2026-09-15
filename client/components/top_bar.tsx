@@ -1,10 +1,13 @@
 import type { ComponentChildren, FunctionalComponent } from "preact";
 import { createPortal } from "preact/compat";
 import { useEffect, useRef, useState } from "preact/hooks";
+import * as featherIcons from "preact-feather";
 import type { Notification } from "@silverbulletmd/silverbullet/type/client";
 import { Input } from "@silverbulletmd/silverbullet/ui";
 import "@m3e/web/app-bar";
 import "@m3e/web/icon-button";
+import "@m3e/web/menu";
+import "./m3e-jsx.d.ts";
 
 export type ActionButton = {
   icon: FunctionalComponent<any>;
@@ -106,15 +109,9 @@ function SyncProgressIndicator({
   );
 }
 
-function ActionButtons({
-  buttons,
-  mobileMenuStyle,
-}: {
-  buttons: ActionButton[];
-  mobileMenuStyle?: string;
-}) {
+function ActionButtons({ buttons }: { buttons: ActionButton[] }) {
   return (
-    <div className={`sb-actions ${mobileMenuStyle ?? ""}`}>
+    <div className="sb-actions">
       {buttons.map((actionButton, i) => (
         <m3e-icon-button
           key={`${actionButton.description}-${i}`}
@@ -122,22 +119,64 @@ function ActionButtons({
           title={actionButton.description}
           aria-label={actionButton.description}
           className={actionButton.class}
+          // "small" (the m3e default) forces a 24px icon in a 40px target —
+          // correct for a standalone button, but heavy for this many
+          // buttons packed into a 55px-tall bar. "extra-small" (20px icon /
+          // 32px target) is the documented next rung down, not a guessed
+          // override. Per-icon sizing on the Feather/mdi child itself
+          // (previously `size={18}`) has no effect either way: m3e-icon-button
+          // forces all slotted icon content to `1em`, which it then sets via
+          // its own `font-size` per the `size` attribute above — so a size
+          // prop on the child was always dead code.
+          size="extra-small"
           onClick={(e: MouseEvent) => {
             e.preventDefault();
             e.stopPropagation();
             actionButton.callback();
           }}
-          onBlur={() => {
-            if (mobileMenuStyle === "hamburger") {
-              document
-                .querySelector("#sb-top .sb-actions.hamburger")
-                ?.classList.remove("open");
-            }
-          }}
         >
-          <actionButton.icon size={18} />
+          <actionButton.icon />
         </m3e-icon-button>
       ))}
+    </div>
+  );
+}
+
+// Real anchored dropdown (m3e-menu) for actions that don't fit the bar,
+// replacing the old hover/CSS-class hamburger fly-out hack. The trigger
+// stays an m3e-icon-button (same sizing rationale as ActionButtons above);
+// m3e-menu-trigger marks its icon content as the thing that opens the menu,
+// same pattern the m3e menu card documents for m3e-button triggers.
+function OverflowMenu({ buttons }: { buttons: ActionButton[] }) {
+  if (buttons.length === 0) return null;
+  return (
+    <div className="sb-actions sb-overflow">
+      <m3e-icon-button
+        size="extra-small"
+        title="More actions"
+        aria-label="More actions"
+      >
+        <m3e-menu-trigger for="sb-overflow-menu">
+          <featherIcons.MoreVertical />
+        </m3e-menu-trigger>
+      </m3e-icon-button>
+      <m3e-menu id="sb-overflow-menu" position-x="before">
+        {buttons.map((actionButton, i) => (
+          <m3e-menu-item
+            key={`${actionButton.description}-${i}`}
+            href={actionButton.href || undefined}
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              actionButton.callback();
+            }}
+          >
+            <span slot="icon" className="sb-menu-item-icon">
+              <actionButton.icon />
+            </span>
+            {actionButton.description}
+          </m3e-menu-item>
+        ))}
+      </m3e-menu>
     </div>
   );
 }
@@ -245,9 +284,8 @@ export function TopBar({
               <ActionButtons
                 buttons={actionButtons.filter((b) => b.dropdown === false)}
               />
-              <ActionButtons
+              <OverflowMenu
                 buttons={actionButtons.filter((b) => b.dropdown !== false)}
-                mobileMenuStyle={mobileMenuStyle}
               />
             </>
           ) : (

@@ -11,6 +11,10 @@ import {
 } from "./types/ui.ts";
 import * as featherIcons from "preact-feather";
 import * as mdi from "./filtered_material_icons.ts";
+import "@m3e/web/theme";
+import "@m3e/web/fab";
+import "@m3e/web/icon";
+import "./components/m3e-jsx.d.ts";
 import { h, render as preactRender } from "preact";
 import { useEffect, useReducer } from "preact/hooks";
 import { closeSearchPanel } from "@codemirror/search";
@@ -287,7 +291,32 @@ export class MainUI {
       [],
     );
     return (
-      <>
+      // m3e components read Material color-role tokens (--md-sys-color-*)
+      // that only exist once something computes them — @m3e/web ships no
+      // static/baseline fallback for them anywhere in its bundle, they're
+      // set entirely at runtime by m3e-theme. Without this wrapper every
+      // m3e-app-bar/m3e-icon-button/m3e-search-view/m3e-list in the tree
+      // renders against unset custom properties (verified directly against
+      // node_modules/@m3e/web/dist/{core,theme}.js — zero static
+      // `--md-sys-color-*: value` definitions anywhere, only
+      // `--md-sys-color-${role}` built and .setProperty'd by ThemeElement).
+      // m3e-theme is `display: contents`, so swapping it in for the bare
+      // Fragment this used to be has no layout effect.
+      // Seed color is SB's own accent (client/styles/_tokens.scss
+      // `--ui-accent-color: #464cfc`), not a guessed brand color. scheme
+      // mirrors the same darkMode resolution the effect above already
+      // applies to `document.documentElement.dataset.theme`, so m3e and
+      // SB's own Flexoki theme never disagree about light/dark.
+      <m3e-theme
+        color="#464cfc"
+        scheme={
+          viewState.uiOptions.darkMode === undefined
+            ? "auto"
+            : viewState.uiOptions.darkMode
+              ? "dark"
+              : "light"
+        }
+      >
         {viewState.showPageNavigator && (
           <AnythingPicker
             allDocuments={viewState.allDocuments}
@@ -479,26 +508,10 @@ export class MainUI {
             }
           }}
           actionButtons={[
-            // Vertical menu button
-            ...(viewState.isMobile &&
-            client.config
-              .get<string>("mobileMenuStyle", "hamburger")
-              .includes("hamburger")
-              ? [
-                  {
-                    icon: featherIcons.Menu,
-                    description: "Open Menu",
-                    class: "expander",
-                    callback: () => {
-                      // Make the expander button open/close the menu via toggling the CSS class "open"
-                      document
-                        .querySelector("#sb-top .sb-actions.hamburger")
-                        ?.classList.toggle("open");
-                    },
-                  },
-                ]
-              : []),
-            // Custom action buttons
+            // Custom action buttons. The overflow trigger itself is no
+            // longer a synthetic entry in this array — TopBar's OverflowMenu
+            // renders a real m3e-menu-trigger/m3e-menu when mobileMenuStyle
+            // is set, replacing the old hand-toggled ".hamburger.open" hack.
             ...actionButtons
               .filter(
                 (
@@ -611,7 +624,27 @@ export class MainUI {
             <Panel config={viewState.panels.bhs} editor={client} />
           </div>
         )}
-      </>
+        {
+          // Real, persistent FAB — not a widget.sandbox hack. Wired to the
+          // same command the existing "Navigate: Page Picker" (Ctrl-K)
+          // binding already uses (client.startPageNavigate, defined in
+          // client.ts), so page creation has exactly one code path rather
+          // than a duplicate one. A FAB is Material's "single most
+          // important constructive action on the screen" — for a notes app
+          // that's starting a new page. Icon is m3e-icon (Material Symbols),
+          // matching every fab.md example — unlike the existing
+          // ActionButton system (Feather/mdi, kept as-is, see report), this
+          // is a brand-new element with no back-compat surface to preserve.
+        }
+        <m3e-fab
+          id="sb-fab"
+          aria-label="New page"
+          title="New page"
+          onClick={() => client.startPageNavigate("page")}
+        >
+          <m3e-icon name="add"></m3e-icon>
+        </m3e-fab>
+      </m3e-theme>
     );
   }
 
