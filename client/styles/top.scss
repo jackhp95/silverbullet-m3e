@@ -5,68 +5,80 @@
 
   height: 55px;
 
+  // Keep the m3e-app-bar's internal (shadow-DOM) container height in sync
+  // with the fixed height of the outer bar, so its content doesn't clip or
+  // float inside a taller-than-intended box.
+  --m3e-app-bar-small-container-height: 55px;
+
   .main {
     flex: 2;
     max-width: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
 
-    .inner {
-      // Hack to not have SCSS precompile this value but use proper CSS variables
-      max-width: var(--#{"editor-width"});
-      margin: auto;
-      font-size: 28px;
-      padding: 8px 0;
-      display: flex;
-      flex-direction: row;
+    // Match the horizontal breathing room the previous hand-rolled
+    // `.wrapper { padding: 0 20px }` gave the bar's content.
+    --m3e-app-bar-padding-left: 20px;
+    --m3e-app-bar-padding-right: 20px;
 
-      .wrapper {
-        width: env(titlebar-area-width, 100%);
-        padding: 0 20px;
-        display: flex;
-        box-sizing: border-box;
-        position: relative;
+    // Narrow the bar's own content so it doesn't sit under a PWA's window
+    // controls overlay (falls back to full width when unsupported/unset).
+    // Hack to not have SCSS precompile this value but use proper CSS variables
+    width: env(titlebar-area-width, 100%);
+    margin: auto;
+  }
 
+  .sb-page-title {
+    display: flex;
+    align-items: baseline;
+    min-width: 0;
+    width: 100%;
+    font-size: 28px;
+  }
+
+  #sb-current-page {
+    flex: 1;
+    min-width: 0;
+
+    overflow: hidden;
+    white-space: nowrap;
+    text-align: left;
+    display: block;
+
+    -webkit-app-region: drag;
+
+    .sb-input {
+      font-family: var(--ui-font);
+      font-size: inherit;
+      // Match the line box the old CodeMirror title used so the text stays
+      // vertically centred in the bar (a native input defaults to a shorter
+      // `line-height: normal`, which pulls the title upward).
+      //
+      // Must leave the row fitting inside #sb-top's 55px: at font-size 28px
+      // this line box plus .inner's 16px of vertical padding is the bar's
+      // whole height, and .main's `overflow-y: auto` turns any excess into a
+      // permanently visible scrollbar. 1.4 overflowed it by 0.2px.
+      line-height: 1.35;
+      color: inherit;
+      background-color: transparent;
+      padding: 0;
+      width: 100%;
+      border: 0;
+      border-radius: 0;
+      outline: none;
+      overflow-x: hidden;
+      caret-color: var(--editor-caret-color);
+
+      &:focus {
+        box-shadow: none;
       }
     }
+  }
 
-    #sb-current-page {
-      flex: 1;
-
-      overflow: hidden;
-      white-space: nowrap;
-      text-align: left;
-      display: block;
-
-      -webkit-app-region: drag;
-
-      .sb-input {
-        font-family: var(--ui-font);
-        font-size: inherit;
-        // Match the line box the old CodeMirror title used so the text stays
-        // vertically centred in the bar (a native input defaults to a shorter
-        // `line-height: normal`, which pulls the title upward).
-        //
-        // Must leave the row fitting inside #sb-top's 55px: at font-size 28px
-        // this line box plus .inner's 16px of vertical padding is the bar's
-        // whole height, and .main's `overflow-y: auto` turns any excess into a
-        // permanently visible scrollbar. 1.4 overflowed it by 0.2px.
-        line-height: 1.35;
-        color: inherit;
-        background-color: transparent;
-        padding: 0;
-        width: 100%;
-        border: 0;
-        border-radius: 0;
-        outline: none;
-        overflow-x: hidden;
-        caret-color: var(--editor-caret-color);
-
-        &:focus {
-          box-shadow: none;
-        }
-      }
-    }
+  .sb-trailing {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
   }
 
   .sb-actions {
@@ -74,7 +86,7 @@
     flex: 0 0 auto;
     text-align: right;
 
-    &.hamburger button.expander {
+    &.hamburger m3e-icon-button.expander {
       display: none;
     }
   }
@@ -129,7 +141,7 @@
     /* Initial collapsed height */
     max-height: 2.2rem;
 
-    button {
+    m3e-icon-button {
       &.expander {
         display: initial;
       }
@@ -157,7 +169,7 @@
       /* Expanded height limited to the viewport height minus some padding */
       max-height: calc(100vh - 24px);
 
-      button {
+      m3e-icon-button {
         opacity: 1;
         transform: translateY(0) translateX(0);
       }
@@ -175,7 +187,7 @@
     box-shadow: 0px 4px 8px black;
     justify-content: space-around;
 
-    button {
+    m3e-icon-button {
       padding: 1em;
       margin: 0;
       height: unset;

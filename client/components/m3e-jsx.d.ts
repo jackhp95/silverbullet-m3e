@@ -1,11 +1,14 @@
 // Ambient JSX typings for the @m3e/web custom elements used directly as
-// Preact intrinsics in filter.tsx. @m3e/web ships no framework-specific JSX
-// bindings (it's a plain Lit custom-element package), so we declare the
-// minimal attribute surface we actually use here rather than pulling in a
-// generic "any-attribute" escape hatch. Augmenting both module specifiers
-// keeps this working regardless of whether a given tsconfig resolves JSX
-// types through "preact" or through "preact/jsx-runtime" (this repo's
-// jsxImportSource is "preact" with the automatic runtime).
+// Preact intrinsics across filter.tsx and top_bar.tsx. @m3e/web ships no
+// framework-specific JSX bindings (it's a plain Lit custom-element package),
+// so we declare the minimal attribute surface actually used in this fork
+// rather than pulling in a generic "any-attribute" escape hatch. Attribute
+// names/types are taken verbatim from the m3e skill's verified component
+// cards (generated from @m3e/web's build-time Custom Elements Manifest), not
+// guessed from generic Material Design knowledge. Augmenting both module
+// specifiers keeps this working regardless of whether a given tsconfig
+// resolves JSX types through "preact" or through "preact/jsx-runtime" (this
+// repo's jsxImportSource is "preact" with the automatic runtime).
 import type { JSX as PreactJSX } from "preact";
 
 type M3eSearchViewAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
@@ -23,10 +26,46 @@ type M3eListAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
 
 type M3eListItemAttributes = PreactJSX.HTMLAttributes<HTMLElement>;
 
+type M3eAppBarAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  /** Whether the title and subtitle are centered. @default false */
+  centered?: boolean;
+  /** Id of the interactive control this app bar is attached to. */
+  for?: string | null;
+  /** The size of the bar. @default "small" */
+  size?: "small" | "medium" | "large";
+};
+
+type M3eIconButtonAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  disabled?: boolean;
+  "disabled-interactive"?: boolean;
+  download?: string | null;
+  /** Native link support — renders as a link; do not wrap in an `<a>`. */
+  href?: string;
+  name?: string;
+  rel?: string;
+  /** Whether the toggle button is selected. @default false */
+  selected?: boolean;
+  shape?: "rounded" | "square";
+  /** @default "small" */
+  size?: "extra-small" | "small" | "medium" | "large" | "extra-large";
+  target?: "_self" | "_blank" | "_parent" | "_top" | (string & {});
+  /** Whether the button toggles between selected/unselected. @default false */
+  toggle?: boolean;
+  /** @default "button" */
+  type?: "button" | "submit" | "reset";
+  value?: string;
+  /** @default "standard" */
+  variant?: "filled" | "tonal" | "outlined" | "standard";
+  /** @default "default" */
+  width?: "default" | "narrow" | "wide";
+};
+
 interface M3eIntrinsicElements {
   "m3e-search-view": M3eSearchViewAttributes;
   "m3e-list": M3eListAttributes;
   "m3e-list-item": M3eListItemAttributes;
+  "m3e-app-bar": M3eAppBarAttributes;
+  "m3e-icon-button": M3eIconButtonAttributes;
 }
 
 declare module "preact" {
