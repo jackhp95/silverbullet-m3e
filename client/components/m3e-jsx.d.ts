@@ -136,6 +136,26 @@ type M3eFabAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
     | "surface";
 };
 
+// m3e-fab-menu family: a speed-dial menu opened from an m3e-fab via an
+// m3e-fab-menu-trigger. See @m3e/web/fab-menu card.
+type M3eFabMenuAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  id?: string;
+  /** @default "primary" */
+  variant?: "primary" | "secondary" | "tertiary";
+};
+
+type M3eFabMenuItemAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  disabled?: boolean;
+  download?: string | null;
+  href?: string;
+  rel?: string;
+  target?: "_self" | "_blank" | "_parent" | "_top" | (string & {});
+};
+
+type M3eFabMenuTriggerAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  for?: string | null;
+};
+
 interface M3eIntrinsicElements {
   "m3e-search-view": M3eSearchViewAttributes;
   "m3e-list": M3eListAttributes;
@@ -148,6 +168,9 @@ interface M3eIntrinsicElements {
   "m3e-menu-item": M3eMenuItemAttributes;
   "m3e-menu-trigger": M3eMenuTriggerAttributes;
   "m3e-fab": M3eFabAttributes;
+  "m3e-fab-menu": M3eFabMenuAttributes;
+  "m3e-fab-menu-item": M3eFabMenuItemAttributes;
+  "m3e-fab-menu-trigger": M3eFabMenuTriggerAttributes;
 }
 
 declare module "preact" {

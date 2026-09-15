@@ -87,6 +87,15 @@
     text-align: right;
   }
 
+  // m3e-menu-item is a light-DOM child of the m3e-menu inside .sb-actions
+  // above, so it inherits that `text-align: right` (a plain CSS-inherited
+  // property, unaffected by the anchored popover's visual positioning) —
+  // that's why overflow-menu item labels weren't reading left-aligned.
+  // Un-inherit it here so menu rows read like every other list row.
+  m3e-menu-item {
+    text-align: left;
+  }
+
   // m3e-menu-item's icon slot renders whatever's given it (Feather/mdi SVG
   // here, same icon set the rest of the action-button system already uses)
   // at its native size unless constrained — match the 20px m3e uses for its

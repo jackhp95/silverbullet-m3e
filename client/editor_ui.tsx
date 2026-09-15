@@ -13,6 +13,7 @@ import * as featherIcons from "preact-feather";
 import * as mdi from "./filtered_material_icons.ts";
 import "@m3e/web/theme";
 import "@m3e/web/fab";
+import "@m3e/web/fab-menu";
 import "@m3e/web/icon";
 import "./components/m3e-jsx.d.ts";
 import { h, render as preactRender } from "preact";
@@ -36,6 +37,30 @@ import {
   parseToRef,
   type Path,
 } from "@silverbulletmd/silverbullet/lib/ref";
+
+// Quick-capture helper for the FAB speed-dial's "New task"/"Jot down an
+// idea" items: append one line to a dedicated inbox page (created on first
+// use), no navigation. This is the generic, schema-free capture mechanism —
+// it only assumes SB's own core task notation (`* [ ] text`, see
+// docs/Task.md, indexed automatically wherever it appears) and a plain
+// bullet for ideas, not any space-specific `tag.define`d shape (a given
+// space, e.g. a bare demo space, may not define one). Zero-navigation is
+// the point: capture without leaving whatever page you were on.
+async function appendCaptureLine(
+  client: Client,
+  pageName: string,
+  header: string,
+  line: string,
+): Promise<void> {
+  let text: string;
+  try {
+    text = (await client.space.readPage(pageName)).text;
+  } catch {
+    text = `${header}\n\n`;
+  }
+  const separator = text.endsWith("\n") ? "" : "\n";
+  await client.space.writePage(pageName, `${text}${separator}${line}\n`);
+}
 
 export class MainUI {
   viewState: AppViewState = initialViewState;
@@ -625,25 +650,76 @@ export class MainUI {
           </div>
         )}
         {
-          // Real, persistent FAB — not a widget.sandbox hack. Wired to the
-          // same command the existing "Navigate: Page Picker" (Ctrl-K)
-          // binding already uses (client.startPageNavigate, defined in
-          // client.ts), so page creation has exactly one code path rather
-          // than a duplicate one. A FAB is Material's "single most
-          // important constructive action on the screen" — for a notes app
-          // that's starting a new page. Icon is m3e-icon (Material Symbols),
-          // matching every fab.md example — unlike the existing
-          // ActionButton system (Feather/mdi, kept as-is, see report), this
-          // is a brand-new element with no back-compat surface to preserve.
+          // Real, persistent FAB speed-dial — not a widget.sandbox hack.
+          // 2026-09-15 fix: this previously called
+          // client.startPageNavigate("page"), which opens the fuzzy PAGE
+          // PICKER — i.e. search — not page creation; a mislabel/miswire
+          // (the button said "New page" but behaved like Ctrl-K). None of
+          // the three actions below touch search or page-navigate at all.
+          //
+          // Opens a real m3e-fab-menu (@m3e/web/fab-menu) of quick-capture
+          // actions instead of doing anything directly on click — "the FAB
+          // would be a way to capture possible ideas," per the brief.
+          // "New task"/"Jot down an idea" use appendCaptureLine (above):
+          // a single prompt, then append one line to a dedicated inbox
+          // page, zero navigation — the fastest possible capture, doesn't
+          // interrupt whatever page you're on. "New journal entry" reuses
+          // SB's own built-in `Journal: Today` command
+          // (Library/Std/Journal/Journal.md) via client.runCommandByName
+          // rather than reinventing journaling — that one does navigate,
+          // because a journal entry is a canvas to write in, not a
+          // one-line capture. size="small" (not the "medium" default) per
+          // Jack's ask — this FAB sits over page content, not a full-page
+          // action surface, so the default/large sizing read as too heavy.
         }
-        <m3e-fab
-          id="sb-fab"
-          aria-label="New page"
-          title="New page"
-          onClick={() => client.startPageNavigate("page")}
-        >
-          <m3e-icon name="add"></m3e-icon>
+        <m3e-fab id="sb-fab" size="small" aria-label="Quick capture" title="Quick capture">
+          <m3e-fab-menu-trigger for="sb-fab-menu">
+            <m3e-icon name="add"></m3e-icon>
+          </m3e-fab-menu-trigger>
         </m3e-fab>
+        <m3e-fab-menu id="sb-fab-menu" variant="primary">
+          <m3e-fab-menu-item
+            onClick={() =>
+              safeRun(async () => {
+                const text = await this.prompt("New task");
+                if (!text) return;
+                await appendCaptureLine(
+                  client,
+                  "Tasks",
+                  "# Tasks",
+                  `* [ ] ${text}`,
+                );
+                this.flashNotification(`Task added: ${text}`);
+              })
+            }
+          >
+            <m3e-icon slot="icon" name="checklist"></m3e-icon>
+            New task
+          </m3e-fab-menu-item>
+          <m3e-fab-menu-item
+            onClick={() =>
+              safeRun(async () => {
+                await client.runCommandByName("Journal: Today");
+              })
+            }
+          >
+            <m3e-icon slot="icon" name="edit_calendar"></m3e-icon>
+            New journal entry
+          </m3e-fab-menu-item>
+          <m3e-fab-menu-item
+            onClick={() =>
+              safeRun(async () => {
+                const text = await this.prompt("Jot down an idea");
+                if (!text) return;
+                await appendCaptureLine(client, "Ideas", "# Ideas", `- ${text}`);
+                this.flashNotification("Idea captured");
+              })
+            }
+          >
+            <m3e-icon slot="icon" name="lightbulb"></m3e-icon>
+            Jot down an idea
+          </m3e-fab-menu-item>
+        </m3e-fab-menu>
       </m3e-theme>
     );
   }
