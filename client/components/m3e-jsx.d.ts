@@ -114,48 +114,6 @@ type M3eMenuTriggerAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   for?: string | null;
 };
 
-// m3e-fab: the single primary constructive action for the screen. See
-// @m3e/web/fab card.
-type M3eFabAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
-  disabled?: boolean;
-  "disabled-interactive"?: boolean;
-  extended?: boolean;
-  href?: string;
-  lowered?: boolean;
-  /** @default "medium" */
-  size?: "small" | "medium" | "large";
-  target?: "_self" | "_blank" | "_parent" | "_top" | (string & {});
-  /** @default "primary-container" */
-  variant?:
-    | "primary"
-    | "primary-container"
-    | "secondary"
-    | "secondary-container"
-    | "tertiary"
-    | "tertiary-container"
-    | "surface";
-};
-
-// m3e-fab-menu family: a speed-dial menu opened from an m3e-fab via an
-// m3e-fab-menu-trigger. See @m3e/web/fab-menu card.
-type M3eFabMenuAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
-  id?: string;
-  /** @default "primary" */
-  variant?: "primary" | "secondary" | "tertiary";
-};
-
-type M3eFabMenuItemAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
-  disabled?: boolean;
-  download?: string | null;
-  href?: string;
-  rel?: string;
-  target?: "_self" | "_blank" | "_parent" | "_top" | (string & {});
-};
-
-type M3eFabMenuTriggerAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
-  for?: string | null;
-};
-
 // m3e-toolbar: the floating vertical toolbar shell (bottom-right of the
 // page) that consolidates the old kebab overflow menu + FAB speed-dial.
 // See @m3e/web/toolbar card / ToolbarElement.d.ts.
@@ -207,6 +165,72 @@ type M3eFormFieldAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   variant?: "filled" | "outlined";
 };
 
+// m3e-textarea-autosize: non-visual element that grows a linked <textarea>
+// to fit its content, used by item_capture_sheet.tsx's multi-line capture
+// field. See @m3e/web/textarea-autosize card / TextareaAutosizeElement.d.ts.
+type M3eTextareaAutosizeAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  disabled?: boolean;
+  /** Id of the `textarea` this element resizes. */
+  for?: string | null;
+  "max-rows"?: number;
+  "min-rows"?: number;
+};
+
+// m3e-button: used for item_capture_sheet.tsx's submit action. See
+// @m3e/web/button card / ButtonElement.d.ts.
+type M3eButtonAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  disabled?: boolean;
+  "disabled-interactive"?: boolean;
+  /** @default "rounded" */
+  shape?: "rounded" | "square";
+  /** @default "small" */
+  size?: "extra-small" | "small" | "medium" | "large" | "extra-large";
+  /** @default "button" */
+  type?: "button" | "submit" | "reset";
+  /** @default "text" */
+  variant?: "elevated" | "filled" | "tonal" | "outlined" | "text";
+};
+
+// m3e-segmented-button / m3e-button-segment: item_capture_sheet.tsx's
+// task/event/contact/idea/note type selector — a small, mutually-exclusive
+// choice set is exactly the documented single-select use case. See
+// @m3e/web/segmented-button card / SegmentedButtonElement.d.ts,
+// ButtonSegmentElement.d.ts.
+type M3eSegmentedButtonAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  disabled?: boolean;
+  "hide-selection-indicator"?: boolean;
+  /** @default false */
+  multi?: boolean;
+  name?: string;
+};
+
+type M3eButtonSegmentAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  checked?: boolean;
+  disabled?: boolean;
+  /** @default "on" */
+  value?: string;
+};
+
+// m3e-breadcrumb / m3e-breadcrumb-item: top_bar.tsx's folder-path trail
+// above the app bar. See @m3e/web/breadcrumb card / BreadcrumbElement.d.ts,
+// BreadcrumbItemElement.d.ts.
+type M3eBreadcrumbAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  /** Whether breadcrumb items wrap onto a new line. @default false */
+  wrap?: boolean;
+};
+
+type M3eBreadcrumbItemAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  /** Accessible label for the item's internal button. */
+  "item-label"?: string;
+  disabled?: boolean;
+  /** Marks this item as the current location in the trail. */
+  current?: "page" | "step" | "location" | "date" | "time" | "true" | null;
+  href?: string;
+  target?: "_self" | "_blank" | "_parent" | "_top" | (string & {});
+  download?: string | null;
+  rel?: string;
+};
+
 interface M3eIntrinsicElements {
   "m3e-search-view": M3eSearchViewAttributes;
   "m3e-list": M3eListAttributes;
@@ -218,13 +242,15 @@ interface M3eIntrinsicElements {
   "m3e-menu": M3eMenuAttributes;
   "m3e-menu-item": M3eMenuItemAttributes;
   "m3e-menu-trigger": M3eMenuTriggerAttributes;
-  "m3e-fab": M3eFabAttributes;
-  "m3e-fab-menu": M3eFabMenuAttributes;
-  "m3e-fab-menu-item": M3eFabMenuItemAttributes;
-  "m3e-fab-menu-trigger": M3eFabMenuTriggerAttributes;
   "m3e-toolbar": M3eToolbarAttributes;
   "m3e-bottom-sheet": M3eBottomSheetAttributes;
   "m3e-form-field": M3eFormFieldAttributes;
+  "m3e-textarea-autosize": M3eTextareaAutosizeAttributes;
+  "m3e-button": M3eButtonAttributes;
+  "m3e-segmented-button": M3eSegmentedButtonAttributes;
+  "m3e-button-segment": M3eButtonSegmentAttributes;
+  "m3e-breadcrumb": M3eBreadcrumbAttributes;
+  "m3e-breadcrumb-item": M3eBreadcrumbItemAttributes;
 }
 
 declare module "preact" {

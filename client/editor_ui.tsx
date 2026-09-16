@@ -2,9 +2,9 @@ import { Confirm, Prompt } from "./components/basic_modals.tsx";
 import { CommandPalette, keyboardHint } from "./components/command_palette.tsx";
 import { FilterList } from "./components/filter.tsx";
 import { AnythingPicker } from "./components/anything_picker.tsx";
-import { TopBar } from "./components/top_bar.tsx";
+import { type BreadcrumbItem, TopBar } from "./components/top_bar.tsx";
 import { FloatingToolbar } from "./components/floating_toolbar.tsx";
-import { IdeaCaptureSheet } from "./components/idea_capture_sheet.tsx";
+import { ItemCaptureSheet } from "./components/item_capture_sheet.tsx";
 import reducer from "./reducer.ts";
 import {
   type Action,
@@ -38,14 +38,15 @@ import {
   type Path,
 } from "@silverbulletmd/silverbullet/lib/ref";
 
-// Quick-capture helper for the FAB speed-dial's "New task"/"Jot down an
-// idea" items: append one line to a dedicated inbox page (created on first
-// use), no navigation. This is the generic, schema-free capture mechanism —
-// it only assumes SB's own core task notation (`* [ ] text`, see
-// docs/Task.md, indexed automatically wherever it appears) and a plain
-// bullet for ideas, not any space-specific `tag.define`d shape (a given
-// space, e.g. a bare demo space, may not define one). Zero-navigation is
-// the point: capture without leaving whatever page you were on.
+// Quick-capture helper for the unified item-creation bottom sheet's
+// task/event/contact/idea types (client/components/item_capture_sheet.tsx):
+// append one line to a dedicated inbox page (created on first use), no
+// navigation. This is the generic, schema-free capture mechanism — it only
+// assumes SB's own core task notation (`* [ ] text`, see docs/Task.md,
+// indexed automatically wherever it appears) and a plain bullet for
+// events/contacts/ideas, not any space-specific `tag.define`d shape (a
+// given space, e.g. a bare demo space, may not define one). Zero-navigation
+// is the point: capture without leaving whatever page you were on.
 async function appendCaptureLine(
   client: Client,
   pageName: string,
@@ -61,6 +62,16 @@ async function appendCaptureLine(
   const separator = text.endsWith("\n") ? "" : "\n";
   await client.space.writePage(pageName, `${text}${separator}${line}\n`);
 }
+
+// Stable id the real editor scroll container (CodeMirror's own
+// `.cm-scroller`, rendered inside #sb-editor) is given at runtime — see the
+// `useEffect` in ViewComponent below. `.cm-scroller` has no id of its own
+// (verified: editor.scss's own `#sb-editor>.cm-editor>.cm-scroller`
+// selector is the only stable handle that exists today), and
+// AppBarElement.d.ts's `for` attribute needs a real element id to attach
+// its scroll listener to (scroll events don't bubble, so it must be the
+// actual scrolling element, not an ancestor).
+const EDITOR_SCROLL_CONTAINER_ID = "sb-editor-scroller";
 
 export class MainUI {
   viewState: AppViewState = initialViewState;
@@ -260,9 +271,10 @@ export class MainUI {
     const [viewState, dispatch] = useReducer(reducer, initialViewState);
     this.viewState = viewState;
     this.viewDispatch = dispatch;
-    // Controls the "Jot down an idea" m3e-bottom-sheet (floating toolbar's
-    // New menu) — fully Preact-controlled, see idea_capture_sheet.tsx.
-    const [ideaSheetOpen, setIdeaSheetOpen] = useState(false);
+    // Controls the unified item-creation m3e-bottom-sheet (floating
+    // toolbar's "New" button) — fully Preact-controlled, see
+    // item_capture_sheet.tsx.
+    const [captureSheetOpen, setCaptureSheetOpen] = useState(false);
 
     const client = this.client;
 
@@ -282,6 +294,49 @@ export class MainUI {
     useEffect(() => {
       document.documentElement.dataset.readOnly = isReadOnly ? "on" : "off";
     }, [isReadOnly]);
+
+    // Wires the real editor scroll container up for two consumers in
+    // top_bar.tsx: `m3e-app-bar`'s own `for`-driven elevation-on-scroll
+    // (AppBarElement.d.ts), and the breadcrumb-row collapse this fork adds
+    // on top of it (`#sb-top[data-scrolled]`, top.scss) — see that file's
+    // comment for why the breadcrumb can't just live inside a `position:
+    // sticky` ancestor here. Runs once: CodeMirror mounts its `.cm-editor`/
+    // `.cm-scroller` into the static `#sb-editor` div asynchronously (and a
+    // non-CodeMirror content editor, e.g. the document/iframe editor,
+    // mounts no `.cm-scroller` at all) — a MutationObserver picks it up
+    // whenever it actually appears, the same "wait for the real DOM, don't
+    // assume timing" pattern the old floating-toolbar file used
+    // (ResizeObserver in its now-removed `useEditorPaneMetrics`).
+    const [headerScrolled, setHeaderScrolled] = useState(false);
+    useEffect(() => {
+      const container = document.querySelector<HTMLElement>("#sb-editor");
+      if (!container) return;
+
+      let detachScroll: (() => void) | undefined;
+      const wire = (scroller: HTMLElement) => {
+        if (!scroller.id) scroller.id = EDITOR_SCROLL_CONTAINER_ID;
+        const onScroll = () => setHeaderScrolled(scroller.scrollTop > 0);
+        onScroll();
+        scroller.addEventListener("scroll", onScroll, { passive: true });
+        detachScroll = () => scroller.removeEventListener("scroll", onScroll);
+      };
+
+      const existing = container.querySelector<HTMLElement>(".cm-scroller");
+      if (existing) {
+        wire(existing);
+      }
+      const observer = new MutationObserver(() => {
+        if (detachScroll) return;
+        const scroller = container.querySelector<HTMLElement>(".cm-scroller");
+        if (scroller) wire(scroller);
+      });
+      observer.observe(container, { childList: true, subtree: true });
+
+      return () => {
+        observer.disconnect();
+        detachScroll?.();
+      };
+    }, []);
 
     useEffect(() => {
       if (viewState.current) {
@@ -357,7 +412,26 @@ export class MainUI {
           // with a live, state-reflecting one shown regardless of device —
           // filter the static original out here so it's not duplicated.
           !(button.icon === "lock" &&
-            button.description === "Toggle read-only mode"),
+            button.description === "Toggle read-only mode") &&
+          // The Std library's default Config.md ships a "home" actionButton
+          // (icon "home", command "Navigate: Home" — libraries/Library/Std/
+          // Config.md) whose exact function — go to the index/root page —
+          // the breadcrumb's own root "Space" segment now performs directly
+          // (see the breadcrumbItems computation below, which literally
+          // runs the same "Navigate: Home" command). And a demo/user space
+          // may ship a "github" actionButton (verified against this repo's
+          // own demo-space/CONFIG.md convention: icon "github", opening a
+          // repo URL) — that's a link-out, not a workspace action, and
+          // doesn't belong in a content-creation/navigation toolbar.
+          // Filtering by icon here (not editing either CONFIG.md) keeps
+          // this robust regardless of which space defines them — the same
+          // reasoning the pre-existing "lock" filter above already
+          // establishes. No "help"/question-mark actionButton exists
+          // anywhere in this repo state today (checked libraries/ and the
+          // repo root — there is no demo-space/ directory in this
+          // checkout), so there's nothing to filter for that concept yet.
+          button.icon !== "home" &&
+          button.icon !== "github",
       )
       .map((button, index) => ({
         ...button,
@@ -395,6 +469,58 @@ export class MainUI {
           href: "",
         };
       });
+
+    // Breadcrumb segments for TopBar's <m3e-breadcrumb> (top_bar.tsx),
+    // derived from the current page's path. SB has no literal folder/
+    // directory concept — just a flat page-path namespace where "/" is an
+    // ordinary character in the page NAME (verified: no "folder"/
+    // "directory" concept anywhere in client/client.ts or
+    // plug-api/lib/ref.ts; `client.navigate`/`startPageNavigate` only take
+    // a `Ref` or a picker `mode`, never a path-prefix filter) — so there's
+    // no real "open this folder's index page" target to invent:
+    //  - the root "Space" segment reuses the exact real "Navigate: Home"
+    //    command (plugs/editor/editor.plug.yaml's `navigateHome`, `page:
+    //    ""` — the identical command the removed "home" actionButton used
+    //    to run, see the toolbarActions filter above), guarded the same way
+    //    readOnlyToggle already guards on command availability below.
+    //  - intermediate "folder" segments (everything between the root and
+    //    the final page-name segment) open the real, already-wired,
+    //    unfiltered page picker (`client.startPageNavigate("page")`) — not
+    //    a folder-prefix-filtered picker, since that would need new
+    //    plumbing through reducer.ts/types/ui.ts/anything_picker.tsx (none
+    //    of which this round touches); "search from here" is the closest
+    //    real, non-invented affordance SB's own APIs support today.
+    //  - the final segment is the current page itself: `current`, no
+    //    onClick (see BreadcrumbItem's own doc in top_bar.tsx).
+    const currentPageName = viewState.current
+      ? getNameFromPath(viewState.current.path)
+      : undefined;
+    const pathSegments = currentPageName
+      ? currentPageName.split("/").filter((s) => s.length > 0)
+      : [];
+    const breadcrumbItems: BreadcrumbItem[] = [
+      {
+        key: "sb-breadcrumb-root",
+        label: "Space",
+        current: pathSegments.length === 0,
+        onClick: viewState.commands.has("Navigate: Home")
+          ? () =>
+            safeRun(async () => {
+              await client.runCommandByName("Navigate: Home");
+            })
+          : undefined,
+      },
+      ...pathSegments.map((segment, i) => {
+        const isLast = i === pathSegments.length - 1;
+        return {
+          key: `sb-breadcrumb-${i}`,
+          label: segment,
+          current: isLast,
+          onClick: isLast ? undefined : () => client.startPageNavigate("page"),
+        };
+      }),
+    ];
+
     return (
       // m3e components read Material color-role tokens (--md-sys-color-*)
       // that only exist once something computes them — @m3e/web ships no
@@ -636,6 +762,9 @@ export class MainUI {
               : undefined
           }
           readOnly={isReadOnly}
+          breadcrumbItems={breadcrumbItems}
+          scrollContainerId={EDITOR_SCROLL_CONTAINER_ID}
+          headerScrolled={headerScrolled}
         />
         <div id="sb-main">
           {viewState.panels.lhs.mode !== undefined && (
@@ -665,18 +794,14 @@ export class MainUI {
           // ONE floating vertical toolbar, bottom-right — replaces both the
           // old app-bar kebab (former OverflowMenu, top_bar.tsx) and the old
           // FAB speed-dial that used to live right here. `toolbarActions`
-          // (computed above) is exactly the old kebab's contents (home/book/
-          // any CONFIG-defined actionButton.define entries); "New journal
-          // entry" stays a direct top-level action (Journal is already a
-          // first-class SB feature, worth one click rather than a submenu
-          // hop); "New" opens the expanded add-menu. Quick-capture actions
-          // (task/event/contact/idea) append one line to a dedicated inbox
-          // page and never navigate — "New note" is the one exception, since
-          // creating a page is inherently "go write in it," not a one-line
-          // capture, so it reuses the exact same valid-name-check +
-          // client.open(ref) path the page picker's own "type a name that
-          // doesn't exist yet" flow already uses (see the onNavigate handler
-          // above) rather than reinventing page creation.
+          // (computed above) is exactly the old kebab's contents (any
+          // CONFIG-defined actionButton.define entries, minus lock/home/
+          // github — see the filter above); "New journal entry" stays a
+          // direct top-level action (Journal is already a first-class SB
+          // feature, worth one click rather than a sheet round-trip); "New"
+          // opens the unified item-creation bottom sheet
+          // (item_capture_sheet.tsx) — see `handleCaptureSubmit` below for
+          // what each of its 5 types actually does on submit.
         }
         <FloatingToolbar
           actions={toolbarActions}
@@ -718,14 +843,26 @@ export class MainUI {
                 await client.runCommandByName("Journal: Today");
               }),
           }}
-          newMenuItems={[
-            {
-              iconName: "checklist",
-              label: "New task",
-              onClick: () =>
-                safeRun(async () => {
-                  const text = await this.prompt("New task");
-                  if (!text) return;
+          onNewClick={() => setCaptureSheetOpen(true)}
+        />
+        <ItemCaptureSheet
+          open={captureSheetOpen}
+          onCancel={() => setCaptureSheetOpen(false)}
+          onSubmit={(type, text) =>
+            safeRun(async () => {
+              // Reuses the exact same per-type capture behavior the old
+              // fab-menu's 5 `newMenuItems` ran inline (task/event/contact/
+              // idea append one line via `appendCaptureLine`; note is the
+              // one type that doesn't append — it validates the name and
+              // navigates, same `isValidName`/`parseToRef`/`client.open`
+              // path the page picker's own "type a name that doesn't exist
+              // yet" flow already uses, see the `onNavigate` handler above
+              // rather than reinventing page creation) — only the entry
+              // point changed, from 5 separate fab-menu items (each with
+              // its own `this.prompt()` round-trip) to this one sheet's
+              // type selector + submit.
+              switch (type) {
+                case "task":
                   await appendCaptureLine(
                     client,
                     "Tasks",
@@ -733,15 +870,8 @@ export class MainUI {
                     `* [ ] ${text}`,
                   );
                   this.flashNotification(`Task added: ${text}`);
-                }),
-            },
-            {
-              iconName: "event",
-              label: "New event",
-              onClick: () =>
-                safeRun(async () => {
-                  const text = await this.prompt("New event");
-                  if (!text) return;
+                  break;
+                case "event":
                   await appendCaptureLine(
                     client,
                     "Events",
@@ -749,15 +879,8 @@ export class MainUI {
                     `- ${text}`,
                   );
                   this.flashNotification(`Event added: ${text}`);
-                }),
-            },
-            {
-              iconName: "person_add",
-              label: "New contact",
-              onClick: () =>
-                safeRun(async () => {
-                  const text = await this.prompt("New contact");
-                  if (!text) return;
+                  break;
+                case "contact":
                   await appendCaptureLine(
                     client,
                     "Contacts",
@@ -765,42 +888,38 @@ export class MainUI {
                     `- ${text}`,
                   );
                   this.flashNotification(`Contact added: ${text}`);
-                }),
-            },
-            {
-              iconName: "lightbulb",
-              label: "New idea",
-              onClick: () => setIdeaSheetOpen(true),
-            },
-            {
-              iconName: "note_add",
-              label: "New note",
-              onClick: () =>
-                safeRun(async () => {
-                  const name = await this.prompt("New note");
-                  if (!name) return;
-                  const ref = parseToRef(name);
-                  if (!isValidName(name) || !ref) {
+                  break;
+                case "idea":
+                  await appendCaptureLine(
+                    client,
+                    "Ideas",
+                    "# Ideas",
+                    `- ${text}`,
+                  );
+                  this.flashNotification("Idea captured");
+                  break;
+                case "note": {
+                  // For this one type, the sheet's shared text field is
+                  // doubling as the page NAME rather than page content —
+                  // see item_capture_sheet.tsx's `isNote` comment for why
+                  // that's a deliberate, single-field design rather than a
+                  // separate note-only form. Validate the same way the old
+                  // "New note" prompt did; leave the sheet open (don't fall
+                  // through to setCaptureSheetOpen below) so an invalid name
+                  // can be corrected in place instead of losing the draft.
+                  const ref = parseToRef(text);
+                  if (!isValidName(text) || !ref) {
                     this.flashNotification(
-                      `Couldn't create page ${name}, name is invalid`,
+                      `Couldn't create page ${text}, name is invalid`,
                       "error",
                     );
                     return;
                   }
                   await client.open(ref);
-                }),
-            },
-          ]}
-        />
-        <IdeaCaptureSheet
-          open={ideaSheetOpen}
-          onCancel={() => setIdeaSheetOpen(false)}
-          onSubmit={(text) =>
-            safeRun(async () => {
-              setIdeaSheetOpen(false);
-              if (!text.trim()) return;
-              await appendCaptureLine(client, "Ideas", "# Ideas", `- ${text}`);
-              this.flashNotification("Idea captured");
+                  break;
+                }
+              }
+              setCaptureSheetOpen(false);
             })
           }
         />
