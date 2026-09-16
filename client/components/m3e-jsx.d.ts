@@ -309,6 +309,29 @@ type M3eBadgeAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   for?: string | null;
 };
 
+// m3e-drawer-container / m3e-drawer-toggle: editor_ui.tsx's `#sb-main`
+// chrome hosting the lhs/rhs side panels — see @m3e/web/drawer-container
+// card / DrawerContainerElement.ts, DrawerToggleElement.ts. Only the
+// start/end drawer host is reskinned here; Panel (panel.tsx), the
+// plug-owned iframe/Shadow-DOM content slotted into it, is untouched.
+type M3eDrawerContainerAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  /** Whether the end drawer is open. @default false */
+  end?: boolean;
+  /** @default "side" */
+  "end-mode"?: "over" | "push" | "side" | "auto";
+  "end-divider"?: boolean;
+  /** Whether the start drawer is open. @default false */
+  start?: boolean;
+  /** @default "side" */
+  "start-mode"?: "over" | "push" | "side" | "auto";
+  "start-divider"?: boolean;
+};
+
+type M3eDrawerToggleAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  /** Id of the drawer (slotted start/end element) this toggle controls. */
+  for?: string | null;
+};
+
 interface M3eIntrinsicElements {
   "m3e-search-view": M3eSearchViewAttributes;
   "m3e-list": M3eListAttributes;
@@ -333,6 +356,8 @@ interface M3eIntrinsicElements {
   "m3e-dialog-action": M3eDialogActionAttributes;
   "m3e-circular-progress-indicator": M3eCircularProgressIndicatorAttributes;
   "m3e-badge": M3eBadgeAttributes;
+  "m3e-drawer-container": M3eDrawerContainerAttributes;
+  "m3e-drawer-toggle": M3eDrawerToggleAttributes;
 }
 
 declare module "preact" {

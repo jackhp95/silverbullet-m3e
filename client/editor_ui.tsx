@@ -28,6 +28,12 @@ import "@m3e/web/snackbar";
 // defining a `class extends LitElement` would throw at load time.
 // Registration is global, so importing it once here covers all of them.
 import "@m3e/web/chips";
+// Side-panel chrome (lhs/rhs) — see the `#sb-main` block below. Only the
+// host/wrapper is reskinned here; Panel (panel.tsx) itself, the plug-owned
+// iframe/Shadow-DOM content it hosts, is untouched.
+import "@m3e/web/drawer-container";
+import "@m3e/web/icon-button";
+import "@m3e/web/icon";
 import "./components/m3e-jsx.d.ts";
 import { h, render as preactRender } from "preact";
 import { useEffect, useReducer, useState } from "preact/hooks";
@@ -871,15 +877,41 @@ export class MainUI {
           scrollContainerId={EDITOR_SCROLL_CONTAINER_ID}
           headerScrolled={headerScrolled}
         />
-        <div id="sb-main">
+        <m3e-drawer-container
+          id="sb-main"
+          start={viewState.panels.lhs.mode !== undefined}
+          start-mode="side"
+          end={viewState.panels.rhs.mode !== undefined}
+          end-mode="side"
+        >
           {viewState.panels.lhs.mode !== undefined && (
-            <Panel config={viewState.panels.lhs} editor={client} />
+            <div slot="start" id="sb-panel-lhs" className="sb-panel-drawer">
+              <m3e-icon-button
+                className="sb-panel-drawer-close"
+                aria-label="Close panel"
+                onClick={() => dispatch({ type: "hide-panel", id: "lhs" })}
+              >
+                <m3e-drawer-toggle for="sb-panel-lhs" />
+                <m3e-icon name="close" />
+              </m3e-icon-button>
+              <Panel config={viewState.panels.lhs} editor={client} />
+            </div>
           )}
           <div id="sb-editor" />
           {viewState.panels.rhs.mode !== undefined && (
-            <Panel config={viewState.panels.rhs} editor={client} />
+            <div slot="end" id="sb-panel-rhs" className="sb-panel-drawer">
+              <m3e-icon-button
+                className="sb-panel-drawer-close"
+                aria-label="Close panel"
+                onClick={() => dispatch({ type: "hide-panel", id: "rhs" })}
+              >
+                <m3e-drawer-toggle for="sb-panel-rhs" />
+                <m3e-icon name="close" />
+              </m3e-icon-button>
+              <Panel config={viewState.panels.rhs} editor={client} />
+            </div>
           )}
-        </div>
+        </m3e-drawer-container>
         {viewState.panels.modal.mode !== undefined && (
           <div className="sb-modal-backdrop">
             <div
