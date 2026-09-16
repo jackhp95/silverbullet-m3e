@@ -231,6 +231,49 @@ type M3eBreadcrumbItemAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   rel?: string;
 };
 
+// m3e-dialog / m3e-dialog-action: basic_modals.tsx's Prompt/Confirm/
+// AlwaysShownModal replacement for the native <dialog>. See @m3e/web/dialog
+// card / DialogElement.d.ts, DialogActionElement.d.ts. `oncancel` is already
+// covered by PreactJSX.HTMLAttributes (shared with native <dialog>, same as
+// m3e-bottom-sheet above); `opening`/`opened`/`closing`/`closed` are not.
+//
+// These four are deliberately spelled ALL LOWERCASE (`onclosed`, not
+// `onClosed`) — verified live (a console.log inside the handler never fired
+// with the camelCase spelling) and confirmed by reading
+// node_modules/preact/src/diff/props.js's setProperty(): for a prop name
+// starting with "on", Preact only lowercases it before stripping the "on"
+// prefix when `lowerCaseName in dom` is true (true for native events, since
+// e.g. HTMLElement already has a real `onclick` IDL property) — otherwise it
+// falls back to `name.slice(2)` on the ORIGINAL, un-lowercased string. A
+// plain Lit custom element has no `onclosed` IDL property, so `onClosed`
+// (camelCase) resolves to `addEventListener("Closed", ...)` — capital C —
+// which never matches the component's actual `dispatchEvent(new
+// Event("closed"))`. The prop name must already be all-lowercase so that
+// wrong branch still produces the right string. (The identical camelCase
+// spelling on m3e-bottom-sheet above is very likely equally dead — not fixed
+// here since it's outside this file's owning feature; flagged separately.)
+type M3eDialogAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  /** Whether the dialog is an alert (sets role="alertdialog"). @default false */
+  alert?: boolean;
+  "close-label"?: string;
+  /** Whether backdrop click / Escape are disabled. @default false */
+  "disable-close"?: boolean;
+  /** Whether a close ("x") button is rendered. @default false */
+  dismissible?: boolean;
+  "no-focus-trap"?: boolean;
+  /** Whether the dialog is open. @default false */
+  open?: boolean;
+  onopening?: (e: Event) => void;
+  onopened?: (e: Event) => void;
+  onclosing?: (e: Event) => void;
+  onclosed?: (e: Event) => void;
+};
+
+type M3eDialogActionAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  /** The value returned by the dialog when this action is used to close it. */
+  "return-value"?: string;
+};
+
 interface M3eIntrinsicElements {
   "m3e-search-view": M3eSearchViewAttributes;
   "m3e-list": M3eListAttributes;
@@ -251,6 +294,8 @@ interface M3eIntrinsicElements {
   "m3e-button-segment": M3eButtonSegmentAttributes;
   "m3e-breadcrumb": M3eBreadcrumbAttributes;
   "m3e-breadcrumb-item": M3eBreadcrumbItemAttributes;
+  "m3e-dialog": M3eDialogAttributes;
+  "m3e-dialog-action": M3eDialogActionAttributes;
 }
 
 declare module "preact" {
