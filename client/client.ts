@@ -49,7 +49,7 @@ import { IndexedDBKvPrimitives } from "./data/indexeddb_kv_primitives.ts";
 import type { KvPrimitives } from "./data/kv_primitives.ts";
 import { DataStoreMQ } from "./data/mq.datastore.ts";
 import { ObjectIndex } from "./data/object_index.ts";
-import { MainUI } from "./editor_ui.tsx";
+import { EDITOR_SCROLL_CONTAINER_ID, MainUI } from "./editor_ui.tsx";
 import { PathPageNavigator, parseRefFromURI } from "./navigator.ts";
 import { EventHook } from "./plugos/hooks/event.ts";
 import { Space } from "./space.ts";
@@ -268,6 +268,12 @@ export class Client {
       state: createEditorState(this, "", "", true),
       parent: document.getElementById("sb-editor")!,
     });
+    // Stable id for m3e-app-bar's `for`-driven scroll elevation
+    // (client/editor_ui.tsx's EDITOR_SCROLL_CONTAINER_ID) — set once, right
+    // here at construction, on CodeMirror's own public `scrollDOM` handle.
+    // Deliberately not a runtime DOM query: see the id constant's own
+    // comment in editor_ui.tsx for why.
+    this.editorView.scrollDOM.id = EDITOR_SCROLL_CONTAINER_ID;
 
     this.focus();
 
