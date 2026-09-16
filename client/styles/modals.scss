@@ -185,3 +185,21 @@ m3e-search-view.sb-modal-box {
     transparent
   );
 }
+
+// The item-creation bottom sheet's body (client/components/
+// item_capture_sheet.tsx) stacks an m3e-segmented-button, an m3e-form-field,
+// and an m3e-button — plain block-level custom elements with no spacing
+// cssprop of their own between SIBLINGS (checked SegmentedButtonElement.d.ts/
+// FormFieldElement.d.ts: only internal/self padding+shape tokens, nothing for
+// gap-to-next-sibling) — so with zero app CSS they were flush against each
+// other (flagged live 2026-09-16). Layout-only concern, bottom rung of the
+// styling ladder: plain flex + gap.
+.sb-item-capture-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+
+  m3e-form-field {
+    width: 100%;
+  }
+}

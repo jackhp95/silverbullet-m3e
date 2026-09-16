@@ -54,43 +54,46 @@
   font-display: block;
 }
 
-// Monaspace Xenon — GitHub's open-source (SIL OFL 1.1) monospace superfamily
-// (github.com/githubnext/monaspace) — the editable-state face for
-// --editor-font (theme.scss). Self-hosted here (client/fonts/, same
+// Monaspace Neon — GitHub's open-source (SIL OFL 1.1) monospace superfamily
+// (github.com/githubnext/monaspace), the flagship/default sub-family of the
+// superfamily (a neo-grotesque monospace, the one usually meant by "the
+// Monaspace font" — corrected 2026-09-16 from an earlier round that shipped
+// the slab-serif "Xenon" sub-family by mistake) — the editable-state face
+// for --editor-font (theme.scss). Self-hosted here (client/fonts/, same
 // convention as the iA-Mono faces above) rather than a CDN dependency, for
 // the same offline-first reason cited above for Material Symbols. These are
 // the static (non-variable) per-weight/style files from the project's own
 // "Static Web Fonts" release asset (monaspace-webfont-static-v1.400.zip,
-// release tag v1.400, Static Web Fonts/Monaspace Xenon/ inside the zip) —
+// release tag v1.400, Static Web Fonts/Monaspace Neon/ inside the zip) —
 // the width/weight axes this fork needs are fixed by the CSS below, not
 // user-adjustable, so the single combined variable-font file buys nothing
 // here and four static files keep each request small. License:
 // client/fonts/LICENSE-Monaspace.txt (SIL OFL 1.1, copied verbatim from
 // githubnext/monaspace's own root LICENSE file).
 @font-face {
-  font-family: "Monaspace Xenon";
-  src: url("MonaspaceXenon-Regular.woff2") format("woff2");
+  font-family: "Monaspace Neon";
+  src: url("MonaspaceNeon-Regular.woff2") format("woff2");
   font-weight: normal;
   font-style: normal;
 }
 
 @font-face {
-  font-family: "Monaspace Xenon";
-  src: url("MonaspaceXenon-Bold.woff2") format("woff2");
+  font-family: "Monaspace Neon";
+  src: url("MonaspaceNeon-Bold.woff2") format("woff2");
   font-weight: bold;
   font-style: normal;
 }
 
 @font-face {
-  font-family: "Monaspace Xenon";
-  src: url("MonaspaceXenon-Italic.woff2") format("woff2");
+  font-family: "Monaspace Neon";
+  src: url("MonaspaceNeon-Italic.woff2") format("woff2");
   font-weight: normal;
   font-style: italic;
 }
 
 @font-face {
-  font-family: "Monaspace Xenon";
-  src: url("MonaspaceXenon-BoldItalic.woff2") format("woff2");
+  font-family: "Monaspace Neon";
+  src: url("MonaspaceNeon-BoldItalic.woff2") format("woff2");
   font-weight: bold;
   font-style: italic;
 }
@@ -133,6 +136,21 @@ body {
   padding: 0;
   width: 100%;
   overflow: hidden;
+  // Baseline for anything the app doesn't explicitly style — most notably
+  // m3e-snackbar, which M3eSnackbar.open() appends directly to
+  // `document.body` (confirmed in node_modules/@m3e/web/dist/snackbar.js:
+  // `document.body.append(snackbar)`), i.e. as a SIBLING of #sb-root, not a
+  // descendant — so it never inherited #sb-root's `font-family: var(--ui-
+  // font)` (colors.scss) and fell all the way back to the browser's true
+  // UA-default (serif on most engines when nothing at all is set). Root
+  // cause, not a per-component patch — this is deliberately the SAME pattern
+  // Jack asked for: fix it once at the true document root so any future
+  // top-layer/body-appended m3e surface (menus, dialogs, tooltips) inherits
+  // sane theming by default instead of needing its own opt-in. Uses
+  // --chrome-font (not the static --ui-font #sb-root itself keeps) since a
+  // reload/status snackbar is exactly the kind of transient, content-state-
+  // adjacent chrome the editable/read-only cue is meant to reach.
+  font-family: var(--chrome-font);
   background-color: var(--top-background-color);
 }
 

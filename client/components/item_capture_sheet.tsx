@@ -97,6 +97,23 @@ export function ItemCaptureSheet({
   const [text, setText] = useState("");
   const singleLineRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const sheetRef = useRef<HTMLElement>(null);
+
+  // Verified live 2026-09-16 (computed-style inspection, not a guess): Preact
+  // sets known custom-element boolean props — the `handle` JSX shorthand
+  // below — as a real DOM PROPERTY (`el.handle = true`), per this file's own
+  // Addendum-2 rationale. But `M3eBottomSheetElement`'s compiled stylesheet
+  // (node_modules/@m3e/web/dist/bottom-sheet.js) gates its ENTIRE `.header`
+  // region — the drag-handle row AND the `slot="header"` title text — behind
+  // a plain CSS *attribute* selector, `:host(:not([handle])) .header {
+  // display: none }`, and `handle` is not a reflecting property here (setting
+  // the JS property alone never adds the HTML attribute). Net effect without
+  // this: the sheet opened with no visible title and no drag dimple, both
+  // silently `display: none`. Force the real attribute once the element
+  // exists so the component's own CSS sees it.
+  useEffect(() => {
+    sheetRef.current?.setAttribute("handle", "");
+  }, []);
 
   // "note" is the one type whose single text field means the page NAME, not
   // free-form content (see the module doc comment above the component for
@@ -125,6 +142,7 @@ export function ItemCaptureSheet({
 
   return (
     <m3e-bottom-sheet
+      ref={sheetRef}
       modal
       handle
       hideable

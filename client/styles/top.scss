@@ -151,11 +151,20 @@
 // documented internal mechanism.
 .sb-breadcrumb-row {
   overflow: hidden;
-  max-height: 28px;
-  transition: max-height 0.2s ease, opacity 0.15s ease;
+  // 28px of content + this breathing room below it, so the trail doesn't
+  // read as glued directly onto the app bar's own background/shadow edge
+  // (flagged live 2026-09-16) — max-height has to grow to match or the
+  // padding gets clipped by the same rule that drives the collapse-on-
+  // scroll animation below.
+  padding: 4px 20px 10px;
+  max-height: 42px;
+  box-sizing: border-box;
+  transition: max-height 0.2s ease, opacity 0.15s ease, padding 0.2s ease;
 }
 
 #sb-top[data-scrolled="on"] .sb-breadcrumb-row {
   max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
   opacity: 0;
 }
