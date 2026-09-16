@@ -3,7 +3,10 @@ import { CommandPalette, keyboardHint } from "./components/command_palette.tsx";
 import { FilterList } from "./components/filter.tsx";
 import { AnythingPicker } from "./components/anything_picker.tsx";
 import { type BreadcrumbItem, TopBar } from "./components/top_bar.tsx";
-import { FloatingToolbar } from "./components/floating_toolbar.tsx";
+import {
+  type ActionButton,
+  FloatingToolbar,
+} from "./components/floating_toolbar.tsx";
 import { ItemCaptureSheet } from "./components/item_capture_sheet.tsx";
 import reducer from "./reducer.ts";
 import {
@@ -63,15 +66,31 @@ async function appendCaptureLine(
   await client.space.writePage(pageName, `${text}${separator}${line}\n`);
 }
 
-// Stable id the real editor scroll container (CodeMirror's own
-// `.cm-scroller`, rendered inside #sb-editor) is given at runtime — see the
-// `useEffect` in ViewComponent below. `.cm-scroller` has no id of its own
-// (verified: editor.scss's own `#sb-editor>.cm-editor>.cm-scroller`
-// selector is the only stable handle that exists today), and
-// AppBarElement.d.ts's `for` attribute needs a real element id to attach
-// its scroll listener to (scroll events don't bubble, so it must be the
-// actual scrolling element, not an ancestor).
-const EDITOR_SCROLL_CONTAINER_ID = "sb-editor-scroller";
+// Stable id given to the real editor scroll container exactly once, in
+// client.ts right after `new EditorView(...)` constructs it — see the
+// comment there. `EditorView.scrollDOM` (view/index.d.ts) is CodeMirror's
+// own public, documented handle to that element (already used elsewhere in
+// client.ts, e.g. `editorView.scrollDOM.scrollTop`), so no DOM class-name
+// hunting is needed to find it: it's a real API return value, not `.cm-
+// scroller` discovered by querying internal CM6 markup. AppBarElement.d.ts's
+// `for` attribute needs a real element id to attach its scroll listener to
+// (scroll events don't bubble, so it must be the actual scrolling element,
+// not an ancestor).
+export const EDITOR_SCROLL_CONTAINER_ID = "sb-editor-scroller";
+
+// m3e-snackbar (node_modules/@m3e/web/dist/src/snackbar/SnackbarElement.d.ts,
+// v2.7.12, verified against the installed CEM — not the older v2.7.3 pinned
+// in the m3e skill card) has no `type`/severity/variant/role attribute or
+// option at all; its only styling seam for this is the documented
+// `--m3e-snackbar-container-color` cssprop. Map each real `NotificationType`
+// to the matching M3 system-color token (core.js confirms the live var
+// names: `--md-sys-color-error`, `--md-sys-color-tertiary`); "info" is left
+// `undefined` to keep the library's own neutral default.
+const SEVERITY_CONTAINER_COLOR: Record<NotificationType, string | undefined> = {
+  info: undefined,
+  warning: "var(--md-sys-color-tertiary)",
+  error: "var(--md-sys-color-error)",
+};
 
 export class MainUI {
   viewState: AppViewState = initialViewState;
@@ -165,13 +184,29 @@ export class MainUI {
   // syscall, client/plugos/syscalls/editor.ts — calls), only the rendering
   // is swapped, matching every other component patch this round.
   //
-  // One real simplification, noted rather than hidden: m3e-snackbar has no
-  // `type`/severity attribute (single neutral Material style), so error/
-  // warning severity is now conveyed by a text prefix instead of color. The
-  // old system also allowed multiple stacked toasts; Material's snackbar
-  // pattern is deliberately one-at-a-time (`M3eSnackbarElement.current`), so
-  // a second flashNotification while one is showing replaces it rather than
-  // stacking — matches the component's own designed behavior, not a bug.
+  // Severity: error/warning now also drive `--m3e-snackbar-container-color`
+  // (SEVERITY_CONTAINER_COLOR above) in addition to the existing text
+  // prefix — color alone would be a WCAG 1.4.1 "use of color" violation for
+  // anyone who can't distinguish the hue, so the prefix stays as the
+  // non-color channel. `M3eSnackbar.open()` returns void and creates its own
+  // element internally (Snackbar.d.ts) — `M3eSnackbarElement.current` only
+  // updates inside its async `beforetoggle` handler (Lit's update cycle is
+  // microtask-deferred), so it isn't readable synchronously here. The
+  // synchronously-reliable handle is `document.body.lastElementChild`: the
+  // compiled source (snackbar.js) does `document.body.append(snackbar)`
+  // immediately before returning, and nothing else can run between that and
+  // this line (single JS thread) — so it's guaranteed to be the element
+  // `.open()` just created, not a DOM-hunt.
+  //
+  // Single-at-a-time (deliberate, not a gap): kept as-is. Material's
+  // snackbar pattern — and this library's implementation specifically
+  // (`M3eSnackbarElement.__current`, `_handleBeforeToggle` forcibly closes
+  // whatever's showing before opening the next) — is a hard singleton, not
+  // a policy choice on our side. Reintroducing a stacked queue would mean
+  // bypassing `M3eSnackbar.open()` entirely and hand-rolling our own
+  // multi-toast stack outside the vendored component, which is exactly the
+  // kind of hand-rolled store this reskin was removing. A second
+  // `flashNotification` while one is showing replaces it, same as before.
   flashNotification(
     message: string,
     type: NotificationType = "info",
@@ -193,6 +228,17 @@ export class MainUI {
       });
     } else {
       globalThis.M3eSnackbar.open(`${prefix}${message}`, persistent, { duration });
+    }
+
+    const containerColor = SEVERITY_CONTAINER_COLOR[type];
+    if (containerColor) {
+      const el = document.body.lastElementChild;
+      if (el?.tagName === "M3E-SNACKBAR") {
+        (el as HTMLElement).style.setProperty(
+          "--m3e-snackbar-container-color",
+          containerColor,
+        );
+      }
     }
   }
 
@@ -300,42 +346,29 @@ export class MainUI {
     // (AppBarElement.d.ts), and the breadcrumb-row collapse this fork adds
     // on top of it (`#sb-top[data-scrolled]`, top.scss) — see that file's
     // comment for why the breadcrumb can't just live inside a `position:
-    // sticky` ancestor here. Runs once: CodeMirror mounts its `.cm-editor`/
-    // `.cm-scroller` into the static `#sb-editor` div asynchronously (and a
-    // non-CodeMirror content editor, e.g. the document/iframe editor,
-    // mounts no `.cm-scroller` at all) — a MutationObserver picks it up
-    // whenever it actually appears, the same "wait for the real DOM, don't
-    // assume timing" pattern the old floating-toolbar file used
-    // (ResizeObserver in its now-removed `useEditorPaneMetrics`).
+    // sticky` ancestor here.
+    //
+    // `client.editorView.scrollDOM` (view/index.d.ts) is CodeMirror's own
+    // public handle to the actual scrolling element — already used
+    // elsewhere in client.ts (`editorView.scrollDOM.scrollTop`) — and gets
+    // its stable id assigned exactly once, at construction, in client.ts
+    // right after `new EditorView(...)`. That replaced a MutationObserver
+    // that polled `#sb-editor` for a `.cm-scroller` child to appear and
+    // stamped an id on it at runtime: it worked, but it depended on
+    // CodeMirror's internal DOM shape (a class name with no public
+    // contract) rather than CodeMirror's own documented API, so it would
+    // have broken silently on a future upstream rebase that changed that
+    // internal markup. `client.editorView` is constructed synchronously,
+    // in the same tick as `MainUI`'s own initial render (client.ts:264-270,
+    // no `await` between them), so it already exists by the time this
+    // effect runs — no polling or "wait for it" needed.
     const [headerScrolled, setHeaderScrolled] = useState(false);
     useEffect(() => {
-      const container = document.querySelector<HTMLElement>("#sb-editor");
-      if (!container) return;
-
-      let detachScroll: (() => void) | undefined;
-      const wire = (scroller: HTMLElement) => {
-        if (!scroller.id) scroller.id = EDITOR_SCROLL_CONTAINER_ID;
-        const onScroll = () => setHeaderScrolled(scroller.scrollTop > 0);
-        onScroll();
-        scroller.addEventListener("scroll", onScroll, { passive: true });
-        detachScroll = () => scroller.removeEventListener("scroll", onScroll);
-      };
-
-      const existing = container.querySelector<HTMLElement>(".cm-scroller");
-      if (existing) {
-        wire(existing);
-      }
-      const observer = new MutationObserver(() => {
-        if (detachScroll) return;
-        const scroller = container.querySelector<HTMLElement>(".cm-scroller");
-        if (scroller) wire(scroller);
-      });
-      observer.observe(container, { childList: true, subtree: true });
-
-      return () => {
-        observer.disconnect();
-        detachScroll?.();
-      };
+      const scroller = client.editorView.scrollDOM;
+      const onScroll = () => setHeaderScrolled(scroller.scrollTop > 0);
+      onScroll();
+      scroller.addEventListener("scroll", onScroll, { passive: true });
+      return () => scroller.removeEventListener("scroll", onScroll);
     }, []);
 
     useEffect(() => {
@@ -390,7 +423,7 @@ export class MainUI {
       // Need to dispatch a resize event so that the top_bar can pick it up
       globalThis.dispatchEvent(new Event("resize"));
     }, [viewState.panels]);
-    const actionButtons = client.config.get<ActionButton[]>(
+    const actionButtons = client.config.get<ActionButtonConfig[]>(
       "actionButtons",
       [],
     );
@@ -438,7 +471,7 @@ export class MainUI {
         priority: button.priority ?? actionButtons.length - index,
       }))
       .sort((a, b) => b.priority - a.priority)
-      .map((button) => {
+      .map((button): ActionButton => {
         const mdiIcon = (mdi as any)[kebabToCamel(button.icon)];
         let featherIcon = (featherIcons as any)[kebabToCamel(button.icon)];
         if (!featherIcon) {
@@ -981,9 +1014,18 @@ export class MainUI {
   }
 }
 
-// TODO: Parking this here for now, this is very similar to the definition in top_bar.tsx
-
-type ActionButton = {
+// Raw shape of a space-config `actionButtons` entry (CONFIG.md), as read
+// from `client.config.get<ActionButtonConfig[]>("actionButtons", [])` above.
+// Not the same concept as floating_toolbar.tsx's `ActionButton` — that one
+// is the already-resolved UI-prop shape (`icon` a Preact component,
+// `callback` a bound function) FloatingToolbar renders; this one is the
+// unresolved config record (`icon` a string name, `command` a string to
+// look up) the `.map()` above turns into that shape. Renamed off the
+// `ActionButton` name (was a stale same-named local type, previously
+// flagged with a TODO claiming a near-duplicate lived in top_bar.tsx — it
+// doesn't; that logic moved to floating_toolbar.tsx during the 2026-09-15
+// toolbar rework, and it's a distinct shape besides) to stop the collision.
+type ActionButtonConfig = {
   icon: string;
   description?: string;
   command?: string;
