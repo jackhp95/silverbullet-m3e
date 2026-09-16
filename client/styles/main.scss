@@ -180,15 +180,32 @@ body {
   border-radius: 5px;
 }
 
+// `#sb-main` is now an `m3e-drawer-container` (Phase B side-panel chrome) —
+// it manages the start/main/end row layout in its own Shadow DOM, so this
+// only needs to size it as a flex item of `#sb-root`'s column layout (the
+// classic flex-grow + height:0 trick that lets it fill remaining vertical
+// space regardless of its own intrinsic content height).
 #sb-main {
-  display: flex;
-  flex-direction: row;
   flex-grow: 1;
   height: 0;
 
   .sb-panel {
     flex: 1;
   }
+}
+
+// Chrome wrapper for slotted lhs/rhs drawer content (the `start`/`end` slots
+// of `#sb-main`) — a close affordance (m3e-drawer-toggle) stacked above the
+// plug-owned Panel (panel.tsx), which is untouched.
+.sb-panel-drawer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.sb-panel-drawer-close {
+  align-self: flex-end;
+  margin: 4px;
 }
 
 #sb-editor {
