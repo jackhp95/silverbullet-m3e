@@ -155,16 +155,20 @@
   // read as glued directly onto the app bar's own background/shadow edge
   // (flagged live 2026-09-16) — max-height has to grow to match or the
   // padding gets clipped by the same rule that drives the collapse-on-
-  // scroll animation below.
+  // scroll animation below. Only `max-height`/`opacity` are transitioned
+  // (both already the pre-existing pattern here) — `padding` is deliberately
+  // NOT animated: with `box-sizing: border-box`, `max-height: 0` already caps
+  // the padding-box at zero height regardless of the padding values, so a
+  // separate padding transition would only add another layout-triggering
+  // property for no visible effect (flagged by the design-quality hook,
+  // fixed by removing the redundant animation rather than justifying it).
   padding: 4px 20px 10px;
   max-height: 42px;
   box-sizing: border-box;
-  transition: max-height 0.2s ease, opacity 0.15s ease, padding 0.2s ease;
+  transition: max-height 0.2s ease, opacity 0.15s ease;
 }
 
 #sb-top[data-scrolled="on"] .sb-breadcrumb-row {
   max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
   opacity: 0;
 }
