@@ -93,23 +93,33 @@
     flex: 0 0 auto;
   }
 
+  // m3e-circular-progress-indicator (top_bar.tsx's SyncProgressIndicator)
+  // replaces the old hand-rolled conic-gradient circle. Diameter/thickness
+  // shrunk from the component's own defaults (40px/4px, progress-indicator.md)
+  // back down to this app bar's original 24px footprint; foreground color
+  // picked per sync-vs-index type via the wrapper's `.progress-${type}`
+  // class (top_bar.tsx), same --progress-*-color tokens (theme.scss) the old
+  // conic-gradient used.
   .progress-wrapper {
     position: relative;
     margin-top: 4px;
     margin-right: 6px;
     padding: 4px;
-    background-color: var(--top-background-color);
-  }
 
-  .progress-bar {
-    display: flex;
-    justify-content: center;
-    align-items: center;
+    m3e-circular-progress-indicator {
+      --m3e-circular-flat-progress-indicator-diameter: 24px;
+      --m3e-circular-progress-indicator-thickness: 3px;
+      --m3e-progress-indicator-track-color: var(--progress-background-color);
+      font-size: 8px;
+    }
 
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    font-size: 8px;
+    &.progress-sync m3e-circular-progress-indicator {
+      --m3e-progress-indicator-color: var(--progress-sync-color);
+    }
+
+    &.progress-index m3e-circular-progress-indicator {
+      --m3e-progress-indicator-color: var(--progress-index-color);
+    }
   }
 }
 

@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { Input } from "@silverbulletmd/silverbullet/ui";
 import "@m3e/web/app-bar";
 import "@m3e/web/breadcrumb";
+import "@m3e/web/progress-indicator";
+import "@m3e/web/badge";
 import "./m3e-jsx.d.ts";
 
 // One segment of the folder-path trail rendered above the app bar (see
@@ -41,18 +43,26 @@ function SyncProgressIndicator({
   type?: string;
 }) {
   if (percentage === undefined) return null;
+  // `filesProcessed / totalFiles` (plugs/sync/sync.ts) is NaN when totalFiles
+  // is 0 — the one case where the caller still passes a defined-but-useless
+  // percentage through. Rather than hand it to `value` (which would silently
+  // clamp/NaN in the ring math), fall back to the component's own
+  // `indeterminate` mode: "something is happening" without a bogus number.
+  const indeterminate = Number.isNaN(percentage);
   return (
     <div className="sb-sync-progress">
       <div
-        className="progress-wrapper"
-        title={`${type} progress: ${percentage}%`}
+        className={`progress-wrapper progress-${type}`}
+        title={indeterminate
+          ? `${type} in progress`
+          : `${type} progress: ${percentage}%`}
       >
-        <div
-          className="progress-bar"
-          style={`background: radial-gradient(closest-side, var(--top-background-color) 79%, transparent 80% 100%), conic-gradient(var(--progress-${type}-color) ${percentage}%, var(--progress-background-color) 0);`}
+        <m3e-circular-progress-indicator
+          indeterminate={indeterminate}
+          value={indeterminate ? undefined : percentage}
         >
-          {percentage}
-        </div>
+          {indeterminate ? null : percentage}
+        </m3e-circular-progress-indicator>
       </div>
     </div>
   );
@@ -203,6 +213,20 @@ export function TopBar({
                 onRename={onRename}
               />
             </span>
+            {/* Distinct offline marker, additive to the whole-bar
+                `#sb-top.sb-sync-error` tint above — a small error-colored dot
+                (badge's own default colors: DesignToken.color.error/onError,
+                badge.md) anchored to the page title, so "offline" reads at a
+                glance even where the bar tint alone might not stand out. */}
+            {!isOnline && (
+              <m3e-badge
+                for="sb-current-page"
+                size="small"
+                title="Offline — changes will sync once reconnected"
+                aria-label="Offline"
+              >
+              </m3e-badge>
+            )}
           </span>
           <span slot="trailing" className="sb-trailing">
             <SyncProgressIndicator
