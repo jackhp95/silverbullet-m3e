@@ -378,6 +378,36 @@ export class MainUI {
       document.documentElement.dataset.readOnly = isReadOnly ? "on" : "off";
     }, [isReadOnly]);
 
+    // m3e-theme's `color` seed is sourced from the space's own
+    // `--ui-accent-color` custom property (client/styles/_tokens.scss;
+    // theme.scss overrides it per dark/light scheme) rather than a
+    // hardcoded literal, so a space that recolors its own accent via
+    // CONFIG.md space-style also recolors m3e's Material color roles
+    // instead of the two silently diverging. It's re-read every time
+    // `uiOptions.customStyles` changes rather than once at mount: a
+    // space-style override loads asynchronously well after this component's
+    // first render (client.ts's boot sequence mounts the UI at
+    // `this.ui.render(this.parent)` long before the awaited
+    // `this.loadCustomStyles()` near the end of boot has a chance to run,
+    // since it depends on the object index being available) — the
+    // `<style>` tag(s) it injects into `#custom-styles` are what can
+    // actually override `--ui-accent-color` on `html`, so reading the
+    // computed value only at mount would always see the pre-override
+    // default. `customStyles` starts `undefined` and changes exactly once
+    // (to the loaded content, even if empty) once `loadCustomStyles`
+    // dispatches, which is enough to trigger a re-read after the override
+    // (if any) is actually in the DOM. Falls back to the token's own
+    // default if the read ever comes back empty (shouldn't happen — the
+    // var always has a value from _tokens.scss — but a hardcoded fallback
+    // is cheap insurance against a blank m3e-theme color crashing render).
+    const [accentColor, setAccentColor] = useState("#464cfc");
+    useEffect(() => {
+      const computed = getComputedStyle(document.documentElement)
+        .getPropertyValue("--ui-accent-color")
+        .trim();
+      if (computed) setAccentColor(computed);
+    }, [viewState.uiOptions.customStyles]);
+
     // Wires the real editor scroll container up for two consumers in
     // top_bar.tsx: `m3e-app-bar`'s own `for`-driven elevation-on-scroll
     // (AppBarElement.d.ts), and the breadcrumb-row collapse this fork adds
@@ -603,13 +633,18 @@ export class MainUI {
       // `--md-sys-color-${role}` built and .setProperty'd by ThemeElement).
       // m3e-theme is `display: contents`, so swapping it in for the bare
       // Fragment this used to be has no layout effect.
-      // Seed color is SB's own accent (client/styles/_tokens.scss
-      // `--ui-accent-color: #464cfc`), not a guessed brand color. scheme
-      // mirrors the same darkMode resolution the effect above already
-      // applies to `document.documentElement.dataset.theme`, so m3e and
-      // SB's own Flexoki theme never disagree about light/dark.
+      // Seed color is SB's own accent, read at mount from the computed
+      // `--ui-accent-color` custom property (client/styles/_tokens.scss;
+      // theme.scss overrides it per scheme; a space's CONFIG.md can
+      // override it further) — see the `accentColor` useState above — not
+      // a guessed or hardcoded brand color. That keeps a space that
+      // recolors its own accent in sync with m3e's Material color roles
+      // instead of the two silently diverging. scheme mirrors the same
+      // darkMode resolution the effect above already applies to
+      // `document.documentElement.dataset.theme`, so m3e and SB's own
+      // Flexoki theme never disagree about light/dark.
       <m3e-theme
-        color="#464cfc"
+        color={accentColor}
         scheme={
           viewState.uiOptions.darkMode === undefined
             ? "auto"
