@@ -274,6 +274,41 @@ type M3eDialogActionAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   "return-value"?: string;
 };
 
+// m3e-circular-progress-indicator: top_bar.tsx's SyncProgressIndicator,
+// replacing the hand-rolled conic-gradient spinner. See
+// @m3e/web/progress-indicator card / CircularProgressIndicatorElement.d.ts.
+type M3eCircularProgressIndicatorAttributes =
+  & PreactJSX.HTMLAttributes<HTMLElement>
+  & {
+    /** Whether to show activity without conveying progress. @default false */
+    indeterminate?: boolean;
+    /** The maximum progress value. @default 100 */
+    max?: number;
+    /** A fractional value, between 0 and `max`, indicating progress. @default 0 */
+    value?: number;
+    /** The appearance of the indicator. @default "flat" */
+    variant?: "flat" | "wavy";
+  };
+
+// m3e-badge: top_bar.tsx's offline marker, attached via `for` to
+// `#sb-current-page`. See @m3e/web/badge card / BadgeElement.d.ts.
+type M3eBadgeAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  /** @default "medium" */
+  size?: "small" | "medium" | "large";
+  /** Position relative to the attached `for` element. @default "above-after" */
+  position?:
+    | "above-after"
+    | "above-before"
+    | "below-before"
+    | "below-after"
+    | "before"
+    | "after"
+    | "above"
+    | "below";
+  /** Id of the interactive control this badge is attached to. */
+  for?: string | null;
+};
+
 interface M3eIntrinsicElements {
   "m3e-search-view": M3eSearchViewAttributes;
   "m3e-list": M3eListAttributes;
@@ -296,6 +331,8 @@ interface M3eIntrinsicElements {
   "m3e-breadcrumb-item": M3eBreadcrumbItemAttributes;
   "m3e-dialog": M3eDialogAttributes;
   "m3e-dialog-action": M3eDialogActionAttributes;
+  "m3e-circular-progress-indicator": M3eCircularProgressIndicatorAttributes;
+  "m3e-badge": M3eBadgeAttributes;
 }
 
 declare module "preact" {
