@@ -40,31 +40,6 @@
     }
   }
 
-  .sb-prompt {
-    padding: 13px 10px 10px 10px;
-
-    label {
-      font-weight: bold;
-    }
-
-    .sb-input {
-      width: 100%;
-      box-sizing: border-box;
-      margin: 10px 0;
-      // Give the field roomier, balanced horizontal padding (the base
-      // `.sb-input` only sets 0.6em, which reads as cramped next to the
-      // vertical breathing room in the dialog).
-      padding: 0.4em 0.8em;
-    }
-
-    .sb-prompt-buttons {
-      display: flex;
-      justify-content: flex-end;
-      margin-top: 10px;
-      gap: 10px;
-    }
-  }
-
   .sb-help-text {
     padding: 5px;
   }
@@ -202,4 +177,45 @@ m3e-search-view.sb-modal-box {
   m3e-form-field {
     width: 100%;
   }
+}
+
+// basic_modals.tsx's Prompt()/Confirm() — m3e-dialog's default slot renders
+// content full-width by default (no box-model opinion of its own beyond
+// padding), but m3e-form-field's own host is `inline-flex` (verified against
+// FormFieldElement.d.ts), so it needs an explicit width — same reasoning as
+// .sb-item-capture-sheet-body's m3e-form-field rule above.
+.sb-prompt-field {
+  width: 100%;
+}
+
+// Prompt()/Confirm()'s actions row, slotted into m3e-dialog's `actions` slot
+// (see the "Confirmation dialog with header and actions" composition in the
+// dialog card — a plain flex row is the documented pattern; m3e-dialog's own
+// ::slotted([slot="actions"]) rule already right-aligns and gaps this, but
+// that's Shadow-DOM CSS which can't reach into further-nested slotted
+// content, so the *inner* row here still needs its own layout).
+.sb-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+// Confirm()'s destructive action: recolor a `filled` m3e-button to the
+// Material error role. No dedicated "danger"/"destructive" variant exists on
+// m3e-button (verified against @m3e/web 2.7.12's Custom Elements Manifest —
+// ButtonVariant is elevated | filled | tonal | outlined | text only); the
+// `--m3e-*-button-*` custom properties are the sanctioned per-instance
+// override point (per the m3e skill's styling ladder), and `--md-sys-color-
+// error`/`-on-error` are real generated tokens (confirmed against
+// node_modules/@material/material-color-utilities's DynamicColors — every
+// M3 scheme includes an error role, not an app-specific invention).
+.sb-button-error {
+  --m3e-filled-button-container-color: var(--md-sys-color-error);
+  --m3e-filled-button-label-text-color: var(--md-sys-color-on-error);
+  --m3e-filled-button-hover-label-text-color: var(--md-sys-color-on-error);
+  --m3e-filled-button-hover-state-layer-color: var(--md-sys-color-on-error);
+  --m3e-filled-button-focus-label-text-color: var(--md-sys-color-on-error);
+  --m3e-filled-button-focus-state-layer-color: var(--md-sys-color-on-error);
+  --m3e-filled-button-pressed-label-text-color: var(--md-sys-color-on-error);
+  --m3e-filled-button-pressed-state-layer-color: var(--md-sys-color-on-error);
 }
