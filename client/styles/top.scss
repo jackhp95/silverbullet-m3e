@@ -3,11 +3,13 @@
   flex-direction: row;
   z-index: 20;
 
-  height: 55px;
-
-  // Keep the m3e-app-bar's internal (shadow-DOM) container height in sync
-  // with the fixed height of the outer bar, so its content doesn't clip or
-  // float inside a taller-than-intended box.
+  // No longer a fixed 55px: `.main` (below) now stacks an `m3e-breadcrumb`
+  // row above the `m3e-app-bar` row (client/components/top_bar.tsx), so the
+  // header's total height is intrinsic to that content instead of a single
+  // hardcoded number. The app bar's own row keeps its historical 55px via
+  // --m3e-app-bar-small-container-height below; only the outer wrapper grew
+  // a second row on top of it. #sb-main (main.scss, `flex-grow: 1; height:
+  // 0`) absorbs whatever height #sb-top ends up with, same as before.
   --m3e-app-bar-small-container-height: 55px;
 
   .main {
@@ -63,10 +65,11 @@
       // Match the line box the old CodeMirror title used so the text stays
       // vertically centred in the bar (a native input defaults to a shorter
       // `line-height: normal`, which pulls the title upward). Must still fit
-      // inside #sb-top's fixed 55px row at whatever font-size the app-bar's
-      // own small-title token resolves to (see .sb-page-title above) — check
-      // visually after any token/size change, .main's `overflow-y: auto`
-      // silently turns any overflow into a permanent scrollbar.
+      // inside the app bar's own 55px row (--m3e-app-bar-small-container-
+      // height above) at whatever font-size the app-bar's own small-title
+      // token resolves to (see .sb-page-title above) — check visually after
+      // any token/size change, .main's `overflow-y: auto` silently turns
+      // any overflow into a permanent scrollbar.
       line-height: 1.35;
       color: inherit;
       background-color: transparent;
@@ -125,7 +128,34 @@
 }
 
 // m3e-snackbar (client/editor_ui.tsx's flashNotification) and
-// m3e-bottom-sheet (client/components/idea_capture_sheet.tsx) both manage
+// m3e-bottom-sheet (client/components/item_capture_sheet.tsx) both manage
 // their own fixed positioning/z-index internally (native popover API) — no
 // placement CSS needed here, unlike the old portal-rendered
 // `.sb-notifications` this replaced.
+
+// m3e-breadcrumb (client/components/top_bar.tsx) sits above the app bar and
+// is meant to scroll away, leaving the app bar "stuck", as the user scrolls
+// real page content — AppBarElement.d.ts's own `for`+`position:sticky`
+// pattern assumes the bar lives *inside* the scrolling container it's
+// attached to, but #sb-top is a fixed, non-scrolling chrome row in this
+// app-shell layout (html/body's own `overflow: hidden`, main.scss) sitting
+// outside #sb-editor's CodeMirror scroller entirely — there's no ancestor
+// for plain CSS `position: sticky` to stick against here. So this fork
+// approximates the same user-visible effect a different, real way:
+// client/editor_ui.tsx listens to the actual editor scroll container (the
+// `.cm-scroller` CodeMirror renders inside #sb-editor) and toggles
+// `#sb-top[data-scrolled]`, which this collapses the breadcrumb row against
+// — driven by genuine content scroll, not a decorative timer/guess. The
+// app bar's own elevation-on-scroll (its `for` attribute, still wired in
+// top_bar.tsx) reacts to that same real scroll independently, via its own
+// documented internal mechanism.
+.sb-breadcrumb-row {
+  overflow: hidden;
+  max-height: 28px;
+  transition: max-height 0.2s ease, opacity 0.15s ease;
+}
+
+#sb-top[data-scrolled="on"] .sb-breadcrumb-row {
+  max-height: 0;
+  opacity: 0;
+}
