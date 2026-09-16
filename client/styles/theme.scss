@@ -353,6 +353,16 @@ html[data-theme="dark"] {
   --badge-color: #8b8eff;
 }
 
+// Read-only mode: swap the editor's mono font for the same sans-serif stack
+// the UI chrome already uses (--ui-font), as a visual edit-vs-view cue.
+// Toggled live via document.documentElement.dataset.readOnly, set from
+// editor_ui.tsx's isReadOnly (client/editor_ui.tsx), the same boolean that
+// drives TopBar's readOnly prop and CodeMirror's editable state — so this
+// stays in lockstep with the real state rather than a separate guess.
+html[data-read-only="on"] {
+  --editor-font: var(--ui-font);
+}
+
 html[data-markdown-syntax-rendering="on"] {
   --editor-meta-color: unset;
   --editor-directive-mark-color: unset;

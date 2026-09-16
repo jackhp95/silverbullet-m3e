@@ -146,6 +146,12 @@ export class Client {
   private resolveWidgetsReady!: () => void;
   private pageNavigator!: PathPageNavigator;
   private onLoadRef: Ref;
+  // Recently-visited pages, most-recent-first, persisted the same way
+  // `lastOpenedPath` already is (this.ds, IndexedDB-backed) so it survives
+  // reloads. Fed from the exact same pageNavigator.subscribe() callback that
+  // already records lastOpenedPath — an extension of SB's own existing
+  // navigation-tracking, not a parallel history mechanism.
+  recentPaths: { path: Path; ts: number }[] = [];
   dbPrefix?: string;
   syncMode = false;
   // Widget and image height caching
@@ -1149,8 +1155,25 @@ export class Client {
     );
   }
 
+  /**
+   * Records a page/document visit into the recent-pages trail (most-recent
+   * first, deduped by path, capped) and persists it to `this.ds` — the same
+   * datastore `lastOpenedPath` already uses, just an array instead of a
+   * single value.
+   */
+  private async recordRecentPath(path: Path) {
+    this.recentPaths = [
+      { path, ts: Date.now() },
+      ...this.recentPaths.filter((p) => p.path !== path),
+    ].slice(0, 20);
+    await this.ds.set(["client", "recentPaths"], this.recentPaths);
+  }
+
   private async initNavigator() {
     this.pageNavigator = new PathPageNavigator(this);
+
+    this.recentPaths =
+      (await this.ds.get(["client", "recentPaths"])) ?? [];
 
     this.pageNavigator.subscribe(async (locationState) => {
       console.log(`Now navigating to ${encodeRef(locationState)}`);
@@ -1163,6 +1186,7 @@ export class Client {
 
       // Persist this page as the last opened page, we'll use this for cold start PWA loads
       await this.ds.set(["client", "lastOpenedPath"], locationState.path);
+      await this.recordRecentPath(locationState.path);
     });
 
     // Initial navigation

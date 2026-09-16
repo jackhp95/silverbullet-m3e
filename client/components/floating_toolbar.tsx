@@ -2,6 +2,7 @@ import type { FunctionalComponent } from "preact";
 import "@m3e/web/toolbar";
 import "@m3e/web/icon-button";
 import "@m3e/web/fab-menu";
+import "@m3e/web/menu";
 import "@m3e/web/icon";
 import "./m3e-jsx.d.ts";
 
@@ -40,14 +41,24 @@ export type NewMenuItem = {
   onClick: () => void;
 };
 
+export type RecentPageItem = {
+  key: string;
+  label: string;
+  onClick: () => void;
+};
+
 export function FloatingToolbar({
   actions,
   journal,
   newMenuItems,
+  recentPages,
+  readOnlyToggle,
 }: {
   actions: ActionButton[];
   journal: { iconName: string; label: string; onClick: () => void };
   newMenuItems: NewMenuItem[];
+  recentPages: { label: string; items: RecentPageItem[] };
+  readOnlyToggle?: { active: boolean; label: string; onClick: () => void };
 }) {
   return (
     <>
@@ -73,6 +84,27 @@ export function FloatingToolbar({
             <action.icon />
           </m3e-icon-button>
         ))}
+        {readOnlyToggle && (
+          <m3e-icon-button
+            title={readOnlyToggle.label}
+            aria-label={readOnlyToggle.label}
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              readOnlyToggle.onClick();
+            }}
+          >
+            <m3e-icon name={readOnlyToggle.active ? "lock" : "lock_open"}>
+            </m3e-icon>
+          </m3e-icon-button>
+        )}
+        <m3e-icon-button
+          title={recentPages.label}
+          aria-label={recentPages.label}
+        >
+          <m3e-menu-trigger for="sb-recent-pages-menu">
+            <m3e-icon name="history"></m3e-icon>
+          </m3e-menu-trigger>
+        </m3e-icon-button>
         <m3e-icon-button
           title={journal.label}
           aria-label={journal.label}
@@ -104,6 +136,15 @@ export function FloatingToolbar({
           </m3e-fab-menu-item>
         ))}
       </m3e-fab-menu>
+      <m3e-menu id="sb-recent-pages-menu" position-x="before">
+        {recentPages.items.length === 0
+          ? <m3e-menu-item disabled>No recently visited pages yet</m3e-menu-item>
+          : recentPages.items.map((item) => (
+            <m3e-menu-item key={item.key} onClick={item.onClick}>
+              {item.label}
+            </m3e-menu-item>
+          ))}
+      </m3e-menu>
     </>
   );
 }

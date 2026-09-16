@@ -266,6 +266,23 @@ export class MainUI {
 
     const client = this.client;
 
+    // Single source of truth for read-only state — the same expression that
+    // already drove TopBar's readOnly prop below and CodeMirror's editable
+    // config (client/codemirror/editor_state.ts). Reused for the floating
+    // toolbar's lock/unlock icon and the mono→sans editor-font swap so all
+    // three stay in lockstep with the real state, not separately guessed.
+    const isReadOnly = viewState.uiOptions.forcedROMode ||
+      client.bootConfig.readOnly;
+
+    // Reflects read-only mode onto <html> so a space-style-independent CSS
+    // rule (theme.scss, `html[data-read-only="on"]`) can swap
+    // --editor-font to the sans-serif --ui-font stack. Same
+    // dataset-attribute pattern as the darkMode/markdownSyntaxRendering
+    // effects below.
+    useEffect(() => {
+      document.documentElement.dataset.readOnly = isReadOnly ? "on" : "off";
+    }, [isReadOnly]);
+
     useEffect(() => {
       if (viewState.current) {
         document.title =
@@ -333,7 +350,14 @@ export class MainUI {
           (typeof button.mobile === "undefined" ||
             button.mobile === viewState.isMobile) &&
           (typeof button.standalone === "undefined" ||
-            button.standalone === viewState.isStandalone),
+            button.standalone === viewState.isStandalone) &&
+          // The Std library's "Read Only Mode.md" ships this exact
+          // actionButton (icon "lock", mobile-only, static icon that never
+          // reflects real state). Our own readOnlyToggle below replaces it
+          // with a live, state-reflecting one shown regardless of device —
+          // filter the static original out here so it's not duplicated.
+          !(button.icon === "lock" &&
+            button.description === "Toggle read-only mode"),
       )
       .map((button, index) => ({
         ...button,
@@ -611,9 +635,7 @@ export class MainUI {
               ? client.config.get<string>("mobileMenuStyle", "hamburger")
               : undefined
           }
-          readOnly={
-            viewState.uiOptions.forcedROMode || client.bootConfig.readOnly
-          }
+          readOnly={isReadOnly}
         />
         <div id="sb-main">
           {viewState.panels.lhs.mode !== undefined && (
@@ -658,6 +680,36 @@ export class MainUI {
         }
         <FloatingToolbar
           actions={toolbarActions}
+          recentPages={{
+            label: "Recently visited",
+            items: client.recentPaths
+              .filter((p) => p.path !== client.currentPath())
+              .slice(0, 10)
+              .map((p) => ({
+                key: p.path,
+                label: getNameFromPath(p.path),
+                onClick: () =>
+                  safeRun(async () => {
+                    await client.navigate({ path: p.path });
+                  }),
+              })),
+          }}
+          readOnlyToggle={
+            viewState.commands.has("Editor: Toggle Read Only Mode")
+              ? {
+                active: isReadOnly,
+                label: isReadOnly
+                  ? "Read-only mode is on — click to turn off"
+                  : "Read-only mode is off — click to turn on",
+                onClick: () =>
+                  safeRun(async () => {
+                    await client.runCommandByName(
+                      "Editor: Toggle Read Only Mode",
+                    );
+                  }),
+              }
+              : undefined
+          }
           journal={{
             iconName: "edit_calendar",
             label: "New journal entry",
