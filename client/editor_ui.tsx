@@ -7,7 +7,10 @@ import {
   type ActionButton,
   FloatingToolbar,
 } from "./components/floating_toolbar.tsx";
-import { ItemCaptureSheet } from "./components/item_capture_sheet.tsx";
+import {
+  type CaptureItemType,
+  ItemCaptureSheet,
+} from "./components/item_capture_sheet.tsx";
 import reducer from "./reducer.ts";
 import {
   type Action,
@@ -47,30 +50,57 @@ import {
   parseToRef,
   type Path,
 } from "@silverbulletmd/silverbullet/lib/ref";
+import { slugify } from "@silverbulletmd/silverbullet/ui";
 
-// Quick-capture helper for the unified item-creation bottom sheet's
-// task/event/contact/idea types (client/components/item_capture_sheet.tsx):
-// append one line to a dedicated inbox page (created on first use), no
-// navigation. This is the generic, schema-free capture mechanism — it only
-// assumes SB's own core task notation (`* [ ] text`, see docs/Task.md,
-// indexed automatically wherever it appears) and a plain bullet for
-// events/contacts/ideas, not any space-specific `tag.define`d shape (a
-// given space, e.g. a bare demo space, may not define one). Zero-navigation
-// is the point: capture without leaving whatever page you were on.
-async function appendCaptureLine(
+// The frontmatter `tags:` value each item_capture_sheet.tsx type gets, and
+// the `captures/<folder>/` directory its page lands in. "contact" maps to
+// the `person` tag, not a fork-invented `contact` tag — this repo's own
+// docs/Guide/People Notes.md (+ e2e/guide-people-notes.test.ts) already
+// establishes `tags: person` as SilverBullet's real convention for a
+// person/contact page (`from p = tags.person` query, Linked Mentions), so a
+// captured contact interoperates with that existing guide/dashboard for
+// free instead of minting a parallel, unqueried taxonomy.
+const CAPTURE_TAXONOMY: Record<
+  Exclude<CaptureItemType, "note">,
+  { tag: string; folder: string }
+> = {
+  task: { tag: "task", folder: "task" },
+  event: { tag: "event", folder: "event" },
+  contact: { tag: "person", folder: "contact" },
+  idea: { tag: "idea", folder: "idea" },
+};
+
+// Quick-capture write for the unified item-creation bottom sheet's
+// task/event/contact/idea types (client/components/item_capture_sheet.tsx).
+//
+// Was: append one plain line to one shared hardcoded page (`Tasks`/
+// `Events`/`Contacts`/`Ideas`), no frontmatter, no tag — everything on a
+// page piled into one undifferentiated, unaddressable blob.
+//
+// This fork has no `tag.define`-schema'd "task" (or event/contact/idea)
+// convention of its own to conform to (checked: no `tag.define` in
+// demo-space/CONFIG.md or anywhere in this repo/libraries/ beyond SB's
+// upstream *built-in* tags — see libraries/Library/Std/Infrastructure/
+// Builtin Tags.md). SB's real built-in "task" is checkbox-shaped
+// (`* [ ] text`, auto-indexed by plugs/index/task.ts — see
+// docs/Guide/Task Management.md) rather than a per-page frontmatter schema,
+// so the task branch below keeps that literal checkbox line as the page
+// body (real, toggleable, queryable via `tags.task`) while *also* giving it
+// its own page so it's individually addressable — the "minimum bar" this
+// task's brief calls for when no fuller schema exists. event/idea have no
+// existing SB-native tag at all, so they get a plain new tag of the same
+// name (the same minimum bar).
+async function writeCaptureItemPage(
   client: Client,
-  pageName: string,
-  header: string,
-  line: string,
-): Promise<void> {
-  let text: string;
-  try {
-    text = (await client.space.readPage(pageName)).text;
-  } catch {
-    text = `${header}\n\n`;
-  }
-  const separator = text.endsWith("\n") ? "" : "\n";
-  await client.space.writePage(pageName, `${text}${separator}${line}\n`);
+  type: Exclude<CaptureItemType, "note">,
+  body: string,
+): Promise<string> {
+  const { tag, folder } = CAPTURE_TAXONOMY[type];
+  const slug = slugify(body.slice(0, 60)) || "item";
+  const pageName = `captures/${folder}/${slug}-${Date.now().toString(36)}`;
+  const frontmatter = `---\ntags: ${tag}\ncaptured: ${new Date().toISOString()}\n---\n`;
+  await client.space.writePage(pageName, `${frontmatter}${body}\n`);
+  return pageName;
 }
 
 // Stable id given to the real editor scroll container exactly once, in
@@ -891,51 +921,31 @@ export class MainUI {
           onSubmit={(type, text) =>
             safeRun(async () => {
               // Reuses the exact same per-type capture behavior the old
-              // fab-menu's 5 `newMenuItems` ran inline (task/event/contact/
-              // idea append one line via `appendCaptureLine`; note is the
-              // one type that doesn't append — it validates the name and
-              // navigates, same `isValidName`/`parseToRef`/`client.open`
-              // path the page picker's own "type a name that doesn't exist
-              // yet" flow already uses, see the `onNavigate` handler above
-              // rather than reinventing page creation) — only the entry
-              // point changed, from 5 separate fab-menu items (each with
-              // its own `this.prompt()` round-trip) to this one sheet's
-              // type selector + submit.
+              // fab-menu's 5 `newMenuItems` ran inline; note is the one
+              // type that doesn't write via `writeCaptureItemPage` — it
+              // validates the name and navigates, same
+              // `isValidName`/`parseToRef`/`client.open` path the page
+              // picker's own "type a name that doesn't exist yet" flow
+              // already uses, see the `onNavigate` handler above rather
+              // than reinventing page creation) — only the entry point
+              // changed, from 5 separate fab-menu items (each with its own
+              // `this.prompt()` round-trip) to this one sheet's type
+              // selector + submit.
               switch (type) {
                 case "task":
-                  await appendCaptureLine(
-                    client,
-                    "Tasks",
-                    "# Tasks",
-                    `* [ ] ${text}`,
-                  );
+                  await writeCaptureItemPage(client, "task", `* [ ] ${text}`);
                   this.flashNotification(`Task added: ${text}`);
                   break;
                 case "event":
-                  await appendCaptureLine(
-                    client,
-                    "Events",
-                    "# Events",
-                    `- ${text}`,
-                  );
+                  await writeCaptureItemPage(client, "event", text);
                   this.flashNotification(`Event added: ${text}`);
                   break;
                 case "contact":
-                  await appendCaptureLine(
-                    client,
-                    "Contacts",
-                    "# Contacts",
-                    `- ${text}`,
-                  );
+                  await writeCaptureItemPage(client, "contact", text);
                   this.flashNotification(`Contact added: ${text}`);
                   break;
                 case "idea":
-                  await appendCaptureLine(
-                    client,
-                    "Ideas",
-                    "# Ideas",
-                    `- ${text}`,
-                  );
+                  await writeCaptureItemPage(client, "idea", text);
                   this.flashNotification("Idea captured");
                   break;
                 case "note": {
