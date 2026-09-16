@@ -210,7 +210,10 @@ export function createEditorState(
               const touch = event.changedTouches.item(0)!;
               if (!event.altKey && event.target instanceof Element) {
                 // prevent the browser from opening the link twice
-                const parentA = event.target.closest("a");
+                // `m3e-assist-chip` (tag pills, see hashtag.ts) isn't a real
+                // `<a>` so `closest("a")` alone would miss it; it always
+                // carries `data-tag-name` same as the old anchor did.
+                const parentA = event.target.closest("a, [data-tag-name]");
                 if (parentA) {
                   event.preventDefault();
                 }
@@ -264,9 +267,11 @@ export function createEditorState(
                 y: event.y,
               })!,
             };
-            // Make sure <a> tags are clicked without moving the cursor there
+            // Make sure <a> tags (and m3e-assist-chip tag pills, which carry
+            // `data-tag-name` but aren't real anchors) are clicked without
+            // moving the cursor there
             if (!event.altKey && event.target instanceof Element) {
-              const parentA = event.target.closest("a");
+              const parentA = event.target.closest("a, [data-tag-name]");
               if (parentA) {
                 event.stopPropagation();
                 event.preventDefault();

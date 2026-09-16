@@ -221,12 +221,43 @@
   }
 }
 
-.sb-hashtag,
-.hashtag {
-  color: var(--editor-hashtag-color);
-  background-color: var(--editor-hashtag-background-color);
-  border: 1px solid var(--editor-hashtag-border-color);
-  cursor: pointer;
+// Tag pills (m3e-assist-chip, see codemirror/hashtag.ts,
+// frontmatter_folding.ts, markdown_renderer/markdown_render.ts). The chip
+// itself supplies the pill shape/border/click affordance — this only picks
+// the color, so provenance-style tags read as visually distinct pills.
+// Falls back to this fork's pre-existing hashtag color tokens for any tag
+// not in the palette below.
+m3e-assist-chip[data-tag-name] {
+  --m3e-outlined-chip-outline-color: var(--editor-hashtag-border-color);
+  --m3e-chip-label-text-color: var(--editor-hashtag-color);
+  vertical-align: middle;
+}
+
+// Provenance-style tags (task/issue/approach/…) mapped onto the M3 system
+// color roles editor_ui.tsx's `m3e-theme` already generates at runtime, so
+// this needs no new colors of its own — just picking which role per tag.
+m3e-assist-chip[data-tag-name="task"],
+m3e-assist-chip[data-tag-name="event"] {
+  --m3e-outlined-chip-outline-color: var(--md-sys-color-primary);
+  --m3e-chip-label-text-color: var(--md-sys-color-primary);
+}
+
+m3e-assist-chip[data-tag-name="issue"],
+m3e-assist-chip[data-tag-name="ping"] {
+  --m3e-outlined-chip-outline-color: var(--md-sys-color-error);
+  --m3e-chip-label-text-color: var(--md-sys-color-error);
+}
+
+m3e-assist-chip[data-tag-name="approach"],
+m3e-assist-chip[data-tag-name="person"],
+m3e-assist-chip[data-tag-name="contact"] {
+  --m3e-outlined-chip-outline-color: var(--md-sys-color-secondary);
+  --m3e-chip-label-text-color: var(--md-sys-color-secondary);
+}
+
+m3e-assist-chip[data-tag-name="idea"] {
+  --m3e-outlined-chip-outline-color: var(--md-sys-color-tertiary);
+  --m3e-chip-label-text-color: var(--md-sys-color-tertiary);
 }
 
 // Anchor styling — mark and text colored independently so themes can
