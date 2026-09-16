@@ -54,6 +54,78 @@
   font-display: block;
 }
 
+// Monaspace Xenon — GitHub's open-source (SIL OFL 1.1) monospace superfamily
+// (github.com/githubnext/monaspace) — the editable-state face for
+// --editor-font (theme.scss). Self-hosted here (client/fonts/, same
+// convention as the iA-Mono faces above) rather than a CDN dependency, for
+// the same offline-first reason cited above for Material Symbols. These are
+// the static (non-variable) per-weight/style files from the project's own
+// "Static Web Fonts" release asset (monaspace-webfont-static-v1.400.zip,
+// release tag v1.400, Static Web Fonts/Monaspace Xenon/ inside the zip) —
+// the width/weight axes this fork needs are fixed by the CSS below, not
+// user-adjustable, so the single combined variable-font file buys nothing
+// here and four static files keep each request small. License:
+// client/fonts/LICENSE-Monaspace.txt (SIL OFL 1.1, copied verbatim from
+// githubnext/monaspace's own root LICENSE file).
+@font-face {
+  font-family: "Monaspace Xenon";
+  src: url("MonaspaceXenon-Regular.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Monaspace Xenon";
+  src: url("MonaspaceXenon-Bold.woff2") format("woff2");
+  font-weight: bold;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Monaspace Xenon";
+  src: url("MonaspaceXenon-Italic.woff2") format("woff2");
+  font-weight: normal;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "Monaspace Xenon";
+  src: url("MonaspaceXenon-BoldItalic.woff2") format("woff2");
+  font-weight: bold;
+  font-style: italic;
+}
+
+// Roboto — Google's open-source (Apache License 2.0) typeface, Material's
+// own default — the read-only-state face for --editor-font/--chrome-font
+// (theme.scss). Self-hosted here for the same offline-first reason cited
+// above for Material Symbols; this is a different font than m3e's own
+// internal Roboto-Flex (used inside its Shadow DOM and out of scope for this
+// app-level override — see theme.scss's --chrome-font comment). Static
+// (non-variable) woff2s fetched directly from Google Fonts' own CSS2 API
+// (fonts.googleapis.com/css2?family=Roboto:wght@400;700), requested with a
+// pre-variable-font-era user agent string so the API serves single-weight
+// static files rather than one variable-font file — matching the
+// one-file-per-weight/style convention of the iA-Mono/Monaspace faces above.
+// Only the latin subset, normal + bold (2 of the 4 faces iA-Mono/Monaspace
+// ship): this face is read-only chrome/body text, not an editing surface, so
+// italic emphasis isn't load-bearing here — 2 weights is this repo's own
+// documented acceptable minimum. License: client/fonts/LICENSE-Roboto.txt
+// (Apache License 2.0, copied verbatim from google/roboto's own root LICENSE
+// file).
+@font-face {
+  font-family: "Roboto";
+  src: url("Roboto-Regular.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Roboto";
+  src: url("Roboto-Bold.woff2") format("woff2");
+  font-weight: bold;
+  font-style: normal;
+}
+
 html,
 body {
   margin: 0;
@@ -169,7 +241,9 @@ body {
   flex: 0 0 auto;
   text-align: left;
   padding-top: 3px;
-  font-family: var(--ui-font);
+  // Content-adjacent (renders the current page's own decoration icon), so it
+  // honors the editable/read-only cue via --chrome-font — see theme.scss.
+  font-family: var(--chrome-font);
   white-space: pre-wrap;
 }
 

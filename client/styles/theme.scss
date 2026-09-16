@@ -158,7 +158,23 @@ html {
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
     "Segoe UI Symbol", "Noto Color Emoji";
-  --editor-font: "iA-Mono", "Menlo";
+  // The read-only-aware counterpart to --ui-font, for chrome that visually
+  // relates to "am I looking at editable content" (the page-title editor,
+  // the search/filter view — see the html[data-read-only="on"] rule below
+  // and its consumers in top.scss/main.scss/modals.scss). Deliberately a
+  // SEPARATE variable from --ui-font rather than making --ui-font itself
+  // read-only-aware: --ui-font is still the base font for persistent chrome
+  // that's present regardless of document state (dialog buttons, settings
+  // screens, the space manager — components.scss's shared button/input rule,
+  // _standalone.scss) and a global flip there would be a much bigger blast
+  // radius than the edit-vs-view cue this is meant to be. Defaults to
+  // --ui-font itself while editing, so nothing needs to duplicate the sans
+  // stack.
+  --chrome-font: var(--ui-font);
+  // Editable-state default: Monaspace Xenon (GitHub's open-source monospace
+  // superfamily, self-hosted client/fonts/MonaspaceXenon-*.woff2 — see
+  // main.scss), with the old iA-Mono/Menlo stack kept as fallback.
+  --editor-font: "Monaspace Xenon", "iA-Mono", "Menlo";
   --editor-width: 800px;
 
   /* Shared component tokens */
@@ -353,14 +369,22 @@ html[data-theme="dark"] {
   --badge-color: #8b8eff;
 }
 
-// Read-only mode: swap the editor's mono font for the same sans-serif stack
-// the UI chrome already uses (--ui-font), as a visual edit-vs-view cue.
-// Toggled live via document.documentElement.dataset.readOnly, set from
-// editor_ui.tsx's isReadOnly (client/editor_ui.tsx), the same boolean that
-// drives TopBar's readOnly prop and CodeMirror's editable state — so this
-// stays in lockstep with the real state rather than a separate guess.
+// Read-only mode: swap the editable-state fonts (Monaspace Xenon in the
+// editor content, the neutral --ui-font sans stack in content-adjacent
+// chrome) for Roboto — Material's own default typeface (self-hosted
+// client/fonts/Roboto-*.woff2, see main.scss) — as a visual edit-vs-view cue:
+// editing reads as "raw text, in a mono/neutral face"; read-only reads as
+// "Material-rendered content, in Material's own face." Toggled live via
+// document.documentElement.dataset.readOnly, set from editor_ui.tsx's
+// isReadOnly (client/editor_ui.tsx), the same boolean that drives TopBar's
+// readOnly prop and CodeMirror's editable state — so this stays in lockstep
+// with the real state rather than a separate guess. --chrome-font's old
+// stack (--ui-font) rides along as the fallback for whichever Roboto face
+// weight isn't matched, same convention as --editor-font's iA-Mono/Menlo
+// fallback above.
 html[data-read-only="on"] {
-  --editor-font: var(--ui-font);
+  --editor-font: "Roboto", var(--ui-font);
+  --chrome-font: "Roboto", var(--ui-font);
 }
 
 html[data-markdown-syntax-rendering="on"] {

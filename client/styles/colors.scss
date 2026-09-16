@@ -117,17 +117,26 @@
       background-color: var(--modal-hint-inactive-background-color);
     }
 
-    .sb-description {
-      color: var(--modal-description-color);
-    }
+    // m3e-list-item paints its own slotted supporting-text/label colors from
+    // the --m3e-list-item-* cssprops below (node_modules/@m3e/web/dist/
+    // list.js: `::slotted([slot="supporting-text"]) { color: var(
+    // --m3e-list-item-supporting-text-color, onSurfaceVariant) }`, and
+    // `.content { color: var(--m3e-list-item-label-text-color, onSurface) }`
+    // for the default-slot name/headline) — not from a plain `color:` set on
+    // the slotted light-DOM node. Route this app's own modal-* tokens
+    // through those cssprops instead of an ad-hoc override; set at the list
+    // level, it inherits down to every m3e-list-item the same way a plain
+    // `color` would.
+    --m3e-list-item-supporting-text-color: var(--modal-description-color);
 
     .sb-selected-option {
-      background-color: var(--modal-selected-option-background-color);
-      color: var(--modal-selected-option-color);
-
-      .sb-description {
-        color: var(--modal-selected-option-description-color);
-      }
+      --m3e-list-item-container-color: var(
+        --modal-selected-option-background-color
+      );
+      --m3e-list-item-label-text-color: var(--modal-selected-option-color);
+      --m3e-list-item-supporting-text-color: var(
+        --modal-selected-option-description-color
+      );
     }
   }
 }

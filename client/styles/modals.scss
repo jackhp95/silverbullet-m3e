@@ -73,33 +73,45 @@
     max-height: 250px;
     overflow-y: scroll;
 
-    .sb-icon {
-      padding: 0 8px 0 5px;
-      position: relative;
-      top: 3px;
-    }
-
-    .sb-description {
-      font-size: 75%;
-    }
+    // No .sb-icon/.sb-description sizing/position rules here anymore: both
+    // are now slotted into an m3e-list-item (leading / supporting-text —
+    // see client/components/filter.tsx), which already owns that box model
+    // — see the .sb-option comment below for why duplicating it here was
+    // the source of the "unpolished" spacing.
   }
 
-  .sb-option,
-  .sb-selected-option {
-    padding: 8px;
+  // m3e-list-item (not a bare div) owns its own padding/min-height/line-box
+  // via --m3e-list-item-* one-/two-line tokens, derived automatically from
+  // which named slots (leading/supporting-text/trailing) are actually
+  // populated (node_modules/@m3e/web/dist/list.js — M3eListItemElement's
+  // :host(:is(:state(--one-line)))/(--two-line) rules). The old plain-div
+  // implementation needed its own padding/line-height here; now that host
+  // padding stacks ON TOP of the component's own — the doubled, inconsistent
+  // icon/name/hint/description spacing Jack flagged. Only `cursor` and the
+  // selected-state shape belong here; box model is the component's job.
+  .sb-option {
     cursor: pointer;
-    line-height: 20px;
   }
 
-  .sb-option .sb-hint,
-  .sb-selected-option .sb-hint {
-    float: right;
-    margin-right: 0;
-    margin-top: -4px;
-    padding-left: 5px;
-    padding-right: 5px;
-    padding-top: 3px;
-    padding-bottom: 3px;
+  // Selected-state background/text color are set via the --m3e-list-item-*
+  // cssprops in colors.scss (not here — see that file's comment for why a
+  // plain `background-color`/`color` on the host doesn't reliably theme a
+  // component's shadow-DOM-slotted content). This is purely the shape: a
+  // rounded tonal pill for the highlighted row, matching Material list-
+  // selection convention. 8px to match .sb-modal-box's own border-radius
+  // above — this app has no dedicated corner/shape token yet.
+  .sb-selected-option {
+    --m3e-list-item-container-shape: 8px;
+  }
+
+  .sb-hint {
+    // No float/margin-top here: m3e-list-item's own trailing slot is a flex
+    // child (display:flex; justify-content:center when populated — see
+    // list.js), so `float` was silently ignored on it (floats don't apply
+    // to flex items) — dead CSS from the old plain-div layout, where
+    // float-right was how a bare span got pulled to the row's right edge.
+    // Only the chip's own visual treatment belongs here now.
+    padding: 3px 5px;
     border-radius: 5px;
   }
 }
@@ -126,4 +138,50 @@ m3e-search-view.sb-modal-box {
   &::backdrop {
     background-color: transparent;
   }
+
+  // Content-adjacent chrome (this whole view exists to find/jump to a page
+  // or command), so it honors the editable/read-only font cue via
+  // --chrome-font (theme.scss). Set once here rather than per light-DOM
+  // class: font-family is an ordinary inherited property, and inheritance
+  // for slotted content follows the *light*-DOM parent chain (this element
+  // → the <Input>/m3e-list/m3e-list-item/.sb-* descendants in filter.tsx),
+  // not the shadow tree — confirmed none of those descendants' own rules
+  // (here or in colors.scss) set font-family themselves, so nothing blocks
+  // the cascade. The one exception is the actual <input> element, which
+  // components.scss's shared `input { font-family: var(--ui-font); }` rule
+  // matches directly (a direct match always beats an inherited value,
+  // regardless of the ancestor rule's specificity) — hence the explicit
+  // override just below.
+  font-family: var(--chrome-font);
+
+  .sb-filter-input {
+    font-family: var(--chrome-font);
+  }
+
+  // Jack flagged the fullscreen cover as "fully opaque" and asked whether a
+  // transparent/scrim-style cover is supported. Confirmed by reading the
+  // compiled component (node_modules/@m3e/web/dist/search.js): fullscreen
+  // mode has NO separate scrim/backdrop layer at all — the docked-only
+  // `--m3e-search-view-docked-scrim-color`/`-opacity` tokens the .d.ts
+  // documents only apply to `:host(:is(:state(--docked)))` rules there is
+  // no `::backdrop` styling under `:state(--fullscreen)` anywhere in that
+  // stylesheet. What fullscreen actually paints is its own solid
+  // `.view:popover-open` background via `--m3e-search-view-container-color`
+  // (":host(:is(:state(--fullscreen)):not([contained])) .view:popover-open
+  // { background-color: containerColor }" — same source), and that cssprop
+  // IS documented as applying outside docked mode too (the .d.ts's
+  // `--m3e-search-view-docked-*` props are separately named from this
+  // general one). So a translucent override of this token is the real,
+  // supported lever — not a fight with the component — and the editor
+  // content is still genuinely present underneath (this is a native
+  // Popover-API top-layer element, not a fresh page), so translucency here
+  // reads as a real scrim over real content, not a fake gradient. Docked
+  // mode was deliberately ruled out for this (see the mode="fullscreen"
+  // comment in filter.tsx) rather than reintroducing the box-nesting bug
+  // just to get a scrim layer this token already gives us.
+  --m3e-search-view-container-color: color-mix(
+    in srgb,
+    var(--modal-background-color) 92%,
+    transparent
+  );
 }

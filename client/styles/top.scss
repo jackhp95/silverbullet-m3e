@@ -55,7 +55,10 @@
     -webkit-app-region: drag;
 
     .sb-input {
-      font-family: var(--ui-font);
+      // The page-title/name editor — the clearest "am I looking at editable
+      // content" cue there is, so it honors --chrome-font (theme.scss)
+      // rather than the static --ui-font.
+      font-family: var(--chrome-font);
       font-size: inherit;
       // Match the line box the old CodeMirror title used so the text stays
       // vertically centred in the bar (a native input defaults to a shorter
