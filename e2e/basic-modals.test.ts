@@ -109,6 +109,13 @@ test.describe("basic_modals.tsx m3e-dialog surfaces", () => {
     await dialog.getByText("Ok", { exact: true }).click();
 
     await expect(dialog).not.toBeVisible();
+    // deletePage() (plugs/editor/page.ts) does async work AFTER
+    // editor.confirm() resolves — list pages, space.deletePage(), then
+    // editor.navigate() away from the now-gone page — so the dialog
+    // disappearing doesn't mean the server-side delete has landed yet.
+    // Waiting for the post-delete navigation (like page-rename.test.ts's
+    // waitForURL) is the real synchronization point.
+    await sbPage.waitForURL((url) => !url.pathname.endsWith("/ToDelete"));
     const resp = await fetch(`${sbServer.url}/.fs/ToDelete.md`);
     expect(resp.status).toBe(404);
   });

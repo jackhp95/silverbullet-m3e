@@ -5,6 +5,17 @@ import "@m3e/web/form-field";
 import "@m3e/web/button";
 import "./m3e-jsx.d.ts";
 
+/** The `returnValue` an `m3e-dialog` reports on its `closed` event once an
+ * `m3e-dialog-action` inside it has been clicked (DialogElement.d.ts's
+ * `returnValue` property, set synchronously by `hide()` before `closed`
+ * dispatches — verified in node_modules/@m3e/web/dist/dialog.js). Read off
+ * `e.target`, not `e.currentTarget`: the dialog dispatches `closed` on
+ * itself directly (not a bubbled child event), so `target` is reliable. */
+function dialogReturnValue(e: Event): string | undefined {
+  return (e.target as (HTMLElement & { returnValue?: string }) | null)
+    ?.returnValue;
+}
+
 export function Prompt({
   message,
   defaultValue,
@@ -30,7 +41,24 @@ export function Prompt({
   const submit = () => callback(text);
 
   return (
-    <AlwaysShownModal onCancel={cancel}>
+    <AlwaysShownModal
+      onCancel={cancel}
+      // The action buttons below don't carry their own onClick — an
+      // `m3e-dialog-action` handles its own click (see DialogActionElement's
+      // `_onClick`, which calls `closest("m3e-dialog").hide(returnValue)`
+      // directly on the button it's nested in, independent of any sibling
+      // listener) and this `closed` handler is the single place that reads
+      // the result back out via `returnValue`, matching the library's own
+      // documented `onclosed="...this.returnValue..."` pattern instead of a
+      // second, redundant click listener racing it.
+      onClosed={(e: Event) => {
+        if (dialogReturnValue(e) === "ok") {
+          submit();
+        } else {
+          cancel();
+        }
+      }}
+    >
       <span slot="header">{message}</span>
       <m3e-form-field class="sb-prompt-field">
         <input
@@ -51,25 +79,20 @@ export function Prompt({
           }}
         />
       </m3e-form-field>
-      <div slot="actions" class="sb-dialog-actions">
-        <m3e-button
-          variant="text"
-          onClick={(e: MouseEvent) => {
-            e.stopPropagation();
-            e.preventDefault();
-            cancel();
-          }}
-        >
+      <div
+        slot="actions"
+        class="sb-dialog-actions"
+        // Buttons don't stop propagation individually (see the comment on
+        // AlwaysShownModal's onClosed above — an extra per-button listener
+        // is what raced m3e-dialog-action's own click handling last time);
+        // one listener at the row level still keeps the click from leaking
+        // to whatever's behind the dialog, same as the old code's intent.
+        onClick={(e: MouseEvent) => e.stopPropagation()}
+      >
+        <m3e-button variant="text">
           <m3e-dialog-action return-value="cancel">Cancel</m3e-dialog-action>
         </m3e-button>
-        <m3e-button
-          variant="filled"
-          onClick={(e: MouseEvent) => {
-            e.stopPropagation();
-            e.preventDefault();
-            submit();
-          }}
-        >
+        <m3e-button variant="filled">
           <m3e-dialog-action return-value="ok">Ok</m3e-dialog-action>
         </m3e-button>
       </div>
@@ -100,17 +123,28 @@ export function Confirm({
   const confirm = () => callback(true);
 
   return (
-    <AlwaysShownModal onCancel={cancel} alert>
+    <AlwaysShownModal
+      onCancel={cancel}
+      alert
+      // See the identical comment in Prompt() above — the actions' own
+      // m3e-dialog-actions drive `hide(returnValue)`; this is the one place
+      // that turns the resulting `closed`/`returnValue` back into the real
+      // app-level confirm/cancel callback.
+      onClosed={(e: Event) => {
+        if (dialogReturnValue(e) === "ok") {
+          confirm();
+        } else {
+          cancel();
+        }
+      }}
+    >
       <span slot="header">{message}</span>
-      <div slot="actions" class="sb-dialog-actions">
-        <m3e-button
-          variant="text"
-          onClick={(e: MouseEvent) => {
-            e.stopPropagation();
-            e.preventDefault();
-            cancel();
-          }}
-        >
+      <div
+        slot="actions"
+        class="sb-dialog-actions"
+        onClick={(e: MouseEvent) => e.stopPropagation()}
+      >
+        <m3e-button variant="text">
           <m3e-dialog-action return-value="cancel">Cancel</m3e-dialog-action>
         </m3e-button>
         <m3e-button
@@ -127,11 +161,6 @@ export function Confirm({
           // `-on-error` — the sanctioned per-instance override point, not a
           // hand-rolled hex color.
           class={destructive ? "sb-button-error" : undefined}
-          onClick={(e: MouseEvent) => {
-            e.stopPropagation();
-            e.preventDefault();
-            confirm();
-          }}
         >
           <m3e-dialog-action return-value="ok">Ok</m3e-dialog-action>
         </m3e-button>
@@ -143,10 +172,16 @@ export function Confirm({
 export function AlwaysShownModal({
   children,
   onCancel,
+  onClosed,
   alert,
 }: {
   children: ComponentChildren;
   onCancel?: () => void;
+  /** Fired after an m3e-dialog-action inside `children` closes the dialog —
+   * read `dialogReturnValue(e)` to see which action. Not fired by the
+   * Escape path below (disable-close means the dialog itself never enters a
+   * hide/closed transition from Escape — see that handler's own comment). */
+  onClosed?: (e: Event) => void;
   /** Sets role="alertdialog" — used by Confirm(), not Prompt(). */
   alert?: boolean;
 }) {
@@ -159,11 +194,20 @@ export function AlwaysShownModal({
       // letting the browser auto-close it — see the onKeyDown handler
       // below, which restores exactly that routing: verified against
       // node_modules/@m3e/web/dist/dialog.js that `disable-close` makes the
-      // component swallow Escape/backdrop-click entirely, so the app's own
-      // Cancel button + this handler are the only way out, matching
-      // "AlwaysShownModal" 's own name).
+      // component swallow Escape/backdrop-click entirely (no "closed" event
+      // fires for it at all), so the app's own action buttons (which call
+      // hide() directly, unaffected by disable-close) and this handler are
+      // the only ways out, matching "AlwaysShownModal"'s own name).
       disable-close
       alert={alert}
+      // Deliberately lowercase `onclosed`, not `onClosed` — see
+      // m3e-jsx.d.ts's M3eDialogAttributes comment: Preact only lowercases
+      // an "on"-prefixed prop name when the lowercased form is already a
+      // real DOM property (true for native events, false for this custom
+      // element's `closed` event), so a camelCase prop here silently
+      // listens for the wrong ("Closed") event name and this handler would
+      // never fire.
+      onclosed={onClosed}
       onKeyDown={(e: KeyboardEvent) => {
         e.stopPropagation();
         if (e.key === "Escape") {
