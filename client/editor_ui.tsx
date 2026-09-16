@@ -18,6 +18,13 @@ import * as featherIcons from "preact-feather";
 import * as mdi from "./filtered_material_icons.ts";
 import "@m3e/web/theme";
 import "@m3e/web/snackbar";
+// Registers m3e-chip/-assist-chip/etc (used by codemirror/hashtag.ts,
+// frontmatter_folding.ts, and markdown_renderer/markdown_render.ts for tag
+// pills) here rather than in those lower-level modules: they're imported by
+// plain-Node vitest unit tests with no DOM, where a side-effect import
+// defining a `class extends LitElement` would throw at load time.
+// Registration is global, so importing it once here covers all of them.
+import "@m3e/web/chips";
 import "./components/m3e-jsx.d.ts";
 import { h, render as preactRender } from "preact";
 import { useEffect, useReducer, useState } from "preact/hooks";

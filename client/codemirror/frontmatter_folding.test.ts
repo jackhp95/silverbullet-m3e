@@ -323,9 +323,9 @@ describe("frontmatter fold placeholder", () => {
     expect(placeholder.textContent).toBe(
       "#feature #beta4 frontmatter lines hidden",
     );
-    const tags = placeholder.querySelectorAll(".sb-hashtag");
+    const tags = placeholder.querySelectorAll("m3e-assist-chip");
     expect(tags).toHaveLength(2);
-    expect(tags[0].tagName).toBe("A");
+    expect(tags[0].tagName).toBe("M3E-ASSIST-CHIP");
     expect(tags[0].getAttribute("href")).toBe(
       `/${encodePageURI("tag:feature")}`,
     );
@@ -365,7 +365,7 @@ describe("frontmatter fold placeholder", () => {
       );
 
       placeholder
-        .querySelector("a")!
+        .querySelector("m3e-assist-chip")!
         .dispatchEvent(
           new MouseEvent("click", { bubbles: true, cancelable: true }),
         );

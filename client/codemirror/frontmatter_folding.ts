@@ -13,6 +13,9 @@ import {
   encodePageURI,
   parseToRef,
 } from "@silverbulletmd/silverbullet/lib/ref";
+// NOTE: deliberately no `import "@m3e/web/chips"` here — see hashtag.ts's
+// comment. This file is imported by frontmatter_folding.test.ts under
+// plain Node (no DOM); registration lives in editor_ui.tsx instead.
 
 export type FrontmatterFoldByDefault = "never" | "long" | "always";
 
@@ -254,11 +257,15 @@ export function frontmatterFoldPlaceholderDOM(
     if (prepared.tags.length > 0) {
       for (const tag of prepared.tags) {
         const target = frontmatterFoldTagTarget(client, tag);
-        const tagElement = document.createElement("a");
-        tagElement.className = "sb-hashtag";
+        // m3e-assist-chip, not a plain <a> — see hashtag.ts's identical
+        // rationale. `href` is native to the element (chips skill card);
+        // the click listener below still does the actual SPA navigation,
+        // same as before.
+        const tagElement = document.createElement("m3e-assist-chip");
+        tagElement.setAttribute("variant", "outlined");
         tagElement.dataset.tagName = tag;
-        tagElement.href = `/${encodePageURI(target)}`;
-        tagElement.rel = "tag";
+        tagElement.setAttribute("href", `/${encodePageURI(target)}`);
+        tagElement.setAttribute("rel", "tag");
         tagElement.textContent = `#${tag}`;
         tagElement.addEventListener("click", (event) => {
           event.preventDefault();
