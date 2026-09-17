@@ -286,7 +286,11 @@ test("a non-admin sees only their spaces and no admin affordances", async ({
   await page.goto(`${base}/.spaces/login`);
   await page.fill("#username", "member");
   await page.fill("#password", "memberpw123");
-  await page.click("button[type=submit]");
+  // LoginForm.tsx's submit is a plug-api/ui `Button`, which now renders
+  // `m3e-button` rather than a plain `<button>` (Phase B #8's kit-level
+  // reskin) — `getByRole` still resolves it (m3e-button is accessible by
+  // default), matching this file's other login-button clicks above.
+  await page.getByRole("button", { name: "Log in" }).click();
 
   await expect(page.locator(".sb-space-list li")).toHaveCount(1);
   await expect(page.locator("text=Members Only")).toBeVisible();

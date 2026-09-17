@@ -197,6 +197,10 @@ export function ItemCaptureSheet({
               // confirm pattern idea_capture_sheet.tsx used for its one
               // field, reused here as-is for this one type.
               <Input
+                // This call site already supplies its own surrounding
+                // `m3e-form-field` (below) shared with the textarea branch —
+                // see the `bare` prop's doc comment on plug-api/ui/input.tsx.
+                bare
                 id="sb-item-capture-field"
                 inputRef={singleLineRef}
                 value={text}

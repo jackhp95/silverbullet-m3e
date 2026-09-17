@@ -1,9 +1,32 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getFreePort, waitForServer } from "./fixtures";
+
+/**
+ * True once `tag` is a registered custom element AND the matched `selector`
+ * element has actually been upgraded to an instance of it — not just present
+ * in the light DOM waiting on its module. Same helper as basic-modals.test.ts
+ * (the cross-cutting acceptance gate every m3e reskin PR adds, per
+ * docs/plans/2026-09-16-m3e-reskin-and-agentic-journal-spec.md §3) — kept
+ * local rather than imported since neither file exports it.
+ */
+function isUpgraded(
+  page: Page,
+  tag: string,
+  selector: string = tag,
+): Promise<boolean> {
+  return page.evaluate(
+    ({ tag, selector }: { tag: string; selector: string }) => {
+      const ctor = customElements.get(tag);
+      const el = document.querySelector(selector);
+      return !!ctor && !!el && el instanceof ctor;
+    },
+    { tag, selector },
+  );
+}
 
 // Regression test: on the FIRST-ever visit to an authenticated space (empty
 // localStorage, no session), the boot fetches all 401 and the client redirects
@@ -73,14 +96,19 @@ test("first load of an authenticated space redirects to login without alerts", a
 
 test("the login page's styles actually load", async ({ page }) => {
   await page.goto(`${base}/`);
-  // auth.html has a second <button id="togglePassword"> for show/hide, so
-  // take the last match — the submit button inside #login.
-  const button = page
-    .locator("#login button[type=submit], #login button")
-    .last();
+  // LoginForm.tsx's submit is a plug-api/ui `Button`, which now renders
+  // `m3e-button` rather than a plain `<button>` (Phase B #8's kit-level
+  // reskin — see docs/plans/2026-09-16-m3e-reskin-and-agentic-journal-
+  // spec.md §3), so `#login button` no longer matches it at all — only the
+  // unrelated `#togglePassword` show/hide toggle remains a real `<button>`.
+  // A CSS-only "computed backgroundColor" check would also read the wrong
+  // thing for a Shadow-DOM component (the host's own box, not what
+  // @m3e/web actually paints inside it) — so assert the thing that can
+  // actually fail here: the custom element's module loaded and the
+  // light-DOM element really upgraded to it.
+  const button = page.locator("#login m3e-button").last();
   await button.waitFor({ state: "visible" });
-  const bg = await button.evaluate(
-    (el) => getComputedStyle(el).backgroundColor,
+  expect(await isUpgraded(page, "m3e-button", "#login m3e-button")).toBe(
+    true,
   );
-  expect(bg).toBe("rgb(70, 76, 252)"); // --ui-accent-color #464cfc
 });

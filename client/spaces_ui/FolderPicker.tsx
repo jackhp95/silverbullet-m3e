@@ -1,6 +1,8 @@
 import { Fragment } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { Input } from "@silverbulletmd/silverbullet/ui";
+// `Input` renders `m3e-form-field` — see plug-api/ui/input.tsx's doc comment.
+import "@m3e/web/form-field";
 
 /**
  * Reusable server-side folder picker shared by the setup wizard

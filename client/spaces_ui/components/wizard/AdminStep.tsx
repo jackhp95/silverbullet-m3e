@@ -1,4 +1,9 @@
 import { Button, Input } from "@silverbulletmd/silverbullet/ui";
+// `Button`/`Input` render `m3e-button`/`m3e-form-field` — see
+// plug-api/ui/button.tsx's doc comment on why these side-effect imports
+// belong at each DOM-side consumer, not the kit files themselves.
+import "@m3e/web/button";
+import "@m3e/web/form-field";
 import { FieldErrors } from "../../space_fields.tsx";
 import type { FieldError } from "../../types.ts";
 import type { AdminValues } from "../../wizard.ts";

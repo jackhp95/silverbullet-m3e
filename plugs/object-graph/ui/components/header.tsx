@@ -1,5 +1,7 @@
 import { editor } from "@silverbulletmd/silverbullet/syscalls";
 import { Button, Checkbox } from "@silverbulletmd/silverbullet/ui";
+// `Button` renders `m3e-button` — see plug-api/ui/button.tsx's doc comment.
+import "@m3e/web/button";
 
 type Props = {
   ghostCount: number;

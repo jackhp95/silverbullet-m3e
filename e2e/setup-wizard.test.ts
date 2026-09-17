@@ -4,6 +4,29 @@ import type { Browser, Page } from "@playwright/test";
 import type { SBServer } from "./fixtures";
 import { ADMIN_PASSWORD, ADMIN_USER, expect, test } from "./fixtures";
 
+/**
+ * True once `tag` is a registered custom element AND the matched `selector`
+ * element has actually been upgraded to an instance of it — not just present
+ * in the light DOM waiting on its module. Same helper as basic-modals.test.ts
+ * (the cross-cutting acceptance gate every m3e reskin PR adds, per
+ * docs/plans/2026-09-16-m3e-reskin-and-agentic-journal-spec.md §3) — kept
+ * local rather than imported since neither file exports it.
+ */
+function isUpgraded(
+  page: Page,
+  tag: string,
+  selector: string = tag,
+): Promise<boolean> {
+  return page.evaluate(
+    ({ tag, selector }: { tag: string; selector: string }) => {
+      const ctor = customElements.get(tag);
+      const el = document.querySelector(selector);
+      return !!ctor && !!el && el instanceof ctor;
+    },
+    { tag, selector },
+  );
+}
+
 // End-to-end coverage of the first-run setup wizard. Both scenarios reuse the
 // `sbServer` fixture, which spawns the debug server on a fresh, empty temp dir.
 // The fixture defaults to `--single` (so most tests get a servable space), so
@@ -229,13 +252,32 @@ test("wizard's folder picker is driven by the fs/dirs endpoint", async ({
 
 test("the setup wizard's styles actually load", async ({ page, sbServer }) => {
   await page.goto(`${sbServer.url}/.setup/`);
-  const button = page.locator("button").first();
+  // AdminStep.tsx's "Continue" is the only button on this first screen, and
+  // it's a plug-api/ui `Button` — which renders `m3e-button`, not a plain
+  // `<button>`, since Phase B #8's kit-level reskin (see docs/plans/
+  // 2026-09-16-m3e-reskin-and-agentic-journal-spec.md §3). A CSS-only
+  // "computed backgroundColor" check would read the *host* element's box,
+  // not the Shadow-DOM-painted control @m3e/web actually renders — so this
+  // asserts the thing that can actually fail here: the custom element's
+  // module loaded and the light-DOM element really upgraded to it, not just
+  // sat inert as an unknown tag.
+  const button = page.locator("m3e-button").first();
   await button.waitFor({ state: "visible" });
-  // Assert a COMPUTED style, not that the page rendered. If the stylesheet
-  // 404s or fails to resolve against <base>, the page still renders — with
-  // browser-default buttons. Only the resolved colour proves it loaded.
-  const bg = await button.evaluate(
-    (el) => getComputedStyle(el).backgroundColor,
+  expect(await isUpgraded(page, "m3e-button")).toBe(true);
+});
+
+test("the setup wizard's Input fields render as upgraded m3e-form-field", async ({
+  page,
+  sbServer,
+}) => {
+  // AdminStep.tsx's username/password/repeat-password fields are all
+  // plug-api/ui `Input` in its default (non-`bare`) mode, which wraps in
+  // `m3e-form-field` — see plug-api/ui/input.tsx.
+  await page.goto(`${sbServer.url}/.setup/`);
+  const usernameField = page.locator("m3e-form-field:has(#setup-username)");
+  await expect(usernameField).toBeVisible();
+  expect(await isUpgraded(page, "m3e-form-field", "m3e-form-field")).toBe(
+    true,
   );
-  expect(bg).toBe("rgb(70, 76, 252)"); // --ui-accent-color #464cfc
+  await expect(page.locator("#setup-username")).toBeVisible();
 });
