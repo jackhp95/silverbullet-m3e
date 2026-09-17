@@ -18,6 +18,7 @@ import {
 import { Fab, NavBar } from "./components/nav_bar.tsx";
 import { RecentView } from "./components/nav_views/recent.tsx";
 import { SearchView } from "./components/nav_views/search.tsx";
+import { RunView } from "./components/nav_views/run.tsx";
 import {
   NotificationsView,
   notificationsIconFor,
@@ -86,13 +87,13 @@ import {
 // it's wiring-level, same as this file's other viewState-driven panels
 // above.
 const NAV_PANEL_PLACEHOLDERS: Record<NavDestination, string> = {
-  // Dead for "recent" (N6), "search" (N7), and "notifications" (N9): the
-  // panel-host render below intercepts all three before this lookup is
-  // ever reached, rendering RecentView/SearchView/NotificationsView
-  // instead. Left in place (rather than narrowing the Record's key type)
-  // so this stays a same-shape object N8 can still land its own key
-  // removal independently without colliding on a shared type-annotation
-  // edit.
+  // Dead for all four destinations (N6 recent, N7 search, N8 run, N9
+  // notifications): the panel-host render below intercepts each before
+  // this lookup is ever reached, rendering the real RecentView/SearchView/
+  // RunView/NotificationsView instead. Left in place (rather than deleting
+  // this now-fully-superseded Record) since removing it is N11's job
+  // (delete search_sheet.tsx + old e2e + this dead placeholder map,
+  // spec §5).
   recent: "Recent — coming soon",
   search: "Search — coming soon",
   run: "Run — coming soon",
@@ -1088,63 +1089,69 @@ export class MainUI {
         <Fab onClick={() => setCaptureSheetOpen(true)} />
         {viewState.navDestination !== null && (
           <div className="sb-nav-panel" role="region">
-            {
-              // N6/N7/N9: Recent, Search, and Notifications each have
-              // their real view now; Run stays a placeholder string until
-              // N8 lands (replacing only its own entry in
-              // NAV_PANEL_PLACEHOLDERS / this branch — see the spec's
-              // §5.1 file-overlap table).
-              viewState.navDestination === "recent"
-                ? (
-                  // N6: real Recent view — relocation of search_sheet.tsx's
-                  // "open" mode (spec §2.5/§5). Same documentExtensions/
-                  // currentPath AnythingPicker already uses above, same
-                  // navigateToAnythingPickerName/Ref close-callback
-                  // convention (closes via `close-nav-panel` instead of
-                  // `stop-navigate`).
-                  <RecentView
-                    allPages={viewState.allPages}
-                    allDocuments={viewState.allDocuments}
-                    extensions={documentExtensions}
-                    currentPath={client.currentPath()}
-                    recentPaths={client.recentPaths}
-                    onNavigate={(name) =>
-                      navigateToAnythingPickerName(name, () =>
-                        dispatch({ type: "close-nav-panel" }))}
-                    onNavigateRef={(ref) =>
-                      navigateToAnythingPickerRef(ref, () =>
-                        dispatch({ type: "close-nav-panel" }))}
-                  />
-                )
-                : viewState.navDestination === "search"
-                ? (
-                  // N7: real Search view — relocation of search_sheet.tsx's
-                  // "search" mode (spec §2.5/§5). Same close-callback
-                  // convention as RecentView above; also wires the optional
-                  // /^Search/ delegate command through triggerCommand (same
-                  // helper AnythingPicker's command-palette call site uses).
-                  <SearchView
-                    allPages={viewState.allPages}
-                    extensions={documentExtensions}
-                    currentPath={client.currentPath()}
-                    commands={viewState.commands}
-                    recentSearchTerms={client.recentSearchTerms}
-                    onNavigate={(name) =>
-                      navigateToAnythingPickerName(name, () =>
-                        dispatch({ type: "close-nav-panel" }))}
-                    onNavigateRef={(ref) =>
-                      navigateToAnythingPickerRef(ref, () =>
-                        dispatch({ type: "close-nav-panel" }))}
-                    onTriggerCommand={(cmd) =>
-                      triggerCommand(cmd, () =>
-                        dispatch({ type: "close-nav-panel" }))}
-                    onClose={() => dispatch({ type: "close-nav-panel" })}
-                  />
-                )
-                : viewState.navDestination === "notifications"
-                ? <NotificationsView pushToggle={pushToggle} />
-                : NAV_PANEL_PLACEHOLDERS[viewState.navDestination]
-            }
+            {viewState.navDestination === "recent"
+              ? (
+                // N6: real Recent view — relocation of search_sheet.tsx's
+                // "open" mode (spec §2.5/§5). Same documentExtensions/
+                // currentPath AnythingPicker already uses above, same
+                // navigateToAnythingPickerName/Ref close-callback
+                // convention (closes via `close-nav-panel` instead of
+                // `stop-navigate`).
+                <RecentView
+                  allPages={viewState.allPages}
+                  allDocuments={viewState.allDocuments}
+                  extensions={documentExtensions}
+                  currentPath={client.currentPath()}
+                  recentPaths={client.recentPaths}
+                  onNavigate={(name) =>
+                    navigateToAnythingPickerName(name, () =>
+                      dispatch({ type: "close-nav-panel" }))}
+                  onNavigateRef={(ref) =>
+                    navigateToAnythingPickerRef(ref, () =>
+                      dispatch({ type: "close-nav-panel" }))}
+                />
+              )
+              : viewState.navDestination === "search"
+              ? (
+                // N7: real Search view — relocation of search_sheet.tsx's
+                // "search" mode (spec §2.5/§5). Same close-callback
+                // convention as RecentView above; also wires the optional
+                // /^Search/ delegate command through triggerCommand (same
+                // helper AnythingPicker's command-palette call site uses).
+                <SearchView
+                  allPages={viewState.allPages}
+                  extensions={documentExtensions}
+                  currentPath={client.currentPath()}
+                  commands={viewState.commands}
+                  recentSearchTerms={client.recentSearchTerms}
+                  onNavigate={(name) =>
+                    navigateToAnythingPickerName(name, () =>
+                      dispatch({ type: "close-nav-panel" }))}
+                  onNavigateRef={(ref) =>
+                    navigateToAnythingPickerRef(ref, () =>
+                      dispatch({ type: "close-nav-panel" }))}
+                  onTriggerCommand={(cmd) =>
+                    triggerCommand(cmd, () =>
+                      dispatch({ type: "close-nav-panel" }))}
+                  onClose={() => dispatch({ type: "close-nav-panel" })}
+                />
+              )
+              : viewState.navDestination === "run"
+              ? (
+                // N8: real Run view — relocation of search_sheet.tsx's "run"
+                // mode (spec §5). Same command-palette builders CommandPalette
+                // itself uses (buildCommandPaletteOptions/triggerCommand/
+                // commandFromOption, command_palette.tsx), same
+                // getCommandsByContext(viewState) source CommandPalette's own
+                // call site below uses.
+                <RunView
+                  commands={client.getCommandsByContext(viewState)}
+                  onClose={() => dispatch({ type: "close-nav-panel" })}
+                />
+              )
+              : viewState.navDestination === "notifications"
+              ? <NotificationsView pushToggle={pushToggle} />
+              : NAV_PANEL_PLACEHOLDERS[viewState.navDestination]}
           </div>
         )}
         <ItemCaptureSheet
