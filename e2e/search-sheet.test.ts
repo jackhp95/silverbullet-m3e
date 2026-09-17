@@ -1,14 +1,16 @@
 import { expect, gotoSilverBulletPage, mod, test } from "./fixtures.ts";
 
 // Exercises search_sheet.tsx (spec §2 items 3+4+5, plan leaves L9-L12): the
-// consolidated open/run/search bottom sheet. Opened here via its own new
+// consolidated open/run/search bottom sheet. Opened here via its own
 // keybinding (Ctrl-Shift-/ / Cmd-Shift-/, client/editor_commands.ts's
-// "Navigate: Search Sheet") — a temporary/placeholder trigger for this leaf;
-// wiring it into floating_toolbar.tsx's "Search" button is a later leaf
-// (L13). The older AnythingPicker/CommandPalette modals stay independently
-// reachable (see e2e/command-palette.test.ts, e2e/page-picker.test.ts) since
-// this sheet reuses their option-building/navigate/trigger logic rather than
-// replacing them.
+// "Navigate: Search Sheet") — the floating toolbar's "Search" button (L13,
+// e2e/floating-toolbar.test.ts) calls the exact same `client.startSearchSheet()`
+// this command runs, so this suite's coverage of the sheet's own behavior
+// (modes, history, Escape/backdrop close, etc.) applies regardless of which
+// trigger opened it. The older AnythingPicker/CommandPalette modals stay
+// independently reachable (see e2e/command-palette.test.ts,
+// e2e/page-picker.test.ts) since this sheet reuses their
+// option-building/navigate/trigger logic rather than replacing them.
 test.describe("Consolidated search sheet", () => {
   test.use({
     spaceFiles: {

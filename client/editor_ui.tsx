@@ -16,10 +16,7 @@ import {
   type BreadcrumbItem,
   TopBar,
 } from "./components/top_bar.tsx";
-import {
-  type ActionButton,
-  FloatingToolbar,
-} from "./components/floating_toolbar.tsx";
+import { FloatingToolbar } from "./components/floating_toolbar.tsx";
 import {
   type CaptureItemType,
   ItemCaptureSheet,
@@ -30,8 +27,6 @@ import {
   type AppViewState,
   initialViewState,
 } from "./types/ui.ts";
-import * as featherIcons from "preact-feather";
-import * as mdi from "./filtered_material_icons.ts";
 import "@m3e/web/theme";
 import "@m3e/web/snackbar";
 // Registers m3e-chip/-assist-chip/etc (used by codemirror/hashtag.ts,
@@ -671,48 +666,14 @@ export class MainUI {
       }))
       .sort((a, b) => b.priority - a.priority);
 
-    const toolbarActions = filteredActionButtons.map(
-      (button): ActionButton => {
-        const mdiIcon = (mdi as any)[kebabToCamel(button.icon)];
-        let featherIcon = (featherIcons as any)[kebabToCamel(button.icon)];
-        if (!featherIcon) {
-          featherIcon = featherIcons.HelpCircle;
-        }
-        let description = button.description || "";
-        if (button.command) {
-          const cmd = viewState.commands.get(button.command);
-          if (cmd) {
-            const hint = keyboardHint(cmd);
-            if (hint) {
-              description = description ? `${description} (${hint})` : hint;
-            }
-          }
-        }
-        return {
-          icon: mdiIcon ? mdiIcon : featherIcon,
-          description,
-          callback: button.command
-            ? () => this.client.runCommandByName(button.command!)
-            : button.run ||
-              (() => {
-                this.flashNotification(
-                  "actionButton did not specify a command or run() callback",
-                  "error",
-                );
-              }),
-          href: "",
-        };
-      },
-    );
-
     // Item 11 / L8 (docs/plans/2026-09-16-toolbar-search-feedback-spec.md):
-    // every CONFIG-defined actionButton, ALSO surfaced as a trailing app-bar
-    // kebab entry (top_bar.tsx's `menuItems`) — same source array as
-    // `toolbarActions` above (`filteredActionButtons`), so command/run
-    // resolution can't drift between the two render targets. `icon` is
+    // every CONFIG-defined actionButton, surfaced as a trailing app-bar
+    // kebab entry (top_bar.tsx's `menuItems`) — as of L13 (the toolbar
+    // reduction, see floating_toolbar.tsx's header comment) this is the ONLY
+    // render target left for these; the toolbar itself no longer takes an
+    // `actions` prop at all. `icon` is
     // deliberately left unset here: `button.icon` is a feather-icon name
-    // (APIs/Action Button.md: "feather icon to use for your button",
-    // resolved above via `featherIcons`/`mdi` component lookup) — a
+    // (APIs/Action Button.md: "feather icon to use for your button") — a
     // different vocabulary than `AppBarMenuItem.icon`'s Material Symbols
     // ligature string (top_bar.tsx). Reusing the raw feather name as a
     // Material Symbols glyph name would render nothing or the wrong glyph
@@ -756,7 +717,7 @@ export class MainUI {
     //  - the root "Space" segment reuses the exact real "Navigate: Home"
     //    command (plugs/editor/editor.plug.yaml's `navigateHome`, `page:
     //    ""` — the identical command the removed "home" actionButton used
-    //    to run, see the toolbarActions filter above), guarded the same way
+    //    to run, see the filteredActionButtons filter above), guarded the same way
     //    readOnlyToggle already guards on command availability below.
     //  - intermediate "folder" segments (everything between the root and
     //    the final page-name segment) open the real, already-wired,
@@ -1087,34 +1048,22 @@ export class MainUI {
           </div>
         )}
         {
-          // ONE floating vertical toolbar, bottom-right — replaces both the
-          // old app-bar kebab (former OverflowMenu, top_bar.tsx) and the old
-          // FAB speed-dial that used to live right here. `toolbarActions`
-          // (computed above) is exactly the old kebab's contents (any
-          // CONFIG-defined actionButton.define entries, minus lock/home/
-          // github — see the filter above); "New journal entry" stays a
+          // Reduced floating toolbar, bottom-right (L13, final leaf of
+          // docs/plans/2026-09-16-toolbar-search-feedback-spec.md) — exactly
+          // Jack's 4 items: read-only toggle, search, journal, add. CONFIG
+          // actionButtons and the push toggle moved to the app-bar's kebab
+          // (menuItems above, L8); the recent-pages menu is subsumed by
+          // SearchSheet's own "Open" mode history (client.recentPaths, same
+          // source this used to read directly). "New journal entry" stays a
           // direct top-level action (Journal is already a first-class SB
           // feature, worth one click rather than a sheet round-trip); "New"
           // opens the unified item-creation bottom sheet
           // (item_capture_sheet.tsx) — see `handleCaptureSubmit` below for
-          // what each of its 5 types actually does on submit.
+          // what each of its 5 types actually does on submit; "Search" opens
+          // search_sheet.tsx directly via `client.startSearchSheet()` (the
+          // same call the "Navigate: Search Sheet" command runs).
         }
         <FloatingToolbar
-          actions={toolbarActions}
-          recentPages={{
-            label: "Recently visited",
-            items: client.recentPaths
-              .filter((p) => p.path !== client.currentPath())
-              .slice(0, 10)
-              .map((p) => ({
-                key: p.path,
-                label: getNameFromPath(p.path),
-                onClick: () =>
-                  safeRun(async () => {
-                    await client.navigate({ path: p.path });
-                  }),
-              })),
-          }}
           readOnlyToggle={
             viewState.commands.has("Editor: Toggle Read Only Mode")
               ? {
@@ -1131,6 +1080,10 @@ export class MainUI {
               }
               : undefined
           }
+          search={{
+            label: "Search",
+            onClick: () => safeRun(async () => await client.startSearchSheet()),
+          }}
           journal={{
             iconName: "edit_calendar",
             label: "New journal entry",
@@ -1140,7 +1093,6 @@ export class MainUI {
               }),
           }}
           onNewClick={() => setCaptureSheetOpen(true)}
-          pushToggle={pushToggle}
         />
         <ItemCaptureSheet
           open={captureSheetOpen}
@@ -1260,15 +1212,11 @@ export class MainUI {
 
 // Raw shape of a space-config `actionButtons` entry (CONFIG.md), as read
 // from `client.config.get<ActionButtonConfig[]>("actionButtons", [])` above.
-// Not the same concept as floating_toolbar.tsx's `ActionButton` — that one
-// is the already-resolved UI-prop shape (`icon` a Preact component,
-// `callback` a bound function) FloatingToolbar renders; this one is the
-// unresolved config record (`icon` a string name, `command` a string to
-// look up) the `.map()` above turns into that shape. Renamed off the
-// `ActionButton` name (was a stale same-named local type, previously
-// flagged with a TODO claiming a near-duplicate lived in top_bar.tsx — it
-// doesn't; that logic moved to floating_toolbar.tsx during the 2026-09-15
-// toolbar rework, and it's a distinct shape besides) to stop the collision.
+// `filteredActionButtons`'s `.map()` (above) turns this unresolved config
+// record (`icon` a string name, `command` a string to look up) into
+// `AppBarMenuItem`s (top_bar.tsx) for the app-bar kebab — its only render
+// target as of L13 (floating_toolbar.tsx no longer has an `actions` prop at
+// all; see that file's header comment).
 type ActionButtonConfig = {
   icon: string;
   description?: string;
@@ -1279,9 +1227,3 @@ type ActionButtonConfig = {
   priority?: number;
   run?: () => void;
 };
-
-function kebabToCamel(str: string) {
-  return str
-    .replace(/-([a-z])/g, (g) => g[1].toUpperCase())
-    .replace(/^./, (g) => g.toUpperCase());
-}

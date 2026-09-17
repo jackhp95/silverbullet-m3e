@@ -31,9 +31,7 @@ export type BreadcrumbItem = {
 // to `[]` below (editor_ui.tsx isn't touched by this leaf at all, since it's
 // owned by the follow-up leaf L8, sequenced after this one to avoid a merge
 // conflict on that file). L8 populates it with real items (Web Push toggle,
-// CONFIG link, etc.) without needing to restructure anything here. Shape
-// mirrors the other action-item types already in this codebase
-// (ActionButton/RecentPageItem in floating_toolbar.tsx) — `icon` is a
+// CONFIG link, etc.) without needing to restructure anything here. `icon` is a
 // Material Symbols ligature name (string), not a component, since
 // m3e-menu-item's own content is a plain slotted child, not a leading-icon
 // prop.

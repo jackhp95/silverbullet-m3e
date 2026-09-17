@@ -53,6 +53,15 @@ import { expect, test } from "./fixtures.ts";
  * "not configured" and disabled, which is the right production behavior
  * for an unset env var but isn't what's under test here. See this task's
  * completion report for the exact env vars and how this suite was built.
+ *
+ * 2026-09-16 (L13, docs/plans/2026-09-16-toolbar-search-feedback-spec.md):
+ * the toggle itself moved from the floating toolbar's `#sb-push-toggle`
+ * icon-button to an `m3e-menu-item` inside the app-bar's trailing kebab
+ * (`#sb-app-bar-menu`, wired in client/editor_ui.tsx's `pushMenuItem`,
+ * L8) — same `PUSH_TOGGLE_LABELS`/state machine, different render target.
+ * The first test below opens the kebab and matches the item by its label
+ * text (same pattern e2e/app-bar-leading-trailing.test.ts's own kebab
+ * tests already use), since a plain `m3e-menu-item` carries no stable id.
  */
 
 const FAKE_SUBSCRIPTION = {
@@ -140,16 +149,28 @@ test.describe("Web Push client (spec §5)", () => {
       timeout: 30_000,
     });
 
-    const toggle = page.locator("#sb-push-toggle");
-    await toggle.waitFor({ state: "visible", timeout: 30_000 });
+    const kebab = page.locator(
+      'm3e-app-bar m3e-icon-button[title="More actions"]',
+    );
+    const menu = page.locator("#sb-app-bar-menu");
+    async function ensureMenuOpen() {
+      if (!(await menu.evaluate((el: any) => el.isOpen))) {
+        await kebab.click();
+        await expect
+          .poll(() => menu.evaluate((el: any) => el.isOpen))
+          .toBe(true);
+      }
+    }
+
+    await ensureMenuOpen();
+    let toggle = menu.locator("m3e-menu-item").filter({
+      hasText: "Enable push notifications",
+    });
+    await expect(toggle).toHaveCount(1);
     // Not disabled — this build has a configured VAPID key + sidecar URL,
     // so the toggle must be a real, clickable control (not the
     // "unsupported"/"not configured" disabled state).
-    await expect(toggle).toBeEnabled();
-    await expect(toggle).toHaveAttribute(
-      "aria-label",
-      "Enable push notifications",
-    );
+    await expect(toggle).not.toHaveAttribute("disabled", "");
 
     await toggle.click();
 
@@ -167,10 +188,11 @@ test.describe("Web Push client (spec §5)", () => {
     expect(JSON.parse(request.body)).toEqual(FAKE_SUBSCRIPTION);
 
     // And the toggle reflects the now-active subscription.
-    await expect(toggle).toHaveAttribute(
-      "aria-label",
-      "Push notifications are on — click to turn off",
-    );
+    await ensureMenuOpen();
+    toggle = menu.locator("m3e-menu-item").filter({
+      hasText: "Push notifications are on — click to turn off",
+    });
+    await expect(toggle).toHaveCount(1);
   });
 
   test("a synthetic push event shows a notification with the payload's title/body/url", async ({
