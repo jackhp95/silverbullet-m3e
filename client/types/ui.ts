@@ -186,6 +186,18 @@ export type BootConfig = {
   enableClientEncryption: boolean;
   accountManaged?: boolean;
   disableServiceWorker?: boolean;
+
+  // Web Push (spec §5.1). Neither is server-provided — both are stamped in
+  // client-side by `augmentBootConfig` (client/boot.ts) from build-time
+  // placeholders patched by `build/build_client.ts`'s `patchPushConfig()`,
+  // sourced from the `VAPID_PUBLIC_KEY` / `PUSH_SIDECAR_URL` env vars at
+  // `npm run build` time. Empty string until set — the push toggle
+  // (client/editor_ui.tsx via client/lib/push_subscribe.ts) treats that as
+  // "not configured" rather than guessing a key.
+  /** Base64url-encoded VAPID application server public key. */
+  vapidPublicKey?: string;
+  /** Base URL of the push sidecar, e.g. "http://localhost:8787" (no trailing slash needed). */
+  pushSidecarUrl?: string;
 };
 
 /**

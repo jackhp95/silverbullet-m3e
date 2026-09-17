@@ -64,18 +64,31 @@ export type RecentPageItem = {
   onClick: () => void;
 };
 
+export type PushToggle = {
+  /** Whether a push subscription is currently active. */
+  active: boolean;
+  /** Unsupported browser, denied permission, or missing server config — click is informational only. */
+  unavailable?: boolean;
+  /** A subscribe/unsubscribe request is in flight. */
+  pending?: boolean;
+  label: string;
+  onClick: () => void;
+};
+
 export function FloatingToolbar({
   actions,
   journal,
   onNewClick,
   recentPages,
   readOnlyToggle,
+  pushToggle,
 }: {
   actions: ActionButton[];
   journal: { iconName: string; label: string; onClick: () => void };
   onNewClick: () => void;
   recentPages: { label: string; items: RecentPageItem[] };
   readOnlyToggle?: { active: boolean; label: string; onClick: () => void };
+  pushToggle?: PushToggle;
 }) {
   return (
     <>
@@ -111,6 +124,33 @@ export function FloatingToolbar({
             }}
           >
             <m3e-icon name={readOnlyToggle.active ? "lock" : "lock_open"}>
+            </m3e-icon>
+          </m3e-icon-button>
+        )}
+        {pushToggle && (
+          // Web Push subscribe toggle (spec §5.1). Reads real state from
+          // `PushManager.getSubscription()` (via client/lib/push_subscribe.ts,
+          // wired up in editor_ui.tsx) rather than assuming — `active`
+          // reflects an actual subscription, `unavailable` covers
+          // unsupported-browser/denied-permission/not-configured so those
+          // render as a clearly disabled state instead of a silent no-op.
+          <m3e-icon-button
+            id="sb-push-toggle"
+            title={pushToggle.label}
+            aria-label={pushToggle.label}
+            disabled={pushToggle.unavailable || pushToggle.pending}
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              pushToggle.onClick();
+            }}
+          >
+            <m3e-icon
+              name={pushToggle.unavailable
+                ? "notifications_off"
+                : pushToggle.active
+                ? "notifications_active"
+                : "notifications"}
+            >
             </m3e-icon>
           </m3e-icon-button>
         )}

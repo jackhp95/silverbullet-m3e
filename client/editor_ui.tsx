@@ -57,6 +57,12 @@ import {
   type Path,
 } from "@silverbulletmd/silverbullet/lib/ref";
 import { slugify } from "@silverbulletmd/silverbullet/ui";
+import {
+  getPushSubscriptionState,
+  isPushSupported,
+  subscribeToPush,
+  unsubscribeFromPush,
+} from "./lib/push_subscribe.ts";
 
 // The frontmatter `tags:` value each item_capture_sheet.tsx type gets, and
 // the `captures/<folder>/` directory its page lands in. "contact" maps to
@@ -383,6 +389,112 @@ export class MainUI {
     useEffect(() => {
       document.documentElement.dataset.readOnly = isReadOnly ? "on" : "off";
     }, [isReadOnly]);
+
+    // Web Push subscribe toggle (spec §5.1) — floating toolbar's bell icon.
+    // `pushState` mirrors what `PushManager.getSubscription()`/
+    // `Notification.permission` actually report, checked once at mount, so
+    // a reload (or a permission the user changed in browser settings) still
+    // renders correctly instead of just tracking this session's own clicks.
+    // See client/lib/push_subscribe.ts for the actual subscribe/unsubscribe
+    // logic and where `vapidPublicKey`/`pushSidecarUrl` come from.
+    const [pushState, setPushState] = useState<
+      | "checking"
+      | "unsupported"
+      | "not-configured"
+      | "denied"
+      | "off"
+      | "pending"
+      | "on"
+      | "error"
+    >("checking");
+
+    useEffect(() => {
+      safeRun(async () => {
+        if (!isPushSupported()) {
+          setPushState("unsupported");
+          return;
+        }
+        if (!client.bootConfig.vapidPublicKey || !client.bootConfig.pushSidecarUrl) {
+          setPushState("not-configured");
+          return;
+        }
+        if (Notification.permission === "denied") {
+          setPushState("denied");
+          return;
+        }
+        const registration = await navigator.serviceWorker.ready;
+        const subscribed =
+          (await getPushSubscriptionState(registration)) === "subscribed";
+        setPushState(subscribed ? "on" : "off");
+      });
+      // Deliberately once-at-mount: there's no browser event for a
+      // permission change made outside the app, and re-deriving on every
+      // render would fight the "pending" state set during the click handler
+      // below.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const PUSH_TOGGLE_LABELS: Record<typeof pushState, string> = {
+      checking: "Checking push notification support…",
+      unsupported: "Push notifications are not supported in this browser",
+      "not-configured": "Push notifications are not configured for this server",
+      denied:
+        "Notification permission was denied — enable it in your browser settings",
+      off: "Enable push notifications",
+      pending: "Enabling push notifications…",
+      on: "Push notifications are on — click to turn off",
+      error: "Push notifications failed — click to retry",
+    };
+
+    const pushToggle = pushState === "checking" ? undefined : {
+      active: pushState === "on",
+      unavailable: pushState === "unsupported" || pushState === "not-configured" ||
+        pushState === "denied",
+      pending: pushState === "pending",
+      label: PUSH_TOGGLE_LABELS[pushState],
+      onClick: () =>
+        safeRun(async () => {
+          if (
+            pushState === "unsupported" || pushState === "not-configured" ||
+            pushState === "denied"
+          ) {
+            // Nothing actionable from here — surface why, same channel as
+            // every other client-side notice.
+            client.ui.flashNotification(PUSH_TOGGLE_LABELS[pushState], "info");
+            return;
+          }
+          const registration = await navigator.serviceWorker.ready;
+          if (pushState === "on") {
+            await unsubscribeFromPush(registration);
+            setPushState("off");
+            client.ui.flashNotification("Push notifications turned off");
+            return;
+          }
+          setPushState("pending");
+          const result = await subscribeToPush(registration, {
+            vapidPublicKey: client.bootConfig.vapidPublicKey!,
+            sidecarUrl: client.bootConfig.pushSidecarUrl!,
+          });
+          if (result.ok) {
+            setPushState("on");
+            client.ui.flashNotification("Push notifications enabled");
+          } else if (result.reason === "denied") {
+            setPushState("denied");
+            client.ui.flashNotification(
+              "Notification permission denied",
+              "error",
+            );
+          } else {
+            setPushState("error");
+            client.ui.flashNotification(
+              `Could not enable push notifications: ${
+                result.detail ?? result.reason
+              }`,
+              "error",
+            );
+          }
+        }),
+    };
 
     // m3e-theme's `color` seed is sourced from the space's own
     // `--ui-accent-color` custom property (client/styles/_tokens.scss;
@@ -981,6 +1093,7 @@ export class MainUI {
               }),
           }}
           onNewClick={() => setCaptureSheetOpen(true)}
+          pushToggle={pushToggle}
         />
         <ItemCaptureSheet
           open={captureSheetOpen}
