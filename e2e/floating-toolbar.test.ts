@@ -1,135 +1,58 @@
-import { expect, test } from "./fixtures.ts";
+import { test } from "./fixtures.ts";
 
-// Exercises client/components/floating_toolbar.tsx's reduced 4-item state
-// (spec §2 items 2+12, plan leaf L13 — the final leaf of
-// docs/plans/2026-09-16-toolbar-search-feedback-spec.md): Journal, Add,
-// Search, Read-only toggle, and nothing else. CONFIG actionButtons and the
-// push toggle moved to the app-bar kebab (see
-// e2e/app-bar-leading-trailing.test.ts, e2e/push-notifications.test.ts); the
-// recent-pages menu is subsumed by search_sheet.tsx's own "Open" mode
-// history (e2e/search-sheet.test.ts) — this file only covers the toolbar's
-// own 4 buttons, not those other entry points' full behavior.
+// The pre-existing version of this file (2026-09-16 toolbar-search-feedback
+// spec, leaf L13) tested a since-deleted 4-item toolbar (read-only/search/
+// journal/add) that no longer exists — that design was itself superseded by
+// the nav-bar redesign (N2 deleted floating_toolbar.tsx outright), which is
+// in turn reverted by docs/plans/2026-09-17-vertical-toolbar-search-nav-
+// redesign-spec.md (this plan). Both prior versions are stale; there is no
+// carry-forward content here.
+//
+// This plan's `client/components/floating_toolbar.tsx` (leaf V4, spec §2.1)
+// is REAL and unit-tested today (see the co-located, currently-passing
+// `client/components/floating_toolbar.test.ts` — a Preact render test using
+// `preact-render-to-string`, since this repo's e2e fixtures
+// (`e2e/fixtures.ts`'s `sbServer`/`sbPage`) only know how to boot the full
+// SilverBullet app shell; there is no pattern anywhere in `e2e/` for
+// mounting a single component in isolation). But the component is NOT yet
+// wired into the live app (`client/editor_ui.tsx` doesn't render it — that's
+// leaf V8, a later, separate worktree, per the spec's §5 P2/§5.1). A real
+// `sbPage` today has no `.sb-floating-toolbar` in its DOM at all, so any
+// assertion here would either vacuously fail or assert on nothing.
+//
+// `test.fixme` below records the exact live-app assertions this file should
+// carry once V8 lands and wires FloatingToolbar into editor_ui.tsx — V9 (e2e
+// reconciliation, spec §5 P3) is the leaf responsible for un-skipping these
+// (or superseding them, if V8's wiring changes the details) and running them
+// for real. Left as `fixme`, not deleted, so the gap stays visible in the
+// test runner's summary rather than disappearing silently.
 
-/** Today's date as YYYY-MM-DD, matching the default journal page name. */
-function today(): string {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-test.describe("Floating toolbar (reduced to 4 items)", () => {
-  test.use({
-    spaceFiles: {
-      "index.md": "# Welcome",
+test.describe("Floating toolbar (client/components/floating_toolbar.tsx, V4)", () => {
+  test.fixme(
+    "renders exactly 4 icon-buttons in .sb-floating-toolbar, in order Search/Navigation/Journal/Notifications, once V8 wires FloatingToolbar into editor_ui.tsx",
+    async ({ sbPage }) => {
+      const buttons = sbPage.locator(".sb-floating-toolbar m3e-icon-button");
+      // Order: Search, Navigation, Journal, Notifications.
+      // await expect(buttons).toHaveCount(4);
+      // await expect(buttons.nth(0)).toHaveAttribute("aria-label", "Search");
+      // await expect(buttons.nth(1)).toHaveAttribute("aria-label", "Navigation");
+      // await expect(buttons.nth(2)).toHaveAttribute("aria-label", "Journal");
+      // await expect(buttons.nth(3)).toHaveAttribute("aria-label", "Notifications");
+      void buttons;
     },
-  });
+  );
 
-  test("renders exactly 4 icon-buttons: read-only toggle, search, journal, add", async ({
-    sbPage,
-  }) => {
-    const buttons = sbPage.locator(".sb-floating-toolbar m3e-icon-button");
-    await expect(buttons).toHaveCount(4);
+  test.fixme(
+    "Search button opens the search sheet (once V6 search_sheet.tsx + V8 wiring land)",
+    async ({ sbPage }) => {
+      void sbPage;
+    },
+  );
 
-    await expect(
-      sbPage.locator(
-        '.sb-floating-toolbar m3e-icon-button[aria-label="Read-only mode is off — click to turn on"]',
-      ),
-    ).toHaveCount(1);
-    await expect(
-      sbPage.locator('.sb-floating-toolbar m3e-icon-button[aria-label="Search"]'),
-    ).toHaveCount(1);
-    await expect(
-      sbPage.locator(
-        '.sb-floating-toolbar m3e-icon-button[aria-label="New journal entry"]',
-      ),
-    ).toHaveCount(1);
-    await expect(
-      sbPage.locator('.sb-floating-toolbar m3e-icon-button[aria-label="New…"]'),
-    ).toHaveCount(1);
-  });
-
-  test("Add opens the item-capture bottom sheet", async ({ sbPage }) => {
-    const sheet = sbPage.locator("#sb-item-capture-sheet");
-    await expect(sheet).not.toBeVisible();
-
-    await sbPage.locator('.sb-floating-toolbar [aria-label="New…"]').click();
-
-    await expect(sheet).toBeVisible();
-  });
-
-  test("Search opens the consolidated search sheet, defaulting to Open mode", async ({
-    sbPage,
-  }) => {
-    const sheet = sbPage.locator("#sb-search-sheet");
-    await expect(sheet).not.toBeVisible();
-
-    await sbPage.locator('.sb-floating-toolbar [aria-label="Search"]').click();
-
-    await expect(sheet).toBeVisible();
-    await expect(sbPage.getByRole("radio", { name: "Open" })).toBeChecked();
-  });
-
-  test("Journal jumps straight to today's journal page", async ({ sbPage }) => {
-    // "Journal: Today" (libraries/Library/Std/Journal/Journal.md) is a
-    // space-lua command evaluated from a library page, not a core
-    // editor_commands.ts registration — it can still be registering for a
-    // moment after the editor itself reports ready (same reason
-    // e2e/guide-journaling.test.ts's own helper waits for the command to
-    // appear in the palette before invoking it). Retry the click rather than
-    // assume it's already registered the instant the page loads.
-    const journalButton = sbPage.locator(
-      '.sb-floating-toolbar [aria-label="New journal entry"]',
-    );
-    const pageNameInput = sbPage.locator("#sb-current-page input.sb-input");
-    const expectedPage = `Journal/${today()}`;
-
-    await expect
-      .poll(
-        async () => {
-          await journalButton.click();
-          return await pageNameInput.inputValue();
-        },
-        { timeout: 15_000 },
-      )
-      .toBe(expectedPage);
-  });
-
-  test("Read-only toggle flips read-only mode", async ({ sbPage }) => {
-    const toggle = sbPage.locator(
-      '.sb-floating-toolbar [aria-label="Read-only mode is off — click to turn on"]',
-    );
-    await expect(toggle).toHaveCount(1);
-    await expect(
-      sbPage.evaluate(() => document.documentElement.dataset.readOnly),
-    ).resolves.toBe("off");
-
-    await toggle.click();
-
-    // `document.documentElement.dataset.readOnly` (client/editor_ui.tsx) is
-    // the real effect the toggle drives, not just a label swap.
-    await expect
-      .poll(() =>
-        sbPage.evaluate(() => document.documentElement.dataset.readOnly)
-      )
-      .toBe("on");
-    await expect(
-      sbPage.locator(
-        '.sb-floating-toolbar [aria-label="Read-only mode is on — click to turn off"]',
-      ),
-    ).toHaveCount(1);
-
-    // And back off again, for good measure.
-    await sbPage
-      .locator(
-        '.sb-floating-toolbar [aria-label="Read-only mode is on — click to turn off"]',
-      )
-      .click();
-    await expect
-      .poll(() =>
-        sbPage.evaluate(() => document.documentElement.dataset.readOnly)
-      )
-      .toBe("off");
-  });
+  test.fixme(
+    "Journal button runs \"Journal: Today\" (once V8 wiring lands)",
+    async ({ sbPage }) => {
+      void sbPage;
+    },
+  );
 });
