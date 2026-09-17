@@ -151,6 +151,7 @@ export function TopBar({
   scrollContainerId,
   headerScrolled,
   menuItems = [],
+  readOnlyToggle,
 }: {
   pageName?: string;
   unsavedChanges: boolean;
@@ -176,6 +177,9 @@ export function TopBar({
   headerScrolled?: boolean;
   /** Trailing kebab-menu items (sb-app-bar-menu) — see AppBarMenuItem. */
   menuItems?: AppBarMenuItem[];
+  /** Read-only mode toggle, rendered in the trailing slot before the kebab
+   * trigger. Undefined hides it entirely (e.g. command unavailable). */
+  readOnlyToggle?: { active: boolean; label: string; onClick: () => void };
 }) {
   // No more overflow/kebab trigger here — every actionButton, plus quick
   // capture and journal entry, now live in the single floating vertical
@@ -290,6 +294,27 @@ export function TopBar({
               percentage={progressPercentage}
               type={progressType}
             />
+            {/* V5 (docs/plans/2026-09-17-vertical-toolbar-search-nav-redesign-spec.md
+                §2.2): read-only toggle, added directly to the trailing slot —
+                it previously had no UI home at all (a real regression, not a
+                preservation, per §1.3). `editor_ui.tsx` (V8, later/separate
+                leaf) constructs this object from live command-availability
+                state; undefined here just hides the button. */}
+            {readOnlyToggle && (
+              <m3e-icon-button
+                title={readOnlyToggle.label}
+                aria-label={readOnlyToggle.label}
+                onClick={(e: MouseEvent) => {
+                  e.preventDefault();
+                  readOnlyToggle.onClick();
+                }}
+              >
+                <m3e-icon
+                  name={readOnlyToggle.active ? "lock" : "lock_open"}
+                >
+                </m3e-icon>
+              </m3e-icon-button>
+            )}
             {/* L7: kebab menu — shell + trigger + positioning only in this
                 leaf. Real content (Web Push toggle, CONFIG link, etc.) is
                 wired in by a follow-up leaf (L8) via the `menuItems` prop,
