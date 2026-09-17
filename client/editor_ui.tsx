@@ -16,6 +16,7 @@ import {
   TopBar,
 } from "./components/top_bar.tsx";
 import { Fab, NavBar } from "./components/nav_bar.tsx";
+import { RecentView } from "./components/nav_views/recent.tsx";
 import {
   type CaptureItemType,
   ItemCaptureSheet,
@@ -79,6 +80,12 @@ import {
 // N4 isn't listed among that file's owners), since it's wiring-level, same
 // as this file's other viewState-driven panels above.
 const NAV_PANEL_PLACEHOLDERS: Record<NavDestination, string> = {
+  // Dead for "recent" (N6): the panel-host render below intercepts
+  // navDestination === "recent" before this lookup is ever reached, and
+  // renders the real RecentView instead. Left in place (rather than
+  // narrowing the Record's key type) so this stays a same-shape object
+  // N7-N9 can each still land their own key removal independently without
+  // colliding on a shared type-annotation edit.
   recent: "Recent — coming soon",
   search: "Search — coming soon",
   run: "Run — coming soon",
@@ -1082,7 +1089,29 @@ export class MainUI {
         <Fab onClick={() => setCaptureSheetOpen(true)} />
         {viewState.navDestination !== null && (
           <div className="sb-nav-panel" role="region">
-            {NAV_PANEL_PLACEHOLDERS[viewState.navDestination]}
+            {viewState.navDestination === "recent"
+              ? (
+                // N6: real Recent view — relocation of search_sheet.tsx's
+                // "open" mode (spec §2.5/§5). Same documentExtensions/
+                // currentPath AnythingPicker already uses above, same
+                // navigateToAnythingPickerName/Ref close-callback
+                // convention (closes via `close-nav-panel` instead of
+                // `stop-navigate`).
+                <RecentView
+                  allPages={viewState.allPages}
+                  allDocuments={viewState.allDocuments}
+                  extensions={documentExtensions}
+                  currentPath={client.currentPath()}
+                  recentPaths={client.recentPaths}
+                  onNavigate={(name) =>
+                    navigateToAnythingPickerName(name, () =>
+                      dispatch({ type: "close-nav-panel" }))}
+                  onNavigateRef={(ref) =>
+                    navigateToAnythingPickerRef(ref, () =>
+                      dispatch({ type: "close-nav-panel" }))}
+                />
+              )
+              : NAV_PANEL_PLACEHOLDERS[viewState.navDestination]}
           </div>
         )}
         <ItemCaptureSheet
