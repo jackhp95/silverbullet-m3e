@@ -172,28 +172,63 @@
     }
   }
 
+  // Slash-command / editor autocomplete tooltip (CM6 `.cm-tooltip-autocomplete`,
+  // wired in `codemirror/editor_state.ts`'s `autocompletion()`). No clean hook
+  // to swap CM's own <ul>/<li> for real m3e-menu/m3e-list-item elements —
+  // `@codemirror/autocomplete`'s `completionTooltip` only exposes classname
+  // hooks (`optionClass`/`tooltipClass`/`addToOptions`), not a DOM/tag swap —
+  // so this is a token-driven CSS reskin, not an element swap. CM appends the
+  // tooltip inside `.cm-editor` (no `parent` set on `tooltips()`), which lives
+  // inside `editor_ui.tsx`'s `<m3e-theme>` wrapper, so `--md-sys-color-*`
+  // inherits here like any other reskinned surface.
   .cm-editor .cm-tooltip-autocomplete {
-    background-color: var(--root-background-color);
-    color: var(--modal-color);
+    // Named local custom props (not inlined into background-color/color
+    // directly) so a `getComputedStyle` read can compare them against
+    // `--md-sys-color-*` as literal-vs-literal (e2e-verifiable, same
+    // pattern as `--m3e-outlined-chip-outline-color` above) instead of
+    // fighting rgb()-vs-hex formatting on the resolved CSS property.
+    --sb-autocomplete-surface-color: var(--md-sys-color-surface-container);
+    --sb-autocomplete-on-surface-color: var(--md-sys-color-on-surface);
+    background-color: var(--sb-autocomplete-surface-color);
+    color: var(--sb-autocomplete-on-surface-color);
+    border: none;
+    border-radius: var(--md-sys-shape-corner-value-small, 8px);
+    box-shadow:
+      0px 1px 2px 0px
+        color-mix(in srgb, var(--md-sys-color-shadow, #000) 30%, transparent),
+      0px 2px 6px 2px
+        color-mix(in srgb, var(--md-sys-color-shadow, #000) 15%, transparent);
+    overflow: hidden;
+    padding: 4px 0;
+
+    li {
+      margin: 0 4px;
+      border-radius: var(--md-sys-shape-corner-value-extra-small, 4px);
+    }
 
     li .cm-completionDetail {
-      color: var(--editor-completion-detail-color);
+      color: var(--md-sys-color-on-surface-variant);
     }
 
     li[aria-selected] .cm-completionDetail,
     li:hover .cm-completionDetail {
-      color: var(--editor-completion-detail-selected-color);
+      color: inherit;
     }
 
-    ul:hover li[aria-selected] {
-      background: transparent;
-      color: var(--modal-color);
-    }
+    // `!important`: CM's own baseTheme ships
+    // `&light .cm-tooltip-autocomplete ul li[aria-selected] { background: #17c }`
+    // via an injected StyleModule with higher selector specificity
+    // (`.cm-editor.cm-light …`) than anything reachable from here — the only
+    // reliable way to fully own the selection color is to out-rank it.
+    --sb-autocomplete-selected-color: var(--md-sys-color-secondary-container);
+    --sb-autocomplete-on-selected-color: var(
+      --md-sys-color-on-secondary-container
+    );
 
-    ul li:hover,
-    ul li[aria-selected]:hover {
-      background: #17c;
-      color: white;
+    li[aria-selected],
+    li:hover {
+      background-color: var(--sb-autocomplete-selected-color) !important;
+      color: var(--sb-autocomplete-on-selected-color) !important;
     }
   }
 
