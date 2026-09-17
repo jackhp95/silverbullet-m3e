@@ -544,15 +544,27 @@
     margin: 10px 0 0 0;
   }
 
-  .sb-lua-top-widget h1,
-  .sb-lua-bottom-widget h1 {
-    margin: -10px -10px 10px -10px !important;
-    // Vertical padding chosen so the rendered h1 strip has the same total
-    // height as the hover-revealed `.button-bar` overlay sitting on top of it
-    padding: 16px 10px !important;
-    background-color: var(--editor-widget-background-color);
-    font-size: 1.2em;
-    line-height: 1;
+  // TOP/BOTTOM array widgets (Linked Mentions, TOC, Linked Tasks, …) now
+  // render an `m3e-card` (lua_widget.ts `wrapHtmlAsCard`, `!opts.inPage`
+  // only) instead of a bare heading + hover-revealed button-bar overlay —
+  // the card's own `m3e-app-bar` header replaces the old h1-background hack
+  // (superseded rule removed) and supplies its own outline/elevation, so the
+  // wrapper div's own box is redundant here.
+  .sb-lua-top-widget:has(> m3e-card),
+  .sb-lua-bottom-widget:has(> m3e-card) {
+    border: none;
+    min-height: 0;
+  }
+
+  // No padding of our own here: `m3e-card`'s `content` slot already applies
+  // `--m3e-card-padding` around whatever is slotted in.
+  .sb-lua-card-content {
+    max-height: 500px;
+    overflow-y: auto;
+
+    &[hidden] {
+      display: none;
+    }
   }
 
   .sb-markdown-top-widget h1,
