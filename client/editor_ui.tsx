@@ -17,6 +17,7 @@ import {
 } from "./components/top_bar.tsx";
 import { Fab, NavBar } from "./components/nav_bar.tsx";
 import { RecentView } from "./components/nav_views/recent.tsx";
+import { SearchView } from "./components/nav_views/search.tsx";
 import {
   type CaptureItemType,
   ItemCaptureSheet,
@@ -75,16 +76,17 @@ import {
 // Nav-bar destination panel host (2026-09-17 nav-bar redesign spec §2.3
 // option (a), leaf N4) — a plain repo-owned fixed `<div>` (`.sb-nav-panel`
 // in top.scss), NOT an `m3e-bottom-sheet`. Placeholder content only for
-// this leaf; N5-N9 each replace one entry with a real `nav_views/*.tsx`
-// view. Not owned by nav_bar.tsx (see the spec's §5.1 file-overlap table —
-// N4 isn't listed among that file's owners), since it's wiring-level, same
-// as this file's other viewState-driven panels above.
+// leaves that haven't landed yet; N5-N9 each replace one entry with a real
+// `nav_views/*.tsx` view. Not owned by nav_bar.tsx (see the spec's §5.1
+// file-overlap table — N4 isn't listed among that file's owners), since
+// it's wiring-level, same as this file's other viewState-driven panels
+// above.
 const NAV_PANEL_PLACEHOLDERS: Record<NavDestination, string> = {
-  // Dead for "recent" (N6): the panel-host render below intercepts
-  // navDestination === "recent" before this lookup is ever reached, and
-  // renders the real RecentView instead. Left in place (rather than
-  // narrowing the Record's key type) so this stays a same-shape object
-  // N7-N9 can each still land their own key removal independently without
+  // Dead for "recent" (N6) and "search" (N7): the panel-host render below
+  // intercepts both destinations before this lookup is ever reached, and
+  // renders the real RecentView/SearchView instead. Left in place (rather
+  // than narrowing the Record's key type) so this stays a same-shape object
+  // N8/N9 can each still land their own key removal independently without
   // colliding on a shared type-annotation edit.
   recent: "Recent — coming soon",
   search: "Search — coming soon",
@@ -1064,14 +1066,15 @@ export class MainUI {
           // Bottom nav bar + FAB (2026-09-17 nav-bar redesign spec, leaves
           // N2+N3) — replaces the old floating vertical toolbar entirely.
           // Journal is an action-only item (no panel, spec §2.4); the other
-          // four are destinations whose panels are placeholders until N5-N9
-          // relocate the real Recent/Search/Run/Notifications views here.
+          // four are destinations whose panels are placeholders until
+          // N5/N6/N8/N9 relocate the real Recent/Run/Notifications views
+          // here (Search is done — leaf N7, below).
           //
           // The read-only toggle's old toolbar-icon-button home is gone
           // with the toolbar; its new home is the app-bar kebab (spec's
           // leaf N10, not yet landed) — a deliberate, temporary gap in this
-          // 12-leaf sequential rollout, same as the Search panel's
-          // placeholder content until N7.
+          // 12-leaf sequential rollout, same as the remaining panels'
+          // placeholder content until their own leaves land.
         }
         <NavBar
           navDestination={viewState.navDestination}
@@ -1109,6 +1112,31 @@ export class MainUI {
                   onNavigateRef={(ref) =>
                     navigateToAnythingPickerRef(ref, () =>
                       dispatch({ type: "close-nav-panel" }))}
+                />
+              )
+              : viewState.navDestination === "search"
+              ? (
+                // N7: real Search view — relocation of search_sheet.tsx's
+                // "search" mode (spec §2.5/§5). Same close-callback
+                // convention as RecentView above; also wires the optional
+                // /^Search/ delegate command through triggerCommand (same
+                // helper AnythingPicker's command-palette call site uses).
+                <SearchView
+                  allPages={viewState.allPages}
+                  extensions={documentExtensions}
+                  currentPath={client.currentPath()}
+                  commands={viewState.commands}
+                  recentSearchTerms={client.recentSearchTerms}
+                  onNavigate={(name) =>
+                    navigateToAnythingPickerName(name, () =>
+                      dispatch({ type: "close-nav-panel" }))}
+                  onNavigateRef={(ref) =>
+                    navigateToAnythingPickerRef(ref, () =>
+                      dispatch({ type: "close-nav-panel" }))}
+                  onTriggerCommand={(cmd) =>
+                    triggerCommand(cmd, () =>
+                      dispatch({ type: "close-nav-panel" }))}
+                  onClose={() => dispatch({ type: "close-nav-panel" })}
                 />
               )
               : NAV_PANEL_PLACEHOLDERS[viewState.navDestination]}

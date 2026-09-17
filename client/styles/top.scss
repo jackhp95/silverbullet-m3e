@@ -198,6 +198,49 @@
   max-height: 50dvh;
 }
 
+// Nav "Search" destination panel content (leaf N7, client/components/
+// nav_views/search.tsx) — relocated from search_sheet.tsx's "search" mode,
+// so its own result-row theming reuses the exact same class names
+// (.sb-option/.sb-hint/.sb-name/.sb-description) that file's
+// `.sb-search-sheet-body` block already uses (see colors.scss's matching
+// `.sb-nav-search-result-list` block), rooted under its own selector
+// instead of piggybacking on `.sb-search-sheet-body` — same reasoning as
+// that file's own header comment: this isn't that sheet, it's the
+// `.sb-nav-panel` host's content, its own (non-outer-chrome) root.
+.sb-nav-search-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px 12px;
+  overflow-y: auto;
+
+  .sb-nav-panel-title {
+    font-weight: 500;
+  }
+
+  .sb-nav-search-result-list {
+    max-height: 320px;
+    overflow-y: scroll;
+  }
+
+  .sb-nav-search-empty {
+    padding: 12px 4px;
+  }
+
+  .sb-option {
+    cursor: pointer;
+  }
+
+  .sb-selected-option {
+    --m3e-list-item-container-shape: 8px;
+  }
+
+  .sb-hint {
+    padding: 3px 5px;
+    border-radius: 5px;
+  }
+}
+
 .sb-fab {
   position: fixed;
   right: 24px;

@@ -164,6 +164,29 @@
   }
 }
 
+// Nav "Search" destination panel's result/history list (leaf N7,
+// client/components/nav_views/search.tsx) — relocated out of
+// .sb-search-sheet-result-list's `.sb-nav-panel` host, same --modal-*
+// tokens as the block above, no third palette.
+.sb-nav-search-result-list {
+  .sb-hint {
+    color: var(--modal-hint-color);
+    background-color: var(--modal-hint-background-color);
+  }
+
+  --m3e-list-item-supporting-text-color: var(--modal-description-color);
+
+  .sb-selected-option {
+    --m3e-list-item-container-color: var(
+      --modal-selected-option-background-color
+    );
+    --m3e-list-item-label-text-color: var(--modal-selected-option-color);
+    --m3e-list-item-supporting-text-color: var(
+      --modal-selected-option-description-color
+    );
+  }
+}
+
 /* Editor */
 
 #sb-editor {
