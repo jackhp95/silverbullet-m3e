@@ -17,6 +17,12 @@ export type PanelConfig = {
   script?: string;
 };
 
+// Bottom nav-bar destinations (docs/plans/2026-09-17-nav-bar-fab-search-redesign-spec.md,
+// leaf N1). Journal is deliberately excluded — it's an action, not a
+// destination with a panel (spec §2.4) — so it never appears in this union
+// and is never the selected nav item.
+export type NavDestination = "recent" | "search" | "run" | "notifications";
+
 export type AppViewState = {
   current?: {
     path: Path;
@@ -32,12 +38,14 @@ export type AppViewState = {
   showPageNavigator: boolean;
   showCommandPalette: boolean;
   showCommandPaletteContext?: string;
-  // Consolidated search bottom sheet (search_sheet.tsx, L10-L12). Unlike
-  // showPageNavigator/showCommandPalette above, the sheet component itself
-  // stays mounted regardless of this flag (see editor_ui.tsx) so its
-  // m3e-bottom-sheet can play its close animation — this flag only drives
-  // the sheet's `open` property.
-  showSearchSheet: boolean;
+  // Nav-bar destination panel (nav_bar.tsx, N1-N4 of the 2026-09-17 redesign
+  // spec) — supersedes the old boolean search-sheet-visibility flag this
+  // field replaced. `null` = no panel open; otherwise the currently-selected
+  // destination, whose content is rendered by the panel host
+  // (.sb-nav-panel). A pure selection value, not a stack —
+  // `select-nav-destination`/`close-nav-panel` (reducer.ts) are plain
+  // setters; toggle-if-already-selected logic lives in nav_bar.tsx.
+  navDestination: NavDestination | null;
   unsavedChanges: boolean;
   isOnline: boolean;
 
@@ -84,7 +92,7 @@ export const initialViewState: AppViewState = {
   isLoading: false,
   showPageNavigator: false,
   showCommandPalette: false,
-  showSearchSheet: false,
+  navDestination: null,
   pageNavigatorMode: "page",
   unsavedChanges: false,
   isOnline: true,
@@ -136,8 +144,8 @@ export type Action =
     }
   | { type: "show-palette"; context?: string; commands: Map<string, Command> }
   | { type: "hide-palette" }
-  | { type: "show-search-sheet" }
-  | { type: "hide-search-sheet" }
+  | { type: "select-nav-destination"; destination: NavDestination }
+  | { type: "close-nav-panel" }
   | {
       type: "show-panel";
       id: "rhs" | "lhs" | "bhs" | "modal";

@@ -10,13 +10,12 @@ import {
   navigateToAnythingPickerName,
   navigateToAnythingPickerRef,
 } from "./components/anything_picker.tsx";
-import { SearchSheet } from "./components/search_sheet.tsx";
 import {
   type AppBarMenuItem,
   type BreadcrumbItem,
   TopBar,
 } from "./components/top_bar.tsx";
-import { FloatingToolbar } from "./components/floating_toolbar.tsx";
+import { Fab, NavBar } from "./components/nav_bar.tsx";
 import {
   type CaptureItemType,
   ItemCaptureSheet,
@@ -26,6 +25,7 @@ import {
   type Action,
   type AppViewState,
   initialViewState,
+  type NavDestination,
 } from "./types/ui.ts";
 import "@m3e/web/theme";
 import "@m3e/web/snackbar";
@@ -70,6 +70,20 @@ import {
   subscribeToPush,
   unsubscribeFromPush,
 } from "./lib/push_subscribe.ts";
+
+// Nav-bar destination panel host (2026-09-17 nav-bar redesign spec §2.3
+// option (a), leaf N4) — a plain repo-owned fixed `<div>` (`.sb-nav-panel`
+// in top.scss), NOT an `m3e-bottom-sheet`. Placeholder content only for
+// this leaf; N5-N9 each replace one entry with a real `nav_views/*.tsx`
+// view. Not owned by nav_bar.tsx (see the spec's §5.1 file-overlap table —
+// N4 isn't listed among that file's owners), since it's wiring-level, same
+// as this file's other viewState-driven panels above.
+const NAV_PANEL_PLACEHOLDERS: Record<NavDestination, string> = {
+  recent: "Recent — coming soon",
+  search: "Search — coming soon",
+  run: "Run — coming soon",
+  notifications: "Notifications — coming soon",
+};
 
 // The frontmatter `tags:` value each item_capture_sheet.tsx type gets, and
 // the `captures/<folder>/` directory its page lands in. "contact" maps to
@@ -373,12 +387,27 @@ export class MainUI {
     const [viewState, dispatch] = useReducer(reducer, initialViewState);
     this.viewState = viewState;
     this.viewDispatch = dispatch;
-    // Controls the unified item-creation m3e-bottom-sheet (floating
-    // toolbar's "New" button) — fully Preact-controlled, see
-    // item_capture_sheet.tsx.
+    // Controls the unified item-creation m3e-bottom-sheet (nav bar's FAB) —
+    // fully Preact-controlled, see item_capture_sheet.tsx.
     const [captureSheetOpen, setCaptureSheetOpen] = useState(false);
 
     const client = this.client;
+
+    // Escape closes the nav-bar destination panel (N4). Only attached while
+    // a panel is actually open, and removed the moment it closes for any
+    // other reason (clicking the same nav item again, selecting a different
+    // destination doesn't need this — it's a straight dispatch) — no
+    // dangling listener once `navDestination` goes back to `null`.
+    useEffect(() => {
+      if (viewState.navDestination === null) return;
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          dispatch({ type: "close-nav-panel" });
+        }
+      };
+      document.addEventListener("keydown", handleKeyDown);
+      return () => document.removeEventListener("keydown", handleKeyDown);
+    }, [viewState.navDestination]);
 
     // Single source of truth for read-only state — the same expression that
     // already drove TopBar's readOnly prop below and CodeMirror's editable
@@ -874,29 +903,6 @@ export class MainUI {
             darkMode={viewState.uiOptions.darkMode}
           />
         )}
-        <SearchSheet
-          open={viewState.showSearchSheet}
-          onClose={() => dispatch({ type: "hide-search-sheet" })}
-          darkMode={viewState.uiOptions.darkMode}
-          allPages={viewState.allPages}
-          allDocuments={viewState.allDocuments}
-          extensions={documentExtensions}
-          currentPath={client.currentPath()}
-          recentPaths={client.recentPaths}
-          recentSearchTerms={client.recentSearchTerms}
-          commands={client.getCommandsByContext(viewState)}
-          onNavigate={(name) =>
-            navigateToAnythingPickerName(name, () =>
-              dispatch({ type: "hide-search-sheet" }))}
-          onNavigateRef={(ref) =>
-            navigateToAnythingPickerRef(ref, () =>
-              dispatch({ type: "hide-search-sheet" }))}
-          onTriggerCommand={(cmd) =>
-            triggerCommand(
-              cmd,
-              () => dispatch({ type: "hide-search-sheet" }),
-            )}
-        />
         {viewState.showFilterBox && (
           <FilterList
             label={viewState.filterBoxLabel}
@@ -1048,52 +1054,37 @@ export class MainUI {
           </div>
         )}
         {
-          // Reduced floating toolbar, bottom-right (L13, final leaf of
-          // docs/plans/2026-09-16-toolbar-search-feedback-spec.md) — exactly
-          // Jack's 4 items: read-only toggle, search, journal, add. CONFIG
-          // actionButtons and the push toggle moved to the app-bar's kebab
-          // (menuItems above, L8); the recent-pages menu is subsumed by
-          // SearchSheet's own "Open" mode history (client.recentPaths, same
-          // source this used to read directly). "New journal entry" stays a
-          // direct top-level action (Journal is already a first-class SB
-          // feature, worth one click rather than a sheet round-trip); "New"
-          // opens the unified item-creation bottom sheet
-          // (item_capture_sheet.tsx) — see `handleCaptureSubmit` below for
-          // what each of its 5 types actually does on submit; "Search" opens
-          // search_sheet.tsx directly via `client.startSearchSheet()` (the
-          // same call the "Navigate: Search Sheet" command runs).
+          // Bottom nav bar + FAB (2026-09-17 nav-bar redesign spec, leaves
+          // N2+N3) — replaces the old floating vertical toolbar entirely.
+          // Journal is an action-only item (no panel, spec §2.4); the other
+          // four are destinations whose panels are placeholders until N5-N9
+          // relocate the real Recent/Search/Run/Notifications views here.
+          //
+          // The read-only toggle's old toolbar-icon-button home is gone
+          // with the toolbar; its new home is the app-bar kebab (spec's
+          // leaf N10, not yet landed) — a deliberate, temporary gap in this
+          // 12-leaf sequential rollout, same as the Search panel's
+          // placeholder content until N7.
         }
-        <FloatingToolbar
-          readOnlyToggle={
-            viewState.commands.has("Editor: Toggle Read Only Mode")
-              ? {
-                active: isReadOnly,
-                label: isReadOnly
-                  ? "Read-only mode is on — click to turn off"
-                  : "Read-only mode is off — click to turn on",
-                onClick: () =>
-                  safeRun(async () => {
-                    await client.runCommandByName(
-                      "Editor: Toggle Read Only Mode",
-                    );
-                  }),
-              }
-              : undefined
-          }
-          search={{
-            label: "Search",
-            onClick: () => safeRun(async () => await client.startSearchSheet()),
-          }}
+        <NavBar
+          navDestination={viewState.navDestination}
           journal={{
-            iconName: "edit_calendar",
-            label: "New journal entry",
+            available: viewState.commands.has("Journal: Today"),
             onClick: () =>
               safeRun(async () => {
                 await client.runCommandByName("Journal: Today");
               }),
           }}
-          onNewClick={() => setCaptureSheetOpen(true)}
+          onSelectDestination={(destination) =>
+            dispatch({ type: "select-nav-destination", destination })}
+          onCloseDestination={() => dispatch({ type: "close-nav-panel" })}
         />
+        <Fab onClick={() => setCaptureSheetOpen(true)} />
+        {viewState.navDestination !== null && (
+          <div className="sb-nav-panel" role="region">
+            {NAV_PANEL_PLACEHOLDERS[viewState.navDestination]}
+          </div>
+        )}
         <ItemCaptureSheet
           open={captureSheetOpen}
           onCancel={() => setCaptureSheetOpen(false)}

@@ -150,18 +150,64 @@
   }
 }
 
-// The floating vertical toolbar (client/components/floating_toolbar.tsx)
-// consolidates what used to be two separate fixed-position elements here —
-// the app-bar's kebab/overflow menu (now gone, its contents are toolbar
-// icons) and this exact FAB placement rule (formerly `#sb-fab`). Same
-// Material placement guidance as before: fixed, screen corner, above other
-// chrome. m3e-toolbar supplies no positioning of its own (see its own doc
-// comment in floating_toolbar.tsx) — this is that placement.
-.sb-floating-toolbar {
+// Bottom nav bar + FAB + destination panel (2026-09-17 nav-bar redesign
+// spec §2.3, leaves N2-N4) — replaces the old floating vertical toolbar
+// (`.sb-floating-toolbar`, `floating_toolbar.tsx`, deleted). Three fixed
+// siblings stacked bottom-to-top: the nav bar itself, its destination panel
+// directly above it, and the FAB above that. `--sb-nav-bar-height` is a
+// layout token this fork supplies (mirrors `--m3e-nav-bar-height`, the
+// component's own internal sizing token, but as a value the panel/FAB
+// placement below can reference too) — same role `.sb-floating-toolbar`
+// used to play for `m3e-toolbar`, which also supplies no positioning of its
+// own (NavBarElement.ts: `display: block; overflow: hidden`, no fixed
+// positioning).
+:root {
+  --sb-nav-bar-height: 80px;
+}
+
+.sb-nav-bar {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 31;
+  // Ties the component's own internal sizing token to `--sb-nav-bar-height`
+  // so the bar's REAL rendered height (NavBarElement.ts's own
+  // `min-height: var(--m3e-nav-bar-height, 64px)`) actually matches the
+  // value `.sb-nav-panel`/`.sb-fab`/`#sb-editor` below offset against —
+  // without this, the panel/FAB math silently assumes 80px while the bar
+  // itself renders at its 64px default, opening a real gap between the
+  // panel's bottom edge and the bar's top edge (caught live by
+  // e2e/nav-bar.test.ts's "no gap or overlap" assertion).
+  --m3e-nav-bar-height: var(--sb-nav-bar-height);
+}
+
+// §2.3 option (a) (preferred, and what this fork uses): a plain repo-owned
+// fixed <div> hosting the active destination's view — NOT an
+// `m3e-bottom-sheet`. Decompiled `dist/bottom-sheet.js` (spec §1.3) shows
+// `modal` is what puts a bottom sheet in the popover top layer with an
+// inert-lock + backdrop-dismiss handler; a plain fixed div has none of
+// that, so it stays in the normal layer, z-index-orderable against the nav
+// bar, which is exactly what keeps the nav bar clickable while this is
+// open (see nav_bar.tsx's panel-host comment for the acceptance test this
+// enables).
+.sb-nav-panel {
+  position: fixed;
+  inset-inline: 0;
+  bottom: var(--sb-nav-bar-height);
+  z-index: 30;
+  max-height: 50dvh;
+}
+
+.sb-fab {
   position: fixed;
   right: 24px;
-  bottom: 24px;
-  z-index: 30;
+  bottom: calc(var(--sb-nav-bar-height) + 16px);
+  z-index: 32;
+}
+
+// So the last line of editor content isn't occluded by the fixed nav bar.
+#sb-editor {
+  padding-bottom: var(--sb-nav-bar-height);
 }
 
 // m3e-snackbar (client/editor_ui.tsx's flashNotification) and

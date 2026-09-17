@@ -330,8 +330,7 @@ type M3eDialogActionAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
 // replacing the hand-rolled conic-gradient spinner. See
 // @m3e/web/progress-indicator card / CircularProgressIndicatorElement.d.ts.
 type M3eCircularProgressIndicatorAttributes =
-  & PreactJSX.HTMLAttributes<HTMLElement>
-  & {
+  PreactJSX.HTMLAttributes<HTMLElement> & {
     /** Whether to show activity without conveying progress. @default false */
     indeterminate?: boolean;
     /** The maximum progress value. @default 100 */
@@ -384,6 +383,78 @@ type M3eDrawerToggleAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   for?: string | null;
 };
 
+// m3e-nav-bar / m3e-nav-item: client/components/nav_bar.tsx's bottom
+// navigation shell (2026-09-17 nav-bar redesign spec, leaf N2). Verified
+// against node_modules/@m3e/web/dist/custom-elements.json (src/nav-bar/
+// NavBarElement.ts, NavItemElement.ts) AND the compiled dist/nav-bar.js
+// (see nav_bar.tsx's own header comment for the decompiled
+// `_M3eNavItemElement_handleClick` this depends on). `beforeinput` and
+// `change` are NOT standard GlobalEventHandlers event names on a plain
+// custom element (no native `onbeforeinput`/`onchange` IDL semantics apply
+// the same way here as on a real <input>), but per the m3e-autocomplete
+// comment above and Preact's own props.js behavior, `onChange` still
+// resolves correctly because `onchange` DOES already exist as a native
+// HTMLElement IDL property — verified live, same reasoning as
+// M3eAutocompleteAttributes.onChange. `onBeforeInput` likewise resolves
+// correctly because `onbeforeinput` is a real (if less commonly used)
+// native HTMLElement IDL property (Input Events Level 2) — unlike
+// M3eDialogAttributes' `onclosed`/etc, which have no native counterpart and
+// must stay all-lowercase.
+type M3eNavBarAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  /** @default "compact" */
+  mode?: "auto" | "compact" | "expanded";
+  onChange?: (e: Event) => void;
+  onBeforeInput?: (e: Event) => void;
+};
+
+type M3eNavItemAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  disabled?: boolean;
+  "disabled-interactive"?: boolean;
+  download?: string | null;
+  href?: string;
+  /** @default "vertical" */
+  orientation?: "vertical" | "horizontal";
+  rel?: string;
+  /** Whether the element is selected. @default false */
+  selected?: boolean;
+  target?: "_self" | "_blank" | "_parent" | "_top" | (string & {});
+  onBeforeInput?: (e: Event) => void;
+  onChange?: (e: Event) => void;
+};
+
+// m3e-fab: client/components/nav_bar.tsx's Add trigger (leaf N3), opening
+// the existing, unchanged ItemCaptureSheet. See @m3e/web/fab card /
+// FabElement.ts. Deliberately NOT paired with m3e-fab-menu — spec §2.2's
+// fully-reasoned rejection (item_capture_sheet.tsx's own segmented picker
+// already is "the fab menu", one tap later, where it's editable).
+type M3eFabAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  disabled?: boolean;
+  "disabled-interactive"?: boolean;
+  download?: string | null;
+  /** Whether the button is extended to show the label. @default false */
+  extended?: boolean;
+  href?: string;
+  /** Whether to present a lowered elevation. @default false */
+  lowered?: boolean;
+  name?: string;
+  rel?: string;
+  /** @default "medium" */
+  size?: "small" | "medium" | "large";
+  target?: "_self" | "_blank" | "_parent" | "_top" | (string & {});
+  /** @default "button" */
+  type?: "button" | "submit" | "reset";
+  value?: string;
+  /** @default "primary-container" */
+  variant?:
+    | "primary"
+    | "primary-container"
+    | "secondary"
+    | "secondary-container"
+    | "tertiary"
+    | "tertiary-container"
+    | "surface";
+};
+
 interface M3eIntrinsicElements {
   "m3e-search-view": M3eSearchViewAttributes;
   "m3e-list": M3eListAttributes;
@@ -413,6 +484,9 @@ interface M3eIntrinsicElements {
   "m3e-badge": M3eBadgeAttributes;
   "m3e-drawer-container": M3eDrawerContainerAttributes;
   "m3e-drawer-toggle": M3eDrawerToggleAttributes;
+  "m3e-nav-bar": M3eNavBarAttributes;
+  "m3e-nav-item": M3eNavItemAttributes;
+  "m3e-fab": M3eFabAttributes;
 }
 
 declare module "preact" {

@@ -551,22 +551,31 @@ export class Client {
   }
 
   /**
-   * Opens the consolidated search bottom sheet (search_sheet.tsx, L10-L12) —
-   * one entry point covering open/run/search, replacing the need to pick
-   * among the separate page-picker/command-palette keybindings for the
-   * common case. Those older entry points stay reachable independently.
+   * Opens the Search destination on the bottom nav bar (nav_bar.tsx) — one
+   * entry point covering open/run/search, replacing the need to pick among
+   * the separate page-picker/command-palette keybindings for the common
+   * case. Those older entry points stay reachable independently.
+   *
+   * Retargeted 2026-09-17 (spec's leaf N1) from the old consolidated
+   * `search_sheet.tsx` modal (`show-search-sheet`) to
+   * `select-nav-destination("search")`. Search's own panel content is a
+   * placeholder until leaf N7 relocates `search_sheet.tsx`'s logic into
+   * `nav_views/search.tsx`.
    *
    * Mirrors `startCommandPalette`'s own `commandAugmenter.augmentObjectMap`
    * call (awaited before the dispatch, not after): `registerCommandRun`
    * only persists `lastRun` to the datastore, it never mutates the
    * in-memory Command objects living in `viewState.commands` — those only
    * get pulled fresh here. Without this, run-mode's "sorted by def.lastRun"
-   * history (L12) would show stale recency the next time the sheet opens.
+   * history (L12) would show stale recency the next time the panel opens.
    */
   async startSearchSheet() {
     const commands = this.ui.viewState.commands;
     await this.commandAugmenter.augmentObjectMap(commands);
-    this.ui.viewDispatch({ type: "show-search-sheet" });
+    this.ui.viewDispatch({
+      type: "select-nav-destination",
+      destination: "search",
+    });
     this.updatePageListCache().catch(console.error);
     this.updateDocumentListCache().catch(console.error);
   }
@@ -1226,8 +1235,7 @@ export class Client {
   private async initNavigator() {
     this.pageNavigator = new PathPageNavigator(this);
 
-    this.recentPaths =
-      (await this.ds.get(["client", "recentPaths"])) ?? [];
+    this.recentPaths = (await this.ds.get(["client", "recentPaths"])) ?? [];
     this.recentSearchTerms =
       (await this.ds.get(["client", "recentSearchTerms"])) ?? [];
 
