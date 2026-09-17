@@ -573,8 +573,7 @@ export class Client {
     const commands = this.ui.viewState.commands;
     await this.commandAugmenter.augmentObjectMap(commands);
     this.ui.viewDispatch({
-      type: "select-nav-destination",
-      destination: "search",
+      type: "show-search-sheet",
     });
     this.updatePageListCache().catch(console.error);
     this.updateDocumentListCache().catch(console.error);

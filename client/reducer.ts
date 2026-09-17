@@ -133,19 +133,26 @@ export default function reducer(
         showCommandPalette: false,
         showCommandPaletteContext: undefined,
       };
-    // Pure setters — the nav bar (nav_bar.tsx) owns the toggle-if-already-
-    // selected logic; selecting the already-active destination is a no-op
-    // in the sense that it yields the same navDestination value, not
-    // because this reducer special-cases it (spec §5, leaf N1).
-    case "select-nav-destination":
+    // Pure setters (spec §5, leaf V1).
+    case "show-search-sheet":
       return {
         ...state,
-        navDestination: action.destination,
+        searchSheetOpen: true,
       };
-    case "close-nav-panel":
+    case "hide-search-sheet":
       return {
         ...state,
-        navDestination: null,
+        searchSheetOpen: false,
+      };
+    case "show-navigation-sheet":
+      return {
+        ...state,
+        navigationSheetOpen: true,
+      };
+    case "hide-navigation-sheet":
+      return {
+        ...state,
+        navigationSheetOpen: false,
       };
     case "update-commands":
       return {
