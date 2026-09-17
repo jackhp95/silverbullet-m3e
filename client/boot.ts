@@ -190,6 +190,46 @@ safeRun(async () => {
     await flushCachesAndUnregisterServiceWorker();
   }
   if (!isHeadless && !swDisabled && navigator.serviceWorker) {
+    // A deploy lands a new service worker while this tab stays open: install
+    // + activate (skipWaiting/clients.claim, both already wired above and in
+    // service_worker.ts) happen in the background, but nothing used to force
+    // this tab to pick up the result, so the *next* reload was still served
+    // by the OLD worker and only the reload *after that* showed the new
+    // version. `controllerchange` fires the moment a new worker actually
+    // takes control of this page, so reloading there — once — closes the gap
+    // in exactly one reload instead of two.
+    //
+    // `hadControllerAtBoot` is snapshotted now, before registration can
+    // possibly resolve. This app's `activate` handler always calls
+    // `clients.claim()` (service_worker.ts), even on a brand new install —
+    // so a completely fresh load (no prior service worker at all) fires
+    // `controllerchange` too, going from "no controller" to "a controller".
+    // That first transition must NOT reload (there's no stale version to
+    // recover from); every transition after it means an *already-active*
+    // controller just got replaced by a newer one, which is exactly the
+    // "the page you're looking at is stale" case that should reload.
+    //
+    // A single one-time boolean isn't enough to tell those apart: it must
+    // only excuse the first transition of a controller-less page load, not
+    // every transition for the rest of that page's life — otherwise a real
+    // update later in the same session would be silently swallowed too.
+    const hadControllerAtBoot = !!navigator.serviceWorker.controller;
+    let sawControllerChange = false;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      const isFirstTransitionOfAControllerlessLoad =
+        !sawControllerChange && !hadControllerAtBoot;
+      sawControllerChange = true;
+      if (isFirstTransitionOfAControllerlessLoad || reloading) {
+        return;
+      }
+      reloading = true;
+      console.log(
+        "New service worker took control, reloading to pick up the update",
+      );
+      location.reload();
+    });
+
     // Register service worker
     const workerURL = new URL("service_worker.js", document.baseURI);
     const configureWorker = async (registration: ServiceWorkerRegistration) => {
