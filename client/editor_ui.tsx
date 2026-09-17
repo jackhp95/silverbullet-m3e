@@ -11,7 +11,11 @@ import {
   navigateToAnythingPickerRef,
 } from "./components/anything_picker.tsx";
 import { SearchSheet } from "./components/search_sheet.tsx";
-import { type BreadcrumbItem, TopBar } from "./components/top_bar.tsx";
+import {
+  type AppBarMenuItem,
+  type BreadcrumbItem,
+  TopBar,
+} from "./components/top_bar.tsx";
 import {
   type ActionButton,
   FloatingToolbar,
@@ -622,9 +626,11 @@ export class MainUI {
     );
     // Same filter/priority/icon-resolution logic the old TopBar
     // `actionButtons` prop used to run inline — moved here, unchanged,
-    // because it's now shared: the floating toolbar is the only consumer
-    // (the app bar's kebab is gone), not TopBar.
-    const toolbarActions = actionButtons
+    // shared by both the floating toolbar (below) AND the app-bar kebab's
+    // configMenuItems (also below, L8): same underlying CONFIG-defined
+    // buttons, two render targets, temporarily duplicated per L8's own
+    // scope (removal from the toolbar is a later leaf, L13).
+    const filteredActionButtons = actionButtons
       .filter(
         (button) =>
           button.icon &&
@@ -663,8 +669,10 @@ export class MainUI {
         ...button,
         priority: button.priority ?? actionButtons.length - index,
       }))
-      .sort((a, b) => b.priority - a.priority)
-      .map((button): ActionButton => {
+      .sort((a, b) => b.priority - a.priority);
+
+    const toolbarActions = filteredActionButtons.map(
+      (button): ActionButton => {
         const mdiIcon = (mdi as any)[kebabToCamel(button.icon)];
         let featherIcon = (featherIcons as any)[kebabToCamel(button.icon)];
         if (!featherIcon) {
@@ -694,7 +702,48 @@ export class MainUI {
               }),
           href: "",
         };
-      });
+      },
+    );
+
+    // Item 11 / L8 (docs/plans/2026-09-16-toolbar-search-feedback-spec.md):
+    // every CONFIG-defined actionButton, ALSO surfaced as a trailing app-bar
+    // kebab entry (top_bar.tsx's `menuItems`) — same source array as
+    // `toolbarActions` above (`filteredActionButtons`), so command/run
+    // resolution can't drift between the two render targets. `icon` is
+    // deliberately left unset here: `button.icon` is a feather-icon name
+    // (APIs/Action Button.md: "feather icon to use for your button",
+    // resolved above via `featherIcons`/`mdi` component lookup) — a
+    // different vocabulary than `AppBarMenuItem.icon`'s Material Symbols
+    // ligature string (top_bar.tsx). Reusing the raw feather name as a
+    // Material Symbols glyph name would render nothing or the wrong glyph
+    // for most of the icon set (verified: "activity"/"message-circle"/
+    // "book"/"terminal"/"chevron-left" etc. are not Material Symbols names).
+    // Text-only menu entries are correct here, not a placeholder.
+    const configMenuItems: AppBarMenuItem[] = filteredActionButtons.map(
+      (button, index): AppBarMenuItem => {
+        let label = button.description || button.icon;
+        if (button.command) {
+          const cmd = viewState.commands.get(button.command);
+          if (cmd) {
+            const hint = keyboardHint(cmd);
+            if (hint) label = `${label} (${hint})`;
+          }
+        }
+        return {
+          key: `config-action-${index}`,
+          label,
+          onClick: button.command
+            ? () => this.client.runCommandByName(button.command!)
+            : button.run ||
+              (() => {
+                this.flashNotification(
+                  "actionButton did not specify a command or run() callback",
+                  "error",
+                );
+              }),
+        };
+      },
+    );
 
     // Breadcrumb segments for TopBar's <m3e-breadcrumb> (top_bar.tsx),
     // derived from the current page's path. SB has no literal folder/
@@ -754,6 +803,53 @@ export class MainUI {
         client.clientSystem.documentEditorHook.documentEditors.values(),
       ).flatMap(({ extensions }) => extensions),
     );
+
+    // Item 11 / L8: trailing app-bar kebab contents (top_bar.tsx's
+    // `menuItems` prop, shell built in L6/L7). Three sources, in display
+    // order: the Web Push toggle (all 8 `pushState` labels preserved as-is
+    // via the existing `pushToggle`/`PUSH_TOGGLE_LABELS` above — undefined
+    // during the one-time "checking" state, same as the floating toolbar's
+    // own `{pushToggle && (...)}` guard, so that state simply omits the
+    // item rather than rendering something misleading), a CONFIG-page link,
+    // then every CONFIG-defined actionButton (`configMenuItems` above).
+    const pushMenuItem: AppBarMenuItem | undefined = pushToggle && {
+      key: "push-toggle",
+      icon: pushToggle.unavailable
+        ? "notifications_off"
+        : pushToggle.active
+        ? "notifications_active"
+        : "notifications",
+      label: pushToggle.label,
+      disabled: pushToggle.unavailable || pushToggle.pending,
+      onClick: pushToggle.onClick,
+    };
+
+    // No dedicated "open the CONFIG page" command exists in
+    // `viewState.commands` — "Configuration: Open" (Cmd/Ctrl-,,
+    // plugs/configuration-manager) opens a different thing, a rich
+    // settings-manager panel (schemas/values/categories editor), not plain
+    // page navigation. `client.navigate({ path: "CONFIG" })` is the direct,
+    // already-established pattern in this file for jumping straight to a
+    // named page (see the recent-pages item below), and is what the
+    // configuration-manager plug's own `openConfigPage()` does via the
+    // equivalent plug-side syscall (`editor.navigate("CONFIG")`,
+    // plugs/configuration-manager/ui/components/app.tsx) — so this mirrors
+    // a real, already-used code path rather than inventing a new one.
+    const configLinkItem: AppBarMenuItem = {
+      key: "open-config",
+      icon: "settings",
+      label: "Open Config",
+      onClick: () =>
+        safeRun(async () => {
+          await client.navigate({ path: "CONFIG.md" as Path });
+        }),
+    };
+
+    const menuItems: AppBarMenuItem[] = [
+      ...(pushMenuItem ? [pushMenuItem] : []),
+      configLinkItem,
+      ...configMenuItems,
+    ];
 
     return (
       // m3e components read Material color-role tokens (--md-sys-color-*)
@@ -938,6 +1034,7 @@ export class MainUI {
           breadcrumbItems={breadcrumbItems}
           scrollContainerId={EDITOR_SCROLL_CONTAINER_ID}
           headerScrolled={headerScrolled}
+          menuItems={menuItems}
         />
         <m3e-drawer-container
           id="sb-main"
