@@ -3,6 +3,18 @@
   flex-direction: row;
   z-index: 20;
 
+  // Hard clip at the chrome-row boundary (flagged live 2026-09-16: the
+  // collapsed breadcrumb row still peaked a little above/behind the sticky
+  // app bar on scroll). `max-height: 0` on `.sb-breadcrumb-row` below caps
+  // its own painted box, but neither it nor `.main` (which wraps both rows,
+  // `overflow-y: auto`) was actually clipping content to that box in every
+  // browser — a shadow-DOM-painted sliver from `m3e-breadcrumb` could still
+  // render past a zero-height ancestor, and `.main`'s own `overflow-y: auto`
+  // (needed elsewhere for narrow viewports) is a *scroll* box, not a hard
+  // clip. This outer, non-scrolling wrapper is the right place to guarantee
+  // nothing inside #sb-top ever paints outside its own box.
+  overflow: hidden;
+
   // No longer a fixed 55px: `.main` (below) now stacks an `m3e-breadcrumb`
   // row above the `m3e-app-bar` row (client/components/top_bar.tsx), so the
   // header's total height is intrinsic to that content instead of a single
@@ -17,6 +29,21 @@
     max-width: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
+
+    // Explicit stacking for the sticky app bar (flagged live 2026-09-16
+    // alongside the breadcrumb-collapse overflow above): `position: sticky`
+    // (inline style, top_bar.tsx) already makes this a positioned element,
+    // which paints over the preceding *static* `m3e-breadcrumb` sibling
+    // regardless of z-index — but that's an implicit browser default, not a
+    // guarantee, and `z-index: auto` still made the stacking order easy to
+    // accidentally invert with any later change nearby. Made explicit
+    // instead of relying on paint order alone. Its own `--m3e-app-bar-
+    // container-color` (default: `DesignToken.color.surface`) already
+    // renders an opaque background internally, so no extra background rule
+    // is needed here on top of that.
+    m3e-app-bar {
+      z-index: 1;
+    }
 
     // Match the horizontal breathing room the previous hand-rolled
     // `.wrapper { padding: 0 20px }` gave the bar's content.
@@ -165,20 +192,43 @@
   // read as glued directly onto the app bar's own background/shadow edge
   // (flagged live 2026-09-16) — max-height has to grow to match or the
   // padding gets clipped by the same rule that drives the collapse-on-
-  // scroll animation below. Only `max-height`/`opacity` are transitioned
-  // (both already the pre-existing pattern here) — `padding` is deliberately
-  // NOT animated: with `box-sizing: border-box`, `max-height: 0` already caps
-  // the padding-box at zero height regardless of the padding values, so a
-  // separate padding transition would only add another layout-triggering
-  // property for no visible effect (flagged by the design-quality hook,
-  // fixed by removing the redundant animation rather than justifying it).
+  // scroll animation below.
+  //
+  // CORRECTION (2026-09-17, verified live via a headless-Chrome computed-
+  // style dump, not just reasoning about the spec): an earlier version of
+  // this comment claimed `padding` didn't need to be transitioned because
+  // `box-sizing: border-box` + `max-height: 0` already caps the padding-box
+  // at zero regardless of the padding values. That's wrong. Per box-sizing
+  // semantics, a border-box element's content area cannot go negative — if
+  // the vertical padding sum (4px + 10px = 14px here) exceeds the declared
+  // `max-height`, the *rendered* height floors at the padding sum, not at
+  // `max-height`. Confirmed: collapsed `getComputedStyle(row).height` was
+  // `14px`, exactly `padding-top + padding-bottom`, even with `max-height:
+  // 0`. That 14px residual box (this fork's real "breadcrumb peaks above
+  // the app bar" bug) is why `padding` must also collapse to `0` below, in
+  // step with `max-height`.
   padding: 4px 20px 10px;
   max-height: 42px;
   box-sizing: border-box;
-  transition: max-height 0.2s ease, opacity 0.15s ease;
+  visibility: visible;
+  // `visibility` rides along with `max-height`/`opacity`/`padding` but with
+  // its own 0s-duration transition — undelayed here (expanding), delayed to
+  // match the others below (collapsing). That delay is the point: relying
+  // on `max-height`/`padding` reaching zero alone still left some browsers
+  // sub-pixel-rendering shadow-DOM content from `m3e-breadcrumb` for the
+  // last instant of the collapse. `visibility: hidden` is a genuinely
+  // non-painting state, not just a zero-size box, so it needs to land only
+  // once the collapse has visually finished, or it'd snap the row away
+  // before the other properties settle.
+  transition: max-height 0.2s ease, opacity 0.15s ease, padding 0.2s ease,
+    visibility 0s linear 0s;
 }
 
 #sb-top[data-scrolled="on"] .sb-breadcrumb-row {
   max-height: 0;
   opacity: 0;
+  padding: 0 20px;
+  visibility: hidden;
+  transition: max-height 0.2s ease, opacity 0.15s ease, padding 0.2s ease,
+    visibility 0s linear 0.2s;
 }
