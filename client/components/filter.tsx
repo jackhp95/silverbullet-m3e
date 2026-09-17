@@ -132,6 +132,10 @@ export function FilterList({
         {label}
       </label>
       <Input
+        // m3e-search-view's "input" slot contract requires a plain <input>
+        // (see the m3e skill's search card) — see the `bare` prop's doc
+        // comment on plug-api/ui/input.tsx.
+        bare
         slot="input"
         inputRef={inputRef}
         class="sb-filter-input"

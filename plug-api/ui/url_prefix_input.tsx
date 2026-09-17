@@ -21,6 +21,11 @@ export function UrlPrefixInput({
     <div class="sb-url-input">
       <span class="sb-url-affix">{origin.replace(/\/+$/, "")}</span>
       <Input
+        // This component is its own compound "field" (affix span + input,
+        // styled as one control by .sb-url-input in components.scss, which
+        // targets the inner `.sb-input` class directly) — see the `bare`
+        // prop's doc comment on ./input.tsx.
+        bare
         id={id}
         value={value}
         onInput={(e) => onInput(e.currentTarget.value)}

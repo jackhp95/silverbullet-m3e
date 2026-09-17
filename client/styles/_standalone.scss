@@ -70,7 +70,12 @@ body.sb-standalone {
   }
 
   // Full-width fields inside forms; the components supply everything else.
+  // `m3e-form-field` alongside `.sb-input`: kit `Input` wraps in
+  // `m3e-form-field` by default now (plug-api/ui/input.tsx) — the
+  // `.sb-input` class only survives on `bare`-mode inputs, so the field's
+  // own layout box is the form-field host, not the inner `<input>`.
   form .sb-input,
+  form m3e-form-field,
   form .sb-select {
     width: 100%;
   }
@@ -193,7 +198,8 @@ body.sb-standalone.sb-page {
   align-items: center;
 }
 
-.sb-standalone .password-field .sb-input {
+.sb-standalone .password-field .sb-input,
+.sb-standalone .password-field m3e-form-field {
   flex: 1;
 }
 
@@ -415,7 +421,8 @@ body.sb-standalone.sb-page {
   margin-top: 0.5rem;
 }
 
-.sb-standalone .sb-token-reveal .sb-input {
+.sb-standalone .sb-token-reveal .sb-input,
+.sb-standalone .sb-token-reveal m3e-form-field {
   font-family: monospace;
 }
 

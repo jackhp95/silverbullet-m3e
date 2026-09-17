@@ -99,6 +99,9 @@ function PageNameEditor({
 
   return (
     <Input
+      // Inline page-title text, not a boxed Material field — see the
+      // `bare` prop's doc comment on plug-api/ui/input.tsx.
+      bare
       class="sb-page-name-editor"
       value={name}
       readOnly={readOnly}
