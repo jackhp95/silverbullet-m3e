@@ -142,6 +142,7 @@ export function ItemCaptureSheet({
 
   return (
     <m3e-bottom-sheet
+      id="sb-item-capture-sheet"
       ref={sheetRef}
       modal
       handle

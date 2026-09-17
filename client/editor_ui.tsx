@@ -1,7 +1,16 @@
 import { Confirm, Prompt } from "./components/basic_modals.tsx";
-import { CommandPalette, keyboardHint } from "./components/command_palette.tsx";
+import {
+  CommandPalette,
+  keyboardHint,
+  triggerCommand,
+} from "./components/command_palette.tsx";
 import { FilterList } from "./components/filter.tsx";
-import { AnythingPicker } from "./components/anything_picker.tsx";
+import {
+  AnythingPicker,
+  navigateToAnythingPickerName,
+  navigateToAnythingPickerRef,
+} from "./components/anything_picker.tsx";
+import { SearchSheet } from "./components/search_sheet.tsx";
 import { type BreadcrumbItem, TopBar } from "./components/top_bar.tsx";
 import {
   type ActionButton,
@@ -50,7 +59,6 @@ import type {
 import { notificationDismissTimeouts } from "@silverbulletmd/silverbullet/type/client";
 import {
   getNameFromPath,
-  getPathExtension,
   isMarkdownPath,
   isValidName,
   parseToRef,
@@ -739,6 +747,14 @@ export class MainUI {
       }),
     ];
 
+    // Shared by AnythingPicker (below) and SearchSheet's "open" mode — same
+    // computation, one call instead of two.
+    const documentExtensions = new Set(
+      Array.from(
+        client.clientSystem.documentEditorHook.documentEditors.values(),
+      ).flatMap(({ extensions }) => extensions),
+    );
+
     return (
       // m3e components read Material color-role tokens (--md-sys-color-*)
       // that only exist once something computes them — @m3e/web ships no
@@ -775,13 +791,7 @@ export class MainUI {
           <AnythingPicker
             allDocuments={viewState.allDocuments}
             allPages={viewState.allPages}
-            extensions={
-              new Set(
-                Array.from(
-                  client.clientSystem.documentEditorHook.documentEditors.values(),
-                ).flatMap(({ extensions }) => extensions),
-              )
-            }
+            extensions={documentExtensions}
             currentPath={client.currentPath()}
             mode={viewState.pageNavigatorMode}
             darkMode={viewState.uiOptions.darkMode}
@@ -791,105 +801,45 @@ export class MainUI {
                 dispatch({ type: "start-navigate", mode });
               });
             }}
-            onNavigate={(name) => {
-              dispatch({ type: "stop-navigate" });
-              setTimeout(() => {
-                client.focus();
-              });
-
-              if (!name) {
-                return;
-              }
-
-              safeRun(async () => {
-                const ref = parseToRef(name);
-
-                // Check beforhand, because we don't want to allow any link
-                // stuff like #header here. The `!ref` check is just for
-                // Typescript
-                if (!isValidName(name) || !ref) {
-                  // It's not a valid name so either, the user tried to create a
-                  // page or we have an invalid file in the space. Names are
-                  // only unique for files which follow our rules, so we are
-                  // kind of in unknown territory now.
-
-                  if (client.clientSystem.allKnownFiles.has(name)) {
-                    // Try it as a document name === path
-                    await this.promptDocumentOperation(
-                      name as Path,
-                      `'${name}' has an invalid name. You can now modify it`,
-                    );
-                  } else if (
-                    client.clientSystem.allKnownFiles.has(`${name}.md`)
-                  ) {
-                    // Try it as a page
-                    await this.promptDocumentOperation(
-                      `${name}.md`,
-                      `'${name}.md' has an invalid name. You can now modify it`,
-                    );
-                  } else {
-                    this.flashNotification(
-                      `Couldn't create page ${name}, name is invalid`,
-                      "error",
-                    );
-                  }
-
-                  return;
-                }
-
-                if (
-                  !isMarkdownPath(ref.path) &&
-                  !Array.from(
-                    client.clientSystem.documentEditorHook.documentEditors.values(),
-                  ).some(({ extensions }) =>
-                    extensions.includes(getPathExtension(ref.path)),
-                  )
-                ) {
-                  await this.promptDocumentOperation(
-                    ref.path,
-                    "This file cannot be edited, select your desired action.",
-                  );
-                } else {
-                  void client.open(ref);
-                }
-              });
-            }}
-            onNavigateRef={(ref) => {
-              dispatch({ type: "stop-navigate" });
-              setTimeout(() => {
-                client.focus();
-              });
-              // client.navigate resolves $-anchor refs to a page + position.
-              safeRun(async () => {
-                await client.navigate(ref);
-              });
-            }}
+            onNavigate={(name) =>
+              navigateToAnythingPickerName(name, () =>
+                dispatch({ type: "stop-navigate" }))}
+            onNavigateRef={(ref) =>
+              navigateToAnythingPickerRef(ref, () =>
+                dispatch({ type: "stop-navigate" }))}
           />
         )}
         {viewState.showCommandPalette && (
           <CommandPalette
-            onTrigger={(cmd) => {
-              safeRun(async () => {
-                dispatch({ type: "hide-palette" });
-                if (cmd) {
-                  await this.client.registerCommandRun(cmd.name);
-                  try {
-                    const returnValue = await cmd.run!();
-                    if (returnValue !== false) {
-                      client.focus();
-                    }
-                  } catch (e: any) {
-                    this.client.reportError(e, "Command invocation");
-                  }
-                } else {
-                  setTimeout(() => client.focus());
-                }
-              });
-            }}
+            onTrigger={(cmd) =>
+              triggerCommand(cmd, () => dispatch({ type: "hide-palette" }))}
             commands={client.getCommandsByContext(viewState)}
             darkMode={viewState.uiOptions.darkMode}
           />
         )}
+        <SearchSheet
+          open={viewState.showSearchSheet}
+          onClose={() => dispatch({ type: "hide-search-sheet" })}
+          darkMode={viewState.uiOptions.darkMode}
+          allPages={viewState.allPages}
+          allDocuments={viewState.allDocuments}
+          extensions={documentExtensions}
+          currentPath={client.currentPath()}
+          recentPaths={client.recentPaths}
+          recentSearchTerms={client.recentSearchTerms}
+          commands={client.getCommandsByContext(viewState)}
+          onNavigate={(name) =>
+            navigateToAnythingPickerName(name, () =>
+              dispatch({ type: "hide-search-sheet" }))}
+          onNavigateRef={(ref) =>
+            navigateToAnythingPickerRef(ref, () =>
+              dispatch({ type: "hide-search-sheet" }))}
+          onTriggerCommand={(cmd) =>
+            triggerCommand(
+              cmd,
+              () => dispatch({ type: "hide-search-sheet" }),
+            )}
+        />
         {viewState.showFilterBox && (
           <FilterList
             label={viewState.filterBoxLabel}

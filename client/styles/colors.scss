@@ -141,6 +141,29 @@
   }
 }
 
+// search_sheet.tsx's result/history list — not a .sb-modal-box (it's a
+// bottom sheet, not a <dialog>), so it needs its own selector root, but
+// reuses the exact same --modal-* tokens as the block above rather than a
+// second palette.
+.sb-search-sheet-result-list {
+  .sb-hint {
+    color: var(--modal-hint-color);
+    background-color: var(--modal-hint-background-color);
+  }
+
+  --m3e-list-item-supporting-text-color: var(--modal-description-color);
+
+  .sb-selected-option {
+    --m3e-list-item-container-color: var(
+      --modal-selected-option-background-color
+    );
+    --m3e-list-item-label-text-color: var(--modal-selected-option-color);
+    --m3e-list-item-supporting-text-color: var(
+      --modal-selected-option-description-color
+    );
+  }
+}
+
 /* Editor */
 
 #sb-editor {

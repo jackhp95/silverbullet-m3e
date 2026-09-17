@@ -524,6 +524,13 @@ export function registerEditorCommands(
     run: async () => client.startCommandPalette(),
   });
   hook.registerCommand({
+    name: "Navigate: Search Sheet",
+    key: "Ctrl-Shift-/",
+    mac: "Cmd-Shift-/",
+    menu: { location: "navigate", group: "2_picker", order: 0, label: "Search…" },
+    run: async () => client.startSearchSheet(),
+  });
+  hook.registerCommand({
     name: "Navigate: Page Picker",
     key: "Ctrl-k",
     mac: "Cmd-k",
