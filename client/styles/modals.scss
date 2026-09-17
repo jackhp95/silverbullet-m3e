@@ -179,6 +179,43 @@ m3e-search-view.sb-modal-box {
   }
 }
 
+// search_sheet.tsx's consolidated search bottom sheet body (L10-L12). Same
+// "plain flex + gap" bottom rung as .sb-item-capture-sheet-body above (no
+// m3e component here declares a sibling-gap cssprop of its own either).
+// Result-row theming (.sb-option/.sb-selected-option/.sb-hint/.sb-name/
+// .sb-description) reuses the exact class names + --modal-* tokens the old
+// .sb-modal-box result list already uses (see colors.scss's matching
+// block) rather than inventing a second palette — this sheet just isn't a
+// <dialog>-based .sb-modal-box, so it needs its own (non-outer-chrome)
+// selector root instead of piggybacking on that class.
+.sb-search-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  .sb-search-sheet-result-list {
+    max-height: 320px;
+    overflow-y: scroll;
+  }
+
+  .sb-search-sheet-empty {
+    padding: 12px 4px;
+  }
+
+  .sb-option {
+    cursor: pointer;
+  }
+
+  .sb-selected-option {
+    --m3e-list-item-container-shape: 8px;
+  }
+
+  .sb-hint {
+    padding: 3px 5px;
+    border-radius: 5px;
+  }
+}
+
 // basic_modals.tsx's Prompt()/Confirm() — m3e-dialog's default slot renders
 // content full-width by default (no box-model opinion of its own beyond
 // padding), but m3e-form-field's own host is `inline-flex` (verified against

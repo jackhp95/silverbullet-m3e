@@ -22,7 +22,11 @@ test.describe("item capture sheet writes real per-item pages", () => {
     await gotoSilverBulletPage(sbPage, sbServer, "index");
 
     await sbPage.locator('[aria-label="New…"]').click();
-    const sheet = sbPage.locator("m3e-bottom-sheet");
+    // Scoped by id, not just the bare tag: search_sheet.tsx's consolidated
+    // search sheet is now also an always-mounted `m3e-bottom-sheet`
+    // sibling, so an untargeted tag locator would be ambiguous (strict-mode
+    // violation) — see that file's own `#sb-search-sheet` id.
+    const sheet = sbPage.locator("#sb-item-capture-sheet");
     await expect(sheet).toBeVisible();
 
     // "task" is item_capture_sheet.tsx's DEFAULT_TYPE, so no segment click
@@ -66,7 +70,7 @@ test.describe("item capture sheet writes real per-item pages", () => {
     await gotoSilverBulletPage(sbPage, sbServer, "index");
 
     await sbPage.locator('[aria-label="New…"]').click();
-    const sheet = sbPage.locator("m3e-bottom-sheet");
+    const sheet = sbPage.locator("#sb-item-capture-sheet");
     await expect(sheet).toBeVisible();
 
     // `m3e-button-segment`'s `value` prop is set by Preact as a real DOM

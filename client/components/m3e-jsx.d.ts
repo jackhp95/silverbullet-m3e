@@ -26,6 +26,58 @@ type M3eListAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
 
 type M3eListItemAttributes = PreactJSX.HTMLAttributes<HTMLElement>;
 
+// m3e-search-bar: search_sheet.tsx's (client/components/search_sheet.tsx,
+// L10) query input chrome. See @m3e/web/search card / SearchBarElement.ts —
+// registered by the SAME `@m3e/web/search` module filter.tsx already imports
+// for m3e-search-view. `clear` is NOT a standard GlobalEventHandlers event
+// name (unlike click/input/change), so per the m3e-dialog comment above,
+// Preact only resolves the handler correctly if the prop is spelled
+// all-lowercase (`onclear`, not `onClear`) — verified against the same
+// Preact props.js behavior documented there.
+type M3eSearchBarAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  clearable?: boolean;
+  "clear-label"?: string;
+  onclear?: (e: Event) => void;
+};
+
+// m3e-autocomplete / m3e-option: search_sheet.tsx's suggestion dropdown
+// attached to the plain `<input>` inside m3e-search-bar's `input` slot. See
+// @m3e/web/autocomplete card / AutocompleteElement.ts, OptionElement.ts
+// (importing `@m3e/web/autocomplete` registers both tags — verified against
+// node_modules/@m3e/web/dist/autocomplete.js). `change`/`toggle` ARE
+// standard GlobalEventHandlers event names (onchange/ontoggle already exist
+// as native HTMLElement IDL properties), so camelCase `onChange`/`onToggle`
+// resolve correctly; `query` is not, so `onquery` must stay lowercase (same
+// pitfall as m3e-search-bar's `onclear` above).
+type M3eAutocompleteAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  /** Id of the input element this autocomplete augments. */
+  for?: string | null;
+  /** @default "contains" */
+  filter?: "contains" | "starts-with" | "ends-with" | "none";
+  "auto-activate"?: boolean;
+  "case-sensitive"?: boolean;
+  "hide-selection-indicator"?: boolean;
+  "hide-loading"?: boolean;
+  "hide-no-data"?: boolean;
+  loading?: boolean;
+  "loading-label"?: string;
+  "no-data-label"?: string;
+  "panel-class"?: string;
+  required?: boolean;
+  onChange?: (e: Event) => void;
+  onquery?: (e: CustomEvent) => void;
+  onToggle?: (e: Event) => void;
+};
+
+type M3eOptionAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  disabled?: boolean;
+  "disable-highlight"?: boolean;
+  "highlight-mode"?: string;
+  selected?: boolean;
+  term?: string;
+  value?: string;
+};
+
 type M3eAppBarAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   /** Whether the title and subtitle are centered. @default false */
   centered?: boolean;
@@ -336,6 +388,9 @@ interface M3eIntrinsicElements {
   "m3e-search-view": M3eSearchViewAttributes;
   "m3e-list": M3eListAttributes;
   "m3e-list-item": M3eListItemAttributes;
+  "m3e-search-bar": M3eSearchBarAttributes;
+  "m3e-autocomplete": M3eAutocompleteAttributes;
+  "m3e-option": M3eOptionAttributes;
   "m3e-app-bar": M3eAppBarAttributes;
   "m3e-icon-button": M3eIconButtonAttributes;
   "m3e-theme": M3eThemeAttributes;

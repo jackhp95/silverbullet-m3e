@@ -51,6 +51,7 @@ import { DataStoreMQ } from "./data/mq.datastore.ts";
 import { ObjectIndex } from "./data/object_index.ts";
 import { EDITOR_SCROLL_CONTAINER_ID, MainUI } from "./editor_ui.tsx";
 import { PathPageNavigator, parseRefFromURI } from "./navigator.ts";
+import { pushRecent } from "./lib/recency.ts";
 import { EventHook } from "./plugos/hooks/event.ts";
 import { Space } from "./space.ts";
 import { evalStatement } from "./space_lua/eval.ts";
@@ -152,6 +153,10 @@ export class Client {
   // already records lastOpenedPath — an extension of SB's own existing
   // navigation-tracking, not a parallel history mechanism.
   recentPaths: { path: Path; ts: number }[] = [];
+  // Recently-used search-sheet terms (search_sheet.tsx's "search" mode
+  // history, L9), persisted the exact same way as recentPaths above, just
+  // under its own `ds` key — see `recordSearchTerm()`.
+  recentSearchTerms: { term: string; ts: number }[] = [];
   dbPrefix?: string;
   syncMode = false;
   // Widget and image height caching
@@ -541,6 +546,27 @@ export class Client {
     // Then show the page navigator
     this.ui.viewDispatch({ type: "start-navigate", mode });
     // And update the page list cache asynchronously
+    this.updatePageListCache().catch(console.error);
+    this.updateDocumentListCache().catch(console.error);
+  }
+
+  /**
+   * Opens the consolidated search bottom sheet (search_sheet.tsx, L10-L12) —
+   * one entry point covering open/run/search, replacing the need to pick
+   * among the separate page-picker/command-palette keybindings for the
+   * common case. Those older entry points stay reachable independently.
+   *
+   * Mirrors `startCommandPalette`'s own `commandAugmenter.augmentObjectMap`
+   * call (awaited before the dispatch, not after): `registerCommandRun`
+   * only persists `lastRun` to the datastore, it never mutates the
+   * in-memory Command objects living in `viewState.commands` — those only
+   * get pulled fresh here. Without this, run-mode's "sorted by def.lastRun"
+   * history (L12) would show stale recency the next time the sheet opens.
+   */
+  async startSearchSheet() {
+    const commands = this.ui.viewState.commands;
+    await this.commandAugmenter.augmentObjectMap(commands);
+    this.ui.viewDispatch({ type: "show-search-sheet" });
     this.updatePageListCache().catch(console.error);
     this.updateDocumentListCache().catch(console.error);
   }
@@ -1168,11 +1194,33 @@ export class Client {
    * single value.
    */
   private async recordRecentPath(path: Path) {
-    this.recentPaths = [
+    this.recentPaths = pushRecent(
+      this.recentPaths,
       { path, ts: Date.now() },
-      ...this.recentPaths.filter((p) => p.path !== path),
-    ].slice(0, 20);
+      (a, b) => a.path === b.path,
+    );
     await this.ds.set(["client", "recentPaths"], this.recentPaths);
+  }
+
+  /**
+   * Records a search-sheet query term into the search-mode recency trail
+   * (most-recent first, deduped by exact term, capped) and persists it —
+   * same `ds`/pushRecent pattern as `recordRecentPath` above, just under
+   * `["client", "recentSearchTerms"]`. Public (unlike recordRecentPath)
+   * because it's called directly from search_sheet.tsx on submit, not from
+   * an internal navigation subscription.
+   */
+  async recordSearchTerm(term: string) {
+    const trimmed = term.trim();
+    if (!trimmed) {
+      return;
+    }
+    this.recentSearchTerms = pushRecent(
+      this.recentSearchTerms,
+      { term: trimmed, ts: Date.now() },
+      (a, b) => a.term === b.term,
+    );
+    await this.ds.set(["client", "recentSearchTerms"], this.recentSearchTerms);
   }
 
   private async initNavigator() {
@@ -1180,6 +1228,8 @@ export class Client {
 
     this.recentPaths =
       (await this.ds.get(["client", "recentPaths"])) ?? [];
+    this.recentSearchTerms =
+      (await this.ds.get(["client", "recentSearchTerms"])) ?? [];
 
     this.pageNavigator.subscribe(async (locationState) => {
       console.log(`Now navigating to ${encodeRef(locationState)}`);

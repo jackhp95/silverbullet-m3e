@@ -133,6 +133,19 @@ export default function reducer(
         showCommandPalette: false,
         showCommandPaletteContext: undefined,
       };
+    case "show-search-sheet":
+      return {
+        ...state,
+        showSearchSheet: true,
+        showPageNavigator: false,
+        showCommandPalette: false,
+        showFilterBox: false,
+      };
+    case "hide-search-sheet":
+      return {
+        ...state,
+        showSearchSheet: false,
+      };
     case "update-commands":
       return {
         ...state,

@@ -32,6 +32,12 @@ export type AppViewState = {
   showPageNavigator: boolean;
   showCommandPalette: boolean;
   showCommandPaletteContext?: string;
+  // Consolidated search bottom sheet (search_sheet.tsx, L10-L12). Unlike
+  // showPageNavigator/showCommandPalette above, the sheet component itself
+  // stays mounted regardless of this flag (see editor_ui.tsx) so its
+  // m3e-bottom-sheet can play its close animation — this flag only drives
+  // the sheet's `open` property.
+  showSearchSheet: boolean;
   unsavedChanges: boolean;
   isOnline: boolean;
 
@@ -78,6 +84,7 @@ export const initialViewState: AppViewState = {
   isLoading: false,
   showPageNavigator: false,
   showCommandPalette: false,
+  showSearchSheet: false,
   pageNavigatorMode: "page",
   unsavedChanges: false,
   isOnline: true,
@@ -129,6 +136,8 @@ export type Action =
     }
   | { type: "show-palette"; context?: string; commands: Map<string, Command> }
   | { type: "hide-palette" }
+  | { type: "show-search-sheet" }
+  | { type: "hide-search-sheet" }
   | {
       type: "show-panel";
       id: "rhs" | "lhs" | "bhs" | "modal";
