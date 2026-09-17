@@ -455,10 +455,39 @@ type M3eFabAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
     | "surface";
 };
 
+// m3e-switch: client/components/nav_views/notifications.tsx's push
+// enable/disable control (2026-09-17 nav-bar redesign spec §2.6, leaf N9).
+// See @m3e/web/switch card / SwitchElement.ts. `checked`/`disabled` both
+// reflect as real attributes (Checked/Disabled mixins, `reflects: true`).
+// `icons` only toggles a BUILT-IN check/x glyph inside the handle
+// ('none'|'both'|'selected') — there is no slot or attribute for supplying
+// an arbitrary Material Symbols name, so this component does NOT render
+// the three pushToggle icons itself; those go on the surrounding
+// `m3e-list-item`'s own `leading` slot instead (see notifications.tsx).
+// `change`/`beforeinput`/`input` are real native HTMLElement IDL
+// properties (same reasoning as M3eNavBarAttributes above), so camelCase
+// `onChange` resolves correctly — verified directly against the compiled
+// dist/switch.js's `#handleClick`: a `disabled` switch's click handler
+// `preventDefault()`s + `stopImmediatePropagation()`s before dispatching
+// anything, so `onChange` never fires while disabled (not just visually
+// greyed out).
+type M3eSwitchAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  /** Whether the switch is on. @default false */
+  checked?: boolean;
+  disabled?: boolean;
+  /** Which built-in glyph(s) to show inside the handle. @default "none" */
+  icons?: "none" | "both" | "selected";
+  name?: string;
+  /** @default "on" */
+  value?: string;
+  onChange?: (e: Event) => void;
+};
+
 interface M3eIntrinsicElements {
   "m3e-search-view": M3eSearchViewAttributes;
   "m3e-list": M3eListAttributes;
   "m3e-list-item": M3eListItemAttributes;
+  "m3e-switch": M3eSwitchAttributes;
   "m3e-search-bar": M3eSearchBarAttributes;
   "m3e-autocomplete": M3eAutocompleteAttributes;
   "m3e-option": M3eOptionAttributes;

@@ -19,6 +19,10 @@ import { Fab, NavBar } from "./components/nav_bar.tsx";
 import { RecentView } from "./components/nav_views/recent.tsx";
 import { SearchView } from "./components/nav_views/search.tsx";
 import {
+  NotificationsView,
+  notificationsIconFor,
+} from "./components/nav_views/notifications.tsx";
+import {
   type CaptureItemType,
   ItemCaptureSheet,
 } from "./components/item_capture_sheet.tsx";
@@ -82,12 +86,13 @@ import {
 // it's wiring-level, same as this file's other viewState-driven panels
 // above.
 const NAV_PANEL_PLACEHOLDERS: Record<NavDestination, string> = {
-  // Dead for "recent" (N6) and "search" (N7): the panel-host render below
-  // intercepts both destinations before this lookup is ever reached, and
-  // renders the real RecentView/SearchView instead. Left in place (rather
-  // than narrowing the Record's key type) so this stays a same-shape object
-  // N8/N9 can each still land their own key removal independently without
-  // colliding on a shared type-annotation edit.
+  // Dead for "recent" (N6), "search" (N7), and "notifications" (N9): the
+  // panel-host render below intercepts all three before this lookup is
+  // ever reached, rendering RecentView/SearchView/NotificationsView
+  // instead. Left in place (rather than narrowing the Record's key type)
+  // so this stays a same-shape object N8 can still land its own key
+  // removal independently without colliding on a shared type-annotation
+  // edit.
   recent: "Recent — coming soon",
   search: "Search — coming soon",
   run: "Run — coming soon",
@@ -803,26 +808,17 @@ export class MainUI {
       ).flatMap(({ extensions }) => extensions),
     );
 
-    // Item 11 / L8: trailing app-bar kebab contents (top_bar.tsx's
-    // `menuItems` prop, shell built in L6/L7). Three sources, in display
-    // order: the Web Push toggle (all 8 `pushState` labels preserved as-is
-    // via the existing `pushToggle`/`PUSH_TOGGLE_LABELS` above — undefined
-    // during the one-time "checking" state, same as the floating toolbar's
-    // own `{pushToggle && (...)}` guard, so that state simply omits the
-    // item rather than rendering something misleading), a CONFIG-page link,
-    // then every CONFIG-defined actionButton (`configMenuItems` above).
-    const pushMenuItem: AppBarMenuItem | undefined = pushToggle && {
-      key: "push-toggle",
-      icon: pushToggle.unavailable
-        ? "notifications_off"
-        : pushToggle.active
-        ? "notifications_active"
-        : "notifications",
-      label: pushToggle.label,
-      disabled: pushToggle.unavailable || pushToggle.pending,
-      onClick: pushToggle.onClick,
-    };
-
+    // Item 11 / L8, then 2026-09-17 nav-bar redesign spec §2.6/N9: trailing
+    // app-bar kebab contents (top_bar.tsx's `menuItems` prop, shell built in
+    // L6/L7). The Web Push toggle that used to live here (`pushMenuItem`,
+    // all 8 `pushState` labels via `pushToggle`/`PUSH_TOGGLE_LABELS` above)
+    // has moved to its own nav-bar destination
+    // (components/nav_views/notifications.tsx, rendered below) — deleted
+    // from here rather than duplicated (spec's explicit no-duplication
+    // requirement). Two sources remain, in display order: a CONFIG-page
+    // link, then every CONFIG-defined actionButton (`configMenuItems`
+    // above).
+    //
     // No dedicated "open the CONFIG page" command exists in
     // `viewState.commands` — "Configuration: Open" (Cmd/Ctrl-,,
     // plugs/configuration-manager) opens a different thing, a rich
@@ -845,7 +841,6 @@ export class MainUI {
     };
 
     const menuItems: AppBarMenuItem[] = [
-      ...(pushMenuItem ? [pushMenuItem] : []),
       configLinkItem,
       ...configMenuItems,
     ];
@@ -1065,10 +1060,10 @@ export class MainUI {
         {
           // Bottom nav bar + FAB (2026-09-17 nav-bar redesign spec, leaves
           // N2+N3) — replaces the old floating vertical toolbar entirely.
-          // Journal is an action-only item (no panel, spec §2.4); the other
-          // four are destinations whose panels are placeholders until
-          // N5/N6/N8/N9 relocate the real Recent/Run/Notifications views
-          // here (Search is done — leaf N7, below).
+          // Journal is an action-only item (no panel, spec §2.4); of the
+          // other four destinations, Recent (N6), Search (N7), and
+          // Notifications (N9) now have their real views; Run stays a
+          // placeholder until N8 relocates it here.
           //
           // The read-only toggle's old toolbar-icon-button home is gone
           // with the toolbar; its new home is the app-bar kebab (spec's
@@ -1088,58 +1083,68 @@ export class MainUI {
           onSelectDestination={(destination) =>
             dispatch({ type: "select-nav-destination", destination })}
           onCloseDestination={() => dispatch({ type: "close-nav-panel" })}
+          notificationsIcon={notificationsIconFor(pushToggle)}
         />
         <Fab onClick={() => setCaptureSheetOpen(true)} />
         {viewState.navDestination !== null && (
           <div className="sb-nav-panel" role="region">
-            {viewState.navDestination === "recent"
-              ? (
-                // N6: real Recent view — relocation of search_sheet.tsx's
-                // "open" mode (spec §2.5/§5). Same documentExtensions/
-                // currentPath AnythingPicker already uses above, same
-                // navigateToAnythingPickerName/Ref close-callback
-                // convention (closes via `close-nav-panel` instead of
-                // `stop-navigate`).
-                <RecentView
-                  allPages={viewState.allPages}
-                  allDocuments={viewState.allDocuments}
-                  extensions={documentExtensions}
-                  currentPath={client.currentPath()}
-                  recentPaths={client.recentPaths}
-                  onNavigate={(name) =>
-                    navigateToAnythingPickerName(name, () =>
-                      dispatch({ type: "close-nav-panel" }))}
-                  onNavigateRef={(ref) =>
-                    navigateToAnythingPickerRef(ref, () =>
-                      dispatch({ type: "close-nav-panel" }))}
-                />
-              )
-              : viewState.navDestination === "search"
-              ? (
-                // N7: real Search view — relocation of search_sheet.tsx's
-                // "search" mode (spec §2.5/§5). Same close-callback
-                // convention as RecentView above; also wires the optional
-                // /^Search/ delegate command through triggerCommand (same
-                // helper AnythingPicker's command-palette call site uses).
-                <SearchView
-                  allPages={viewState.allPages}
-                  extensions={documentExtensions}
-                  currentPath={client.currentPath()}
-                  commands={viewState.commands}
-                  recentSearchTerms={client.recentSearchTerms}
-                  onNavigate={(name) =>
-                    navigateToAnythingPickerName(name, () =>
-                      dispatch({ type: "close-nav-panel" }))}
-                  onNavigateRef={(ref) =>
-                    navigateToAnythingPickerRef(ref, () =>
-                      dispatch({ type: "close-nav-panel" }))}
-                  onTriggerCommand={(cmd) =>
-                    triggerCommand(cmd, () =>
-                      dispatch({ type: "close-nav-panel" }))}
-                  onClose={() => dispatch({ type: "close-nav-panel" })}
-                />
-              )
-              : NAV_PANEL_PLACEHOLDERS[viewState.navDestination]}
+            {
+              // N6/N7/N9: Recent, Search, and Notifications each have
+              // their real view now; Run stays a placeholder string until
+              // N8 lands (replacing only its own entry in
+              // NAV_PANEL_PLACEHOLDERS / this branch — see the spec's
+              // §5.1 file-overlap table).
+              viewState.navDestination === "recent"
+                ? (
+                  // N6: real Recent view — relocation of search_sheet.tsx's
+                  // "open" mode (spec §2.5/§5). Same documentExtensions/
+                  // currentPath AnythingPicker already uses above, same
+                  // navigateToAnythingPickerName/Ref close-callback
+                  // convention (closes via `close-nav-panel` instead of
+                  // `stop-navigate`).
+                  <RecentView
+                    allPages={viewState.allPages}
+                    allDocuments={viewState.allDocuments}
+                    extensions={documentExtensions}
+                    currentPath={client.currentPath()}
+                    recentPaths={client.recentPaths}
+                    onNavigate={(name) =>
+                      navigateToAnythingPickerName(name, () =>
+                        dispatch({ type: "close-nav-panel" }))}
+                    onNavigateRef={(ref) =>
+                      navigateToAnythingPickerRef(ref, () =>
+                        dispatch({ type: "close-nav-panel" }))}
+                  />
+                )
+                : viewState.navDestination === "search"
+                ? (
+                  // N7: real Search view — relocation of search_sheet.tsx's
+                  // "search" mode (spec §2.5/§5). Same close-callback
+                  // convention as RecentView above; also wires the optional
+                  // /^Search/ delegate command through triggerCommand (same
+                  // helper AnythingPicker's command-palette call site uses).
+                  <SearchView
+                    allPages={viewState.allPages}
+                    extensions={documentExtensions}
+                    currentPath={client.currentPath()}
+                    commands={viewState.commands}
+                    recentSearchTerms={client.recentSearchTerms}
+                    onNavigate={(name) =>
+                      navigateToAnythingPickerName(name, () =>
+                        dispatch({ type: "close-nav-panel" }))}
+                    onNavigateRef={(ref) =>
+                      navigateToAnythingPickerRef(ref, () =>
+                        dispatch({ type: "close-nav-panel" }))}
+                    onTriggerCommand={(cmd) =>
+                      triggerCommand(cmd, () =>
+                        dispatch({ type: "close-nav-panel" }))}
+                    onClose={() => dispatch({ type: "close-nav-panel" })}
+                  />
+                )
+                : viewState.navDestination === "notifications"
+                ? <NotificationsView pushToggle={pushToggle} />
+                : NAV_PANEL_PLACEHOLDERS[viewState.navDestination]
+            }
           </div>
         )}
         <ItemCaptureSheet

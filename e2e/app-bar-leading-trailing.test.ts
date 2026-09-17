@@ -114,10 +114,19 @@ test("trailing kebab opens sb-app-bar-menu positioned below the app bar", async 
     .toBe(false);
 });
 
-test("trailing kebab shows the Web Push toggle with its current state", async ({
+test("trailing kebab no longer shows a Web Push toggle — it moved to the Notifications nav-bar destination", async ({
   sbServer,
   page,
 }) => {
+  // 2026-09-17 nav-bar redesign spec §2.6 / leaf N9: the Web Push toggle
+  // this test used to find here (`pushMenuItem`, editor_ui.tsx, deleted by
+  // N9) moved to its own nav-bar destination
+  // (client/components/nav_views/notifications.tsx). This test is updated
+  // in place, rather than deleted, to assert the negative directly in the
+  // kebab's own regression suite — e2e/nav-notifications.test.ts carries
+  // the positive coverage (all reachable pushToggle states, disabled
+  // semantics, the switch itself) plus its own copy of this same
+  // no-duplication assertion.
   await gotoSilverBulletPage(page, sbServer, "Some Page");
 
   const kebab = page.locator('m3e-app-bar m3e-icon-button[title="More actions"]');
@@ -128,34 +137,11 @@ test("trailing kebab shows the Web Push toggle with its current state", async ({
     .poll(() => menu.evaluate((el: any) => el.isOpen))
     .toBe(true);
 
-  // This test intentionally doesn't stub anything (unlike
-  // e2e/push-notifications.test.ts, which stubs Notification.permission to
-  // "granted" specifically to reach the "off"/"on" states) — so which of
-  // client/editor_ui.tsx's 8 PUSH_TOGGLE_LABELS states is reachable here
-  // depends entirely on how THIS bundle was built:
-  //  - no VAPID_PUBLIC_KEY/PUSH_SIDECAR_URL at build time -> "not-configured"
-  //  - both set, but headless Chromium hard-codes Notification.permission to
-  //    "denied" regardless of the real OS/browser state (verified — see
-  //    push-notifications.test.ts's own header comment) -> "denied"
-  // Hardcoding either string makes this test's pass/fail flip depending on
-  // which env vars happened to be set at build time, with no code change
-  // involved — so read the actual boot config back from the page instead of
-  // assuming one build over the other.
-  const bootConfig = await page.evaluate(() => {
-    const c = (globalThis as any).client;
-    return {
-      configured: !!(c?.bootConfig?.vapidPublicKey && c?.bootConfig?.pushSidecarUrl),
-    };
-  });
-  const expectedLabel = bootConfig.configured
-    ? "Notification permission was denied — enable it in your browser settings"
-    : "Push notifications are not configured for this server";
-
-  const pushItem = menu.locator("m3e-menu-item").filter({
-    hasText: expectedLabel,
-  });
-  await expect(pushItem).toHaveCount(1);
-  await expect(pushItem).toHaveAttribute("disabled", "");
+  await expect(
+    menu.locator(
+      'm3e-icon[name="notifications_active"], m3e-icon[name="notifications"], m3e-icon[name="notifications_off"]',
+    ),
+  ).toHaveCount(0);
 });
 
 test("trailing kebab's config link navigates to the CONFIG page", async ({
