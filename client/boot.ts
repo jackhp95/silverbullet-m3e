@@ -325,6 +325,18 @@ async function augmentBootConfig(bootConfig: BootConfig, config: Config) {
   if (urlParams.has("resetClient")) {
     bootConfig.performReset = true;
   }
+
+  // Web Push config (spec §5.1) — build-time-only, not server-provided.
+  // These two string literals are placeholders patched by
+  // `build/build_client.ts`'s `patchPushConfig()` from the `VAPID_PUBLIC_KEY`
+  // / `PUSH_SIDECAR_URL` env vars at `npm run build` time; unset envs patch
+  // to "". Left as literals (not an esbuild `define`) to match this file's
+  // existing `{{CACHE_NAME}}`-style placeholder convention (see
+  // client/service_worker.ts). Must stay in this entry file (boot.ts), not a
+  // shared/split chunk, so the patch step's plain string search reliably
+  // finds them.
+  bootConfig.vapidPublicKey = "{{VAPID_PUBLIC_KEY}}";
+  bootConfig.pushSidecarUrl = "{{PUSH_SIDECAR_URL}}";
 }
 
 if (!globalThis.indexedDB) {

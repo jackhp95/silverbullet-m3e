@@ -152,7 +152,22 @@ async function copyAssets(dist: string) {
   // HACK: Patch the JS by removing an invalid regex
   let bundleJs = await readFile(`${dist}/client.js`, "utf-8");
   bundleJs = patchBundledJS(bundleJs);
+  bundleJs = patchPushConfig(bundleJs);
   await writeFile(`${dist}/client.js`, bundleJs, "utf-8");
+}
+
+// Web Push (spec §5.1): fill in the `{{VAPID_PUBLIC_KEY}}` /
+// `{{PUSH_SIDECAR_URL}}` placeholders `augmentBootConfig` (client/boot.ts)
+// stamps into BootConfig, same technique as `patchServiceWorker`'s
+// `{{CACHE_NAME}}`/`{{PRECACHE_FILES}}` below — neither value is known at
+// dispatch/authoring time (the sidecar, built in parallel in a different
+// repo, hasn't reported its real VAPID key or port yet), so both come from
+// env vars read at build time and default to "" when unset. An unset key
+// means the push toggle renders as "not configured" instead of guessing.
+function patchPushConfig(code: string): string {
+  return code
+    .replaceAll("{{VAPID_PUBLIC_KEY}}", process.env.VAPID_PUBLIC_KEY ?? "")
+    .replaceAll("{{PUSH_SIDECAR_URL}}", process.env.PUSH_SIDECAR_URL ?? "");
 }
 
 // Shells and bundles for the server-level surfaces (Space Manager at /.spaces,
