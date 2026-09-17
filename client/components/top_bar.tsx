@@ -5,6 +5,9 @@ import "@m3e/web/app-bar";
 import "@m3e/web/breadcrumb";
 import "@m3e/web/progress-indicator";
 import "@m3e/web/badge";
+import "@m3e/web/icon-button";
+import "@m3e/web/icon";
+import "@m3e/web/menu";
 import "./m3e-jsx.d.ts";
 
 // One segment of the folder-path trail rendered above the app bar (see
@@ -20,6 +23,26 @@ export type BreadcrumbItem = {
   label: string;
   current: boolean;
   onClick?: () => void;
+};
+
+// One entry in the app-bar's trailing kebab menu (sb-app-bar-menu). This
+// leaf (L6/L7 of docs/plans/2026-09-16-toolbar-search-feedback-spec.md)
+// only builds the menu shell + trigger + positioning — `menuItems` defaults
+// to `[]` below (editor_ui.tsx isn't touched by this leaf at all, since it's
+// owned by the follow-up leaf L8, sequenced after this one to avoid a merge
+// conflict on that file). L8 populates it with real items (Web Push toggle,
+// CONFIG link, etc.) without needing to restructure anything here. Shape
+// mirrors the other action-item types already in this codebase
+// (ActionButton/RecentPageItem in floating_toolbar.tsx) — `icon` is a
+// Material Symbols ligature name (string), not a component, since
+// m3e-menu-item's own content is a plain slotted child, not a leading-icon
+// prop.
+export type AppBarMenuItem = {
+  key: string;
+  icon?: string;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
 };
 
 function pageNameClass(
@@ -129,6 +152,7 @@ export function TopBar({
   breadcrumbItems,
   scrollContainerId,
   headerScrolled,
+  menuItems = [],
 }: {
   pageName?: string;
   unsavedChanges: boolean;
@@ -152,6 +176,8 @@ export function TopBar({
   /** Whether that container is currently scrolled past its top — drives the
    * breadcrumb-row collapse in top.scss (`#sb-top[data-scrolled]`). */
   headerScrolled?: boolean;
+  /** Trailing kebab-menu items (sb-app-bar-menu) — see AppBarMenuItem. */
+  menuItems?: AppBarMenuItem[];
 }) {
   // No more overflow/kebab trigger here — every actionButton, plus quick
   // capture and journal entry, now live in the single floating vertical
@@ -173,6 +199,15 @@ export function TopBar({
   // layout (html/body's own `overflow: hidden`, main.scss), not a descendant
   // of the actual scrolling container, so plain CSS `position: sticky`
   // relative to it has nothing to stick against on its own.
+  //
+  // L6 (docs/plans/2026-09-16-toolbar-search-feedback-spec.md §4): the
+  // leading asterisk icon-button below runs the exact same navigation as
+  // the root breadcrumb segment ("Space", breadcrumbItems[0] — always
+  // constructed first in editor_ui.tsx's breadcrumbItems array) rather than
+  // a second, separately-wired copy of "Navigate: Home" — one command
+  // binding, two entry points into it. Disabled under the same condition
+  // the breadcrumb segment itself uses (command unavailable -> no onClick).
+  const homeOnClick = breadcrumbItems[0]?.onClick;
   return (
     <div
       id="sb-top"
@@ -204,6 +239,27 @@ export function TopBar({
           for={scrollContainerId}
           style={{ position: "sticky", top: 0 }}
         >
+          {/* "asterisk" verified as a real glyph in the bundled font
+              subset — client/fonts/MaterialSymbolsOutlined.woff2 decompiled
+              (fontTools) and its glyph order literally contains "asterisk"
+              (alongside "inbox_text_asterisk"/"mail_asterisk", which aren't
+              it), the same way "close"/"history"/"add" etc. already used
+              elsewhere in this file/floating_toolbar.tsx resolve — so no
+              `emergency` fallback is needed here. */}
+          <m3e-icon-button
+            slot="leading"
+            title="Home"
+            aria-label="Home"
+            disabled={!homeOnClick}
+            onClick={homeOnClick
+              ? (e: MouseEvent) => {
+                e.preventDefault();
+                homeOnClick();
+              }
+              : undefined}
+          >
+            <m3e-icon name="asterisk"></m3e-icon>
+          </m3e-icon-button>
           <span slot="title" className="sb-page-title">
             <span className="sb-page-prefix">{pageNamePrefix}</span>
             <span
@@ -236,8 +292,45 @@ export function TopBar({
               percentage={progressPercentage}
               type={progressType}
             />
+            {/* L7: kebab menu — shell + trigger + positioning only in this
+                leaf. Real content (Web Push toggle, CONFIG link, etc.) is
+                wired in by a follow-up leaf (L8) via the `menuItems` prop,
+                which also touches editor_ui.tsx and is sequenced after this
+                one lands to avoid a merge conflict on this file. */}
+            <m3e-icon-button title="More actions" aria-label="More actions">
+              <m3e-menu-trigger for="sb-app-bar-menu">
+                <m3e-icon name="more_vert"></m3e-icon>
+              </m3e-menu-trigger>
+            </m3e-icon-button>
           </span>
         </m3e-app-bar>
+        {/* `position-y="below"` is explicit here (it's also the component's
+            own default, MenuPosition.d.ts) for the same self-documenting
+            reason floating_toolbar.tsx's sb-recent-pages-menu is explicit
+            about "above": this anchor lives at the TOP of the viewport (the
+            sticky app bar), not the bottom like that toolbar — "below" is
+            the only direction with room to open into, so it's stated
+            outright rather than left to rely on the default silently being
+            right. */}
+        <m3e-menu id="sb-app-bar-menu" position-y="below">
+          {menuItems.length === 0
+            ? <m3e-menu-item disabled>No actions yet</m3e-menu-item>
+            : menuItems.map((item) => (
+              <m3e-menu-item
+                key={item.key}
+                disabled={item.disabled}
+                onClick={item.disabled
+                  ? undefined
+                  : (e: MouseEvent) => {
+                    e.preventDefault();
+                    item.onClick();
+                  }}
+              >
+                {item.icon && <m3e-icon name={item.icon}></m3e-icon>}
+                {item.label}
+              </m3e-menu-item>
+            ))}
+        </m3e-menu>
       </div>
       {rhs}
     </div>
