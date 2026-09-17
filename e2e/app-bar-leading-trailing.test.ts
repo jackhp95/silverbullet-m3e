@@ -128,13 +128,31 @@ test("trailing kebab shows the Web Push toggle with its current state", async ({
     .poll(() => menu.evaluate((el: any) => el.isOpen))
     .toBe(true);
 
-  // This e2e bundle is built with no VAPID_PUBLIC_KEY/PUSH_SIDECAR_URL (see
-  // e2e/push-notifications.test.ts's own header comment for why that's the
-  // deterministic default here) — `pushState` resolves to "not-configured",
-  // one of the 8 states client/editor_ui.tsx's PUSH_TOGGLE_LABELS preserves
-  // verbatim from the floating toolbar's pre-existing push toggle.
+  // This test intentionally doesn't stub anything (unlike
+  // e2e/push-notifications.test.ts, which stubs Notification.permission to
+  // "granted" specifically to reach the "off"/"on" states) — so which of
+  // client/editor_ui.tsx's 8 PUSH_TOGGLE_LABELS states is reachable here
+  // depends entirely on how THIS bundle was built:
+  //  - no VAPID_PUBLIC_KEY/PUSH_SIDECAR_URL at build time -> "not-configured"
+  //  - both set, but headless Chromium hard-codes Notification.permission to
+  //    "denied" regardless of the real OS/browser state (verified — see
+  //    push-notifications.test.ts's own header comment) -> "denied"
+  // Hardcoding either string makes this test's pass/fail flip depending on
+  // which env vars happened to be set at build time, with no code change
+  // involved — so read the actual boot config back from the page instead of
+  // assuming one build over the other.
+  const bootConfig = await page.evaluate(() => {
+    const c = (globalThis as any).client;
+    return {
+      configured: !!(c?.bootConfig?.vapidPublicKey && c?.bootConfig?.pushSidecarUrl),
+    };
+  });
+  const expectedLabel = bootConfig.configured
+    ? "Notification permission was denied — enable it in your browser settings"
+    : "Push notifications are not configured for this server";
+
   const pushItem = menu.locator("m3e-menu-item").filter({
-    hasText: "Push notifications are not configured for this server",
+    hasText: expectedLabel,
   });
   await expect(pushItem).toHaveCount(1);
   await expect(pushItem).toHaveAttribute("disabled", "");
