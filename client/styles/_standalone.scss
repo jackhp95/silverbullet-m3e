@@ -126,6 +126,37 @@ body.sb-standalone {
   .sb-spaces-warn {
     color: #9a6700;
   }
+
+  // ConfirmDialog.tsx's actions row, slotted into m3e-dialog's `actions`
+  // slot — same layout rule as modals.scss's `.sb-dialog-actions` for the
+  // main editor's Confirm(), duplicated here rather than shared because
+  // app.scss (this partial's entry point) never @uses modals.scss — the two
+  // standalone/editor stylesheets are deliberately separate bundles (see
+  // build/build_client.ts).
+  .sb-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  // ConfirmDialog.tsx's destructive Ok action: recolor a `filled` m3e-button
+  // to the Material error role, mirroring modals.scss's `.sb-button-error`.
+  // Unlike the editor (wrapped in `<m3e-theme>` — client/editor_ui.tsx),
+  // none of these standalone pages render an `m3e-theme` ancestor, so
+  // `--md-sys-color-error`/`-on-error` are never actually generated here —
+  // the `var(--md-sys-color-error, …)` fallback is what actually paints,
+  // using the same red already established for `.sb-spaces-error` above
+  // rather than inventing a new color.
+  .sb-button-error {
+    --m3e-filled-button-container-color: var(--md-sys-color-error, #b00020);
+    --m3e-filled-button-label-text-color: var(--md-sys-color-on-error, #fff);
+    --m3e-filled-button-hover-label-text-color: var(--md-sys-color-on-error, #fff);
+    --m3e-filled-button-hover-state-layer-color: var(--md-sys-color-on-error, #fff);
+    --m3e-filled-button-focus-label-text-color: var(--md-sys-color-on-error, #fff);
+    --m3e-filled-button-focus-state-layer-color: var(--md-sys-color-on-error, #fff);
+    --m3e-filled-button-pressed-label-text-color: var(--md-sys-color-on-error, #fff);
+    --m3e-filled-button-pressed-state-layer-color: var(--md-sys-color-on-error, #fff);
+  }
 }
 
 // The 720px reading column, used by the setup wizard and the Space Manager.
@@ -329,27 +360,20 @@ body.sb-standalone.sb-page {
   background: #fafafa;
 }
 
+// m3e-breadcrumb owns its own item layout + separators internally (see
+// @m3e/web/breadcrumb card) — this class hook now only places the whole
+// element within the browse panel, same as top_bar.tsx's .sb-breadcrumb-row.
 .sb-standalone .sb-folder-crumbs {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem;
+  display: block;
   margin-bottom: 0.5rem;
 }
 
-.sb-standalone .sb-folder-crumb-sep {
-  color: #999;
-}
-
+// m3e-list owns its own item padding/dividers; only the browse panel's
+// scroll behavior is this class's job now.
 .sb-standalone .sb-folder-dirs {
-  list-style: none;
+  display: block;
   max-height: 12rem;
   overflow-y: auto;
-  margin: 0;
-}
-
-.sb-standalone .sb-folder-dirs li {
-  padding: 0.15rem 0;
 }
 
 .sb-standalone .sb-folder-empty {
@@ -399,19 +423,15 @@ body.sb-standalone.sb-page {
   font-weight: normal;
 }
 
+// m3e-list-item owns its own internal row layout (headline/supporting-text/
+// trailing slots) — only the list's own container chrome is this class's
+// job now.
 .sb-standalone .sb-token-list {
+  display: block;
   padding: 0.5rem;
   background: #f7f7f7;
   border-radius: 0.4em;
-  list-style: none;
   margin: 0 0 0.5rem;
-}
-
-.sb-standalone .sb-token-list li {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.25rem 0;
 }
 
 .sb-standalone .sb-token-reveal {

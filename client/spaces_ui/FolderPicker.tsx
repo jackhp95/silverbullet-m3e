@@ -3,6 +3,15 @@ import { useEffect, useState } from "preact/hooks";
 import { Input } from "@silverbulletmd/silverbullet/ui";
 // `Input` renders `m3e-form-field` — see plug-api/ui/input.tsx's doc comment.
 import "@m3e/web/form-field";
+// The browse panel's breadcrumb trail and subdirectory list render
+// `m3e-breadcrumb`/`m3e-list` directly (not through the shared kit — neither
+// has a plug-api/ui wrapper), so this file self-imports their side effects,
+// matching the fork's established per-consumer convention (see
+// plug-api/ui/button.tsx's doc comment on why these live at the DOM-side
+// consumer rather than a shared barrel).
+import "@m3e/web/breadcrumb";
+import "@m3e/web/list";
+import "./m3e-jsx.d.ts";
 
 /**
  * Reusable server-side folder picker shared by the setup wizard
@@ -160,40 +169,34 @@ export function FolderPicker({
       </div>
       {browsing && (
         <div class="sb-folder-browser">
-          <div class="sb-folder-crumbs">
+          <m3e-breadcrumb class="sb-folder-crumbs" aria-label="Folder path" wrap>
             {crumbsFor(browsePath).map((c, i, crumbs) => (
-              <Fragment key={`${c.target}-${i}`}>
-                {/* No separator right after the root crumb — its label is
-                    already "/" and a second one would render as "//". */}
-                {i > 0 && crumbs[i - 1].label !== "/" && (
-                  <span class="sb-folder-crumb-sep">/</span>
-                )}
-                <button
-                  type="button"
-                  class="sb-link-button"
-                  onClick={() => navigate(c.target)}
-                >
-                  {c.label}
-                </button>
-              </Fragment>
+              <m3e-breadcrumb-item
+                key={`${c.target}-${i}`}
+                item-label={c.label}
+                // Marks the last crumb (the folder currently being browsed)
+                // as the trail's current location for assistive tech — it
+                // stays clickable like every other crumb (navigating to the
+                // folder you're already in is a harmless no-op, same as the
+                // original plain-button implementation).
+                current={i === crumbs.length - 1 ? "location" : undefined}
+                onClick={() => navigate(c.target)}
+              >
+                {c.label}
+              </m3e-breadcrumb-item>
             ))}
-          </div>
-          <ul class="sb-folder-dirs">
-            {browseDirs.length === 0 && (
-              <li class="sb-folder-empty">No subdirectories</li>
-            )}
-            {browseDirs.map((dir) => (
-              <li key={dir}>
-                <button
-                  type="button"
-                  class="sb-link-button"
-                  onClick={() => navigate(dir)}
-                >
+          </m3e-breadcrumb>
+          {browseDirs.length === 0 ? (
+            <p class="sb-folder-empty">No subdirectories</p>
+          ) : (
+            <m3e-list class="sb-folder-dirs">
+              {browseDirs.map((dir) => (
+                <m3e-list-action key={dir} onClick={() => navigate(dir)}>
                   {dir.split("/").filter(Boolean).pop() || dir}
-                </button>
-              </li>
-            ))}
-          </ul>
+                </m3e-list-action>
+              ))}
+            </m3e-list>
+          )}
         </div>
       )}
     </Fragment>
