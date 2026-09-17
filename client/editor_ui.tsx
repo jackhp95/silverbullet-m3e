@@ -15,24 +15,11 @@ import {
   type BreadcrumbItem,
   TopBar,
 } from "./components/top_bar.tsx";
-import { Fab, NavBar } from "./components/nav_bar.tsx";
-import { RecentView } from "./components/nav_views/recent.tsx";
-import { SearchView } from "./components/nav_views/search.tsx";
-import { RunView } from "./components/nav_views/run.tsx";
-import {
-  NotificationsView,
-  notificationsIconFor,
-} from "./components/nav_views/notifications.tsx";
-import {
-  type CaptureItemType,
-  ItemCaptureSheet,
-} from "./components/item_capture_sheet.tsx";
 import reducer from "./reducer.ts";
 import {
   type Action,
   type AppViewState,
   initialViewState,
-  type NavDestination,
 } from "./types/ui.ts";
 import "@m3e/web/theme";
 import "@m3e/web/snackbar";
@@ -70,86 +57,12 @@ import {
   parseToRef,
   type Path,
 } from "@silverbulletmd/silverbullet/lib/ref";
-import { slugify } from "@silverbulletmd/silverbullet/ui";
 import {
   getPushSubscriptionState,
   isPushSupported,
   subscribeToPush,
   unsubscribeFromPush,
 } from "./lib/push_subscribe.ts";
-
-// Nav-bar destination panel host (2026-09-17 nav-bar redesign spec §2.3
-// option (a), leaf N4) — a plain repo-owned fixed `<div>` (`.sb-nav-panel`
-// in top.scss), NOT an `m3e-bottom-sheet`. Placeholder content only for
-// leaves that haven't landed yet; N5-N9 each replace one entry with a real
-// `nav_views/*.tsx` view. Not owned by nav_bar.tsx (see the spec's §5.1
-// file-overlap table — N4 isn't listed among that file's owners), since
-// it's wiring-level, same as this file's other viewState-driven panels
-// above.
-const NAV_PANEL_PLACEHOLDERS: Record<NavDestination, string> = {
-  // Dead for all four destinations (N6 recent, N7 search, N8 run, N9
-  // notifications): the panel-host render below intercepts each before
-  // this lookup is ever reached, rendering the real RecentView/SearchView/
-  // RunView/NotificationsView instead. Left in place (rather than deleting
-  // this now-fully-superseded Record) since removing it is N11's job
-  // (delete search_sheet.tsx + old e2e + this dead placeholder map,
-  // spec §5).
-  recent: "Recent — coming soon",
-  search: "Search — coming soon",
-  run: "Run — coming soon",
-  notifications: "Notifications — coming soon",
-};
-
-// The frontmatter `tags:` value each item_capture_sheet.tsx type gets, and
-// the `captures/<folder>/` directory its page lands in. "contact" maps to
-// the `person` tag, not a fork-invented `contact` tag — this repo's own
-// docs/Guide/People Notes.md (+ e2e/guide-people-notes.test.ts) already
-// establishes `tags: person` as SilverBullet's real convention for a
-// person/contact page (`from p = tags.person` query, Linked Mentions), so a
-// captured contact interoperates with that existing guide/dashboard for
-// free instead of minting a parallel, unqueried taxonomy.
-const CAPTURE_TAXONOMY: Record<
-  Exclude<CaptureItemType, "note">,
-  { tag: string; folder: string }
-> = {
-  task: { tag: "task", folder: "task" },
-  event: { tag: "event", folder: "event" },
-  contact: { tag: "person", folder: "contact" },
-  idea: { tag: "idea", folder: "idea" },
-};
-
-// Quick-capture write for the unified item-creation bottom sheet's
-// task/event/contact/idea types (client/components/item_capture_sheet.tsx).
-//
-// Was: append one plain line to one shared hardcoded page (`Tasks`/
-// `Events`/`Contacts`/`Ideas`), no frontmatter, no tag — everything on a
-// page piled into one undifferentiated, unaddressable blob.
-//
-// This fork has no `tag.define`-schema'd "task" (or event/contact/idea)
-// convention of its own to conform to (checked: no `tag.define` in
-// demo-space/CONFIG.md or anywhere in this repo/libraries/ beyond SB's
-// upstream *built-in* tags — see libraries/Library/Std/Infrastructure/
-// Builtin Tags.md). SB's real built-in "task" is checkbox-shaped
-// (`* [ ] text`, auto-indexed by plugs/index/task.ts — see
-// docs/Guide/Task Management.md) rather than a per-page frontmatter schema,
-// so the task branch below keeps that literal checkbox line as the page
-// body (real, toggleable, queryable via `tags.task`) while *also* giving it
-// its own page so it's individually addressable — the "minimum bar" this
-// task's brief calls for when no fuller schema exists. event/idea have no
-// existing SB-native tag at all, so they get a plain new tag of the same
-// name (the same minimum bar).
-async function writeCaptureItemPage(
-  client: Client,
-  type: Exclude<CaptureItemType, "note">,
-  body: string,
-): Promise<string> {
-  const { tag, folder } = CAPTURE_TAXONOMY[type];
-  const slug = slugify(body.slice(0, 60)) || "item";
-  const pageName = `captures/${folder}/${slug}-${Date.now().toString(36)}`;
-  const frontmatter = `---\ntags: ${tag}\ncaptured: ${new Date().toISOString()}\n---\n`;
-  await client.space.writePage(pageName, `${frontmatter}${body}\n`);
-  return pageName;
-}
 
 // Stable id given to the real editor scroll container exactly once, in
 // client.ts right after `new EditorView(...)` constructs it — see the
@@ -402,27 +315,7 @@ export class MainUI {
     const [viewState, dispatch] = useReducer(reducer, initialViewState);
     this.viewState = viewState;
     this.viewDispatch = dispatch;
-    // Controls the unified item-creation m3e-bottom-sheet (nav bar's FAB) —
-    // fully Preact-controlled, see item_capture_sheet.tsx.
-    const [captureSheetOpen, setCaptureSheetOpen] = useState(false);
-
     const client = this.client;
-
-    // Escape closes the nav-bar destination panel (N4). Only attached while
-    // a panel is actually open, and removed the moment it closes for any
-    // other reason (clicking the same nav item again, selecting a different
-    // destination doesn't need this — it's a straight dispatch) — no
-    // dangling listener once `navDestination` goes back to `null`.
-    useEffect(() => {
-      if (viewState.navDestination === null) return;
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === "Escape") {
-          dispatch({ type: "close-nav-panel" });
-        }
-      };
-      document.addEventListener("keydown", handleKeyDown);
-      return () => document.removeEventListener("keydown", handleKeyDown);
-    }, [viewState.navDestination]);
 
     // Single source of truth for read-only state — the same expression that
     // already drove TopBar's readOnly prop below and CodeMirror's editable
@@ -813,12 +706,11 @@ export class MainUI {
     // app-bar kebab contents (top_bar.tsx's `menuItems` prop, shell built in
     // L6/L7). The Web Push toggle that used to live here (`pushMenuItem`,
     // all 8 `pushState` labels via `pushToggle`/`PUSH_TOGGLE_LABELS` above)
-    // has moved to its own nav-bar destination
-    // (components/nav_views/notifications.tsx, rendered below) — deleted
-    // from here rather than duplicated (spec's explicit no-duplication
-    // requirement). Two sources remain, in display order: a CONFIG-page
-    // link, then every CONFIG-defined actionButton (`configMenuItems`
-    // above).
+    // was moved out to a since-deleted notifications destination view —
+    // deleted from here rather than duplicated (spec's explicit
+    // no-duplication requirement). Two sources remain, in display order: a
+    // CONFIG-page link, then every CONFIG-defined actionButton
+    // (`configMenuItems` above).
     //
     // No dedicated "open the CONFIG page" command exists in
     // `viewState.commands` — "Configuration: Open" (Cmd/Ctrl-,,
@@ -1058,160 +950,6 @@ export class MainUI {
             <Panel config={viewState.panels.bhs} editor={client} />
           </div>
         )}
-        {
-          // Bottom nav bar + FAB (2026-09-17 nav-bar redesign spec, leaves
-          // N2+N3) — replaces the old floating vertical toolbar entirely.
-          // Journal is an action-only item (no panel, spec §2.4); of the
-          // other four destinations, Recent (N6), Search (N7), and
-          // Notifications (N9) now have their real views; Run stays a
-          // placeholder until N8 relocates it here.
-          //
-          // The read-only toggle's old toolbar-icon-button home is gone
-          // with the toolbar; its new home is the app-bar kebab (spec's
-          // leaf N10, not yet landed) — a deliberate, temporary gap in this
-          // 12-leaf sequential rollout, same as the remaining panels'
-          // placeholder content until their own leaves land.
-        }
-        <NavBar
-          navDestination={viewState.navDestination}
-          journal={{
-            available: viewState.commands.has("Journal: Today"),
-            onClick: () =>
-              safeRun(async () => {
-                await client.runCommandByName("Journal: Today");
-              }),
-          }}
-          onSelectDestination={(destination) =>
-            dispatch({ type: "select-nav-destination", destination })}
-          onCloseDestination={() => dispatch({ type: "close-nav-panel" })}
-          notificationsIcon={notificationsIconFor(pushToggle)}
-        />
-        <Fab onClick={() => setCaptureSheetOpen(true)} />
-        {viewState.navDestination !== null && (
-          <div className="sb-nav-panel" role="region">
-            {viewState.navDestination === "recent"
-              ? (
-                // N6: real Recent view — relocation of search_sheet.tsx's
-                // "open" mode (spec §2.5/§5). Same documentExtensions/
-                // currentPath AnythingPicker already uses above, same
-                // navigateToAnythingPickerName/Ref close-callback
-                // convention (closes via `close-nav-panel` instead of
-                // `stop-navigate`).
-                <RecentView
-                  allPages={viewState.allPages}
-                  allDocuments={viewState.allDocuments}
-                  extensions={documentExtensions}
-                  currentPath={client.currentPath()}
-                  recentPaths={client.recentPaths}
-                  onNavigate={(name) =>
-                    navigateToAnythingPickerName(name, () =>
-                      dispatch({ type: "close-nav-panel" }))}
-                  onNavigateRef={(ref) =>
-                    navigateToAnythingPickerRef(ref, () =>
-                      dispatch({ type: "close-nav-panel" }))}
-                />
-              )
-              : viewState.navDestination === "search"
-              ? (
-                // N7: real Search view — relocation of search_sheet.tsx's
-                // "search" mode (spec §2.5/§5). Same close-callback
-                // convention as RecentView above; also wires the optional
-                // /^Search/ delegate command through triggerCommand (same
-                // helper AnythingPicker's command-palette call site uses).
-                <SearchView
-                  allPages={viewState.allPages}
-                  extensions={documentExtensions}
-                  currentPath={client.currentPath()}
-                  commands={viewState.commands}
-                  recentSearchTerms={client.recentSearchTerms}
-                  onNavigate={(name) =>
-                    navigateToAnythingPickerName(name, () =>
-                      dispatch({ type: "close-nav-panel" }))}
-                  onNavigateRef={(ref) =>
-                    navigateToAnythingPickerRef(ref, () =>
-                      dispatch({ type: "close-nav-panel" }))}
-                  onTriggerCommand={(cmd) =>
-                    triggerCommand(cmd, () =>
-                      dispatch({ type: "close-nav-panel" }))}
-                  onClose={() => dispatch({ type: "close-nav-panel" })}
-                />
-              )
-              : viewState.navDestination === "run"
-              ? (
-                // N8: real Run view — relocation of search_sheet.tsx's "run"
-                // mode (spec §5). Same command-palette builders CommandPalette
-                // itself uses (buildCommandPaletteOptions/triggerCommand/
-                // commandFromOption, command_palette.tsx), same
-                // getCommandsByContext(viewState) source CommandPalette's own
-                // call site below uses.
-                <RunView
-                  commands={client.getCommandsByContext(viewState)}
-                  onClose={() => dispatch({ type: "close-nav-panel" })}
-                />
-              )
-              : viewState.navDestination === "notifications"
-              ? <NotificationsView pushToggle={pushToggle} />
-              : NAV_PANEL_PLACEHOLDERS[viewState.navDestination]}
-          </div>
-        )}
-        <ItemCaptureSheet
-          open={captureSheetOpen}
-          onCancel={() => setCaptureSheetOpen(false)}
-          onSubmit={(type, text) =>
-            safeRun(async () => {
-              // Reuses the exact same per-type capture behavior the old
-              // fab-menu's 5 `newMenuItems` ran inline; note is the one
-              // type that doesn't write via `writeCaptureItemPage` — it
-              // validates the name and navigates, same
-              // `isValidName`/`parseToRef`/`client.open` path the page
-              // picker's own "type a name that doesn't exist yet" flow
-              // already uses, see the `onNavigate` handler above rather
-              // than reinventing page creation) — only the entry point
-              // changed, from 5 separate fab-menu items (each with its own
-              // `this.prompt()` round-trip) to this one sheet's type
-              // selector + submit.
-              switch (type) {
-                case "task":
-                  await writeCaptureItemPage(client, "task", `* [ ] ${text}`);
-                  this.flashNotification(`Task added: ${text}`);
-                  break;
-                case "event":
-                  await writeCaptureItemPage(client, "event", text);
-                  this.flashNotification(`Event added: ${text}`);
-                  break;
-                case "contact":
-                  await writeCaptureItemPage(client, "contact", text);
-                  this.flashNotification(`Contact added: ${text}`);
-                  break;
-                case "idea":
-                  await writeCaptureItemPage(client, "idea", text);
-                  this.flashNotification("Idea captured");
-                  break;
-                case "note": {
-                  // For this one type, the sheet's shared text field is
-                  // doubling as the page NAME rather than page content —
-                  // see item_capture_sheet.tsx's `isNote` comment for why
-                  // that's a deliberate, single-field design rather than a
-                  // separate note-only form. Validate the same way the old
-                  // "New note" prompt did; leave the sheet open (don't fall
-                  // through to setCaptureSheetOpen below) so an invalid name
-                  // can be corrected in place instead of losing the draft.
-                  const ref = parseToRef(text);
-                  if (!isValidName(text) || !ref) {
-                    this.flashNotification(
-                      `Couldn't create page ${text}, name is invalid`,
-                      "error",
-                    );
-                    return;
-                  }
-                  await client.open(ref);
-                  break;
-                }
-              }
-              setCaptureSheetOpen(false);
-            })
-          }
-        />
       </m3e-theme>
     );
   }
