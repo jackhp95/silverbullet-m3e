@@ -145,10 +145,22 @@
     }
   }
 
+  // Sibling tooltip to `.cm-tooltip-autocomplete` (see colors.scss) — same
+  // M3 token reskin, one surface tier up (surface-container-high) so the
+  // docs popover reads as layered above the option list that spawned it.
   .cm-tooltip.cm-completionInfo:has(.sb-completion-documentation) {
     max-width: min(48rem, 70vw);
     padding: 0;
     white-space: normal;
+    background-color: var(--md-sys-color-surface-container-high);
+    color: var(--md-sys-color-on-surface);
+    border: none;
+    border-radius: var(--md-sys-shape-corner-value-small, 8px);
+    box-shadow:
+      0px 1px 2px 0px
+        color-mix(in srgb, var(--md-sys-color-shadow, #000) 30%, transparent),
+      0px 2px 6px 2px
+        color-mix(in srgb, var(--md-sys-color-shadow, #000) 15%, transparent);
   }
 
   .sb-completion-documentation {
