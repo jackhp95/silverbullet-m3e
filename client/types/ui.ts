@@ -196,7 +196,15 @@ export type BootConfig = {
   // "not configured" rather than guessing a key.
   /** Base64url-encoded VAPID application server public key. */
   vapidPublicKey?: string;
-  /** Base URL of the push sidecar, e.g. "http://localhost:8787" (no trailing slash needed). */
+  /**
+   * Base URL of the push sidecar (no trailing slash needed). Should
+   * normally be a relative same-origin proxy path, e.g.
+   * "/.proxy/localhost:8791" (see `server/src/handlers/proxy.rs`), since the
+   * sidecar has no CORS headers and an absolute cross-origin URL triggers a
+   * preflight it 404s. An absolute "http(s)://..." URL is also supported,
+   * for a sidecar with its own CORS handling — see
+   * `client/lib/push_subscribe.ts`.
+   */
   pushSidecarUrl?: string;
 };
 

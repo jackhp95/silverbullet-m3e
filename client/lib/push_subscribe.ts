@@ -17,6 +17,14 @@
  * `build/build_client.ts`'s `patchPushConfig()` and `augmentBootConfig` in
  * `client/boot.ts`. Until those env vars are set, both fields are "" and
  * the toggle renders as "not configured" rather than guessing a key.
+ *
+ * `PUSH_SIDECAR_URL` should normally be a relative same-origin proxy path,
+ * e.g. `/.proxy/localhost:8791` (see `server/src/handlers/proxy.rs`) — the
+ * sidecar itself has no CORS headers, so an absolute cross-origin URL
+ * (`http://localhost:8791`) triggers a preflight the sidecar 404s, which the
+ * browser reports as "Failed to fetch". `subscribeToPush` below still
+ * accepts an absolute `http(s)://` URL too, for a sidecar with its own CORS
+ * support (e.g. local same-origin dev) — see the `isProxied` branch.
  */
 
 /** Why a subscribe (or an availability check) didn't result in an active subscription. */
@@ -116,14 +124,26 @@ export async function subscribeToPush(
   }
 
   try {
-    const resp = await fetch(
-      `${options.sidecarUrl.replace(/\/$/, "")}/push/subscribe`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(subscription.toJSON()),
+    const url = `${options.sidecarUrl.replace(/\/$/, "")}/push/subscribe`;
+    // A relative `sidecarUrl` (e.g. "/.proxy/localhost:8791") routes through
+    // this server's own same-origin proxy (`server/src/handlers/proxy.rs`,
+    // mounted at `/.proxy/{*path}` in `server/src/router.rs`) to dodge a
+    // cross-origin CORS preflight the sidecar can't answer (no OPTIONS
+    // route/CORS headers there). That proxy forwards ONLY request headers
+    // prefixed `X-Proxy-Header-*`, stripping the prefix — so `Content-Type`
+    // must be sent as `X-Proxy-Header-Content-Type` for it to reach the
+    // sidecar at all. An absolute `http(s)://` URL is a direct fetch to a
+    // sidecar presumed to handle its own CORS (e.g. local dev, or a future
+    // CORS-hardened sidecar) and keeps the plain header name.
+    const isProxied = !/^https?:\/\//i.test(options.sidecarUrl);
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        [isProxied ? "X-Proxy-Header-Content-Type" : "Content-Type"]:
+          "application/json",
       },
-    );
+      body: JSON.stringify(subscription.toJSON()),
+    });
     if (!resp.ok) {
       return { ok: false, reason: "post-failed", detail: `HTTP ${resp.status}` };
     }

@@ -164,6 +164,18 @@ async function copyAssets(dist: string) {
 // repo, hasn't reported its real VAPID key or port yet), so both come from
 // env vars read at build time and default to "" when unset. An unset key
 // means the push toggle renders as "not configured" instead of guessing.
+//
+// PUSH_SIDECAR_URL should be set to a relative same-origin proxy path, e.g.
+// `/.proxy/localhost:8791`, NOT an absolute `http://localhost:8791`. The
+// sidecar has no CORS headers, so an absolute cross-origin URL makes the
+// browser preflight the POST, the sidecar 404s the OPTIONS, and the
+// subscribe call fails with "Failed to fetch" (this bit a live deploy — the
+// bundle baked the absolute form while the page was served cross-origin).
+// Routing through this server's own `/.proxy/{*path}` handler
+// (`server/src/handlers/proxy.rs`) is same-origin, so no preflight happens;
+// see `client/lib/push_subscribe.ts` for the corresponding
+// `X-Proxy-Header-Content-Type` header rewrite that proxy requires. An
+// absolute URL is still supported for a sidecar with its own CORS handling.
 function patchPushConfig(code: string): string {
   return code
     .replaceAll("{{VAPID_PUBLIC_KEY}}", process.env.VAPID_PUBLIC_KEY ?? "")
