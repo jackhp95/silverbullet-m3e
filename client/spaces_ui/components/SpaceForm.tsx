@@ -18,6 +18,7 @@ import { adminApi, listUsers } from "../api.ts";
 import { FolderPicker } from "../FolderPicker.tsx";
 import { FieldErrors, useSlugDefaults } from "../space_fields.tsx";
 import type { Binding, FieldError, SpaceInfo, UserInfo } from "../types.ts";
+import { Confirm } from "./ConfirmDialog.tsx";
 
 export function SpaceForm({
   id,
@@ -86,6 +87,9 @@ export function SpaceForm({
   const [hostStatus, setHostStatus] = useState<
     "verified" | "mismatch" | "unreachable" | null
   >(null);
+  // Staged confirmation for the destructive delete action below, replacing
+  // the old `window.confirm()` with the `m3e-dialog`-backed Confirm().
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // The confirmation is transient: it answers "did that save?" and then gets
   // out of the way, rather than lingering next to fields the user has since
@@ -412,34 +416,35 @@ export function SpaceForm({
       </div>
       {id && (
         <div class="sb-danger-zone">
-          <Button
-            variant="danger"
-            onClick={async () => {
-              if (
-                !confirm(
-                  `Remove "${initial?.name ?? id}" from the server? Files on disk are kept.`,
-                )
-              ) {
-                return;
-              }
-              try {
-                await adminApi("DELETE", `spaces/${id}`);
-                onDeleted();
-              } catch (errs) {
-                if ((errs as any)?.unauthorized) {
-                  onUnauthorized();
-                  return;
-                }
-                setErrors(
-                  Array.isArray(errs)
-                    ? errs
-                    : [{ field: "", message: "Request failed" }],
-                );
-              }
-            }}
-          >
+          <Button variant="danger" onClick={() => setConfirmDelete(true)}>
             Delete space
           </Button>
+          {confirmDelete && (
+            <Confirm
+              message={`Remove "${initial?.name ?? id}" from the server? Files on disk are kept.`}
+              destructive
+              callback={(ok) => {
+                setConfirmDelete(false);
+                if (!ok) return;
+                void (async () => {
+                  try {
+                    await adminApi("DELETE", `spaces/${id}`);
+                    onDeleted();
+                  } catch (errs) {
+                    if ((errs as any)?.unauthorized) {
+                      onUnauthorized();
+                      return;
+                    }
+                    setErrors(
+                      Array.isArray(errs)
+                        ? errs
+                        : [{ field: "", message: "Request failed" }],
+                    );
+                  }
+                })();
+              }}
+            />
+          )}
         </div>
       )}
     </form>

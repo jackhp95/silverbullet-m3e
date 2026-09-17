@@ -1,5 +1,5 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
@@ -16,6 +16,28 @@ let base: string;
 
 const BIN = "./target/debug/silverbullet";
 const CWD = join(import.meta.dirname, "..");
+
+/**
+ * True once `tag` is a registered custom element AND the matched `selector`
+ * element has actually been upgraded to an instance of it — not just present
+ * in the light DOM waiting on its module. Same helper as basic-modals.test.ts
+ * (the cross-cutting acceptance gate every m3e reskin PR adds) — kept local
+ * rather than imported since neither file exports it.
+ */
+function isUpgraded(
+  page: Page,
+  tag: string,
+  selector: string = tag,
+): Promise<boolean> {
+  return page.evaluate(
+    ({ tag, selector }: { tag: string; selector: string }) => {
+      const ctor = customElements.get(tag);
+      const el = document.querySelector(selector);
+      return !!ctor && !!el && el instanceof ctor;
+    },
+    { tag, selector },
+  );
+}
 
 test.beforeAll(async () => {
   rootDir = await mkdtemp(join(tmpdir(), "sb-admin-spaces-e2e-"));
@@ -309,4 +331,142 @@ test("a non-admin sees only their spaces and no admin affordances", async ({
   // authenticated (just not an admin), so this is 403, not 401.
   const resp = await page.request.get(`${base}/.spaces/api/admin/users`);
   expect(resp.status()).toBe(403);
+});
+
+// Phase C #9 (docs/plans/2026-09-16-m3e-reskin-and-agentic-journal-spec.md
+// §3): FolderPicker.tsx's browse panel — previously a plain <ul>/<button>
+// tree — now renders m3e-breadcrumb/m3e-list-action.
+test("the folder picker's browse panel upgrades to m3e-breadcrumb/m3e-list-action, and clicking an entry fills the folder field", async ({
+  page,
+}) => {
+  const probeDir = join(rootDir, "browse-probe");
+  await mkdir(join(probeDir, "child-one"), { recursive: true });
+
+  await page.goto(`${base}/.spaces/new`);
+  // Typing directly into the folder field marks it "touched", so the browse
+  // panel opens on that value itself rather than the untouched default's
+  // "spaces" parent (see FolderPicker.tsx's `browseStart` doc comment).
+  await page.locator("#space-folder").fill(probeDir);
+  await page.getByRole("button", { name: "Browse…" }).click();
+
+  const breadcrumb = page.locator("m3e-breadcrumb");
+  await expect(breadcrumb).toBeVisible();
+  expect(await isUpgraded(page, "m3e-breadcrumb")).toBe(true);
+  expect(await isUpgraded(page, "m3e-breadcrumb-item")).toBe(true);
+
+  const entry = page.locator("m3e-list-action", { hasText: "child-one" });
+  await expect(entry).toBeVisible();
+  expect(await isUpgraded(page, "m3e-list-action")).toBe(true);
+  await entry.click();
+
+  await expect(page.locator("#space-folder")).toHaveValue(
+    join(probeDir, "child-one"),
+  );
+});
+
+// Phase C #9: SpaceForm.tsx's "Delete space" used to go through a blocking
+// `window.confirm()`; it now stages an m3e-dialog-backed ConfirmDialog.tsx.
+test("deleting a space asks for confirmation via an upgraded m3e-dialog, and Cancel leaves it untouched", async ({
+  page,
+}) => {
+  const id = await createSpaceViaApi(page, {
+    name: "Doomed",
+    binding: { prefix: "/doomed" },
+  });
+
+  await page.goto(`${base}/.spaces/${encodeURIComponent(id)}`);
+  await page.getByRole("button", { name: "Delete space" }).click();
+
+  const dialog = page.locator("m3e-dialog");
+  await expect(dialog).toHaveAttribute("open", "");
+  await expect(dialog.locator('[slot="header"]')).toContainText(
+    'Remove "Doomed" from the server?',
+  );
+  expect(await isUpgraded(page, "m3e-dialog")).toBe(true);
+  expect(await isUpgraded(page, "m3e-button")).toBe(true);
+
+  await dialog.getByText("Cancel", { exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  const stillThere = await fetchSpaceViaApi(page, id);
+  expect(stillThere.name).toBe("Doomed");
+
+  // Ok actually deletes it.
+  await page.getByRole("button", { name: "Delete space" }).click();
+  await page.locator("m3e-dialog").getByText("Ok", { exact: true }).click();
+  await expect(page.locator("m3e-dialog")).not.toBeVisible();
+
+  const resp = await page.request.get(
+    `${base}/.spaces/api/admin/spaces/${id}`,
+  );
+  expect(resp.status()).toBe(404);
+});
+
+// Phase C #9: UsersView.tsx's "Revoke" token action used to go through a
+// blocking `window.confirm()`, and the token list itself was a plain
+// <ul>/<li>; both now render via m3e-dialog / m3e-list-item.
+test("revoking a token asks for confirmation via an upgraded m3e-dialog, and the token list renders as m3e-list", async ({
+  page,
+}) => {
+  await admin(page, "POST", "api/admin/users", {
+    username: "token-owner",
+    password: "tokenownerpw123",
+  });
+  await page.goto(`${base}/.spaces/users/token-owner`);
+  await page.getByLabel("Token name").fill("ci-token");
+  await page.getByRole("button", { name: "Create token" }).click();
+
+  const tokenList = page.locator("m3e-list.sb-token-list");
+  await expect(tokenList).toBeVisible();
+  expect(
+    await isUpgraded(page, "m3e-list", "m3e-list.sb-token-list"),
+  ).toBe(true);
+  expect(await isUpgraded(page, "m3e-list-item")).toBe(true);
+  await expect(tokenList).toContainText("ci-token");
+
+  await page.getByRole("button", { name: "Revoke" }).click();
+  const dialog = page.locator("m3e-dialog");
+  await expect(dialog).toHaveAttribute("open", "");
+  await expect(dialog.locator('[slot="header"]')).toContainText(
+    'Revoke token "ci-token"',
+  );
+  expect(await isUpgraded(page, "m3e-dialog")).toBe(true);
+
+  // Cancel leaves the token in place.
+  await dialog.getByText("Cancel", { exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(tokenList.locator("m3e-list-item")).toHaveCount(1);
+
+  // Ok revokes it.
+  await page.getByRole("button", { name: "Revoke" }).click();
+  await page.locator("m3e-dialog").getByText("Ok", { exact: true }).click();
+  await expect(page.locator("m3e-dialog")).not.toBeVisible();
+  await expect(page.getByText("No tokens.")).toBeVisible();
+});
+
+// Phase C #9: UsersView.tsx's "Delete user" used to go through a blocking
+// `window.confirm()`; it now stages the same ConfirmDialog.tsx surface.
+test("deleting a user asks for confirmation via an upgraded m3e-dialog", async ({
+  page,
+}) => {
+  await admin(page, "POST", "api/admin/users", {
+    username: "doomed-user",
+    password: "doomeduserpw123",
+  });
+  await page.goto(`${base}/.spaces/users/doomed-user`);
+
+  await page.getByRole("button", { name: "Delete user" }).click();
+  const dialog = page.locator("m3e-dialog");
+  await expect(dialog).toHaveAttribute("open", "");
+  await expect(dialog.locator('[slot="header"]')).toContainText(
+    'Delete user "doomed-user"?',
+  );
+  expect(await isUpgraded(page, "m3e-dialog")).toBe(true);
+
+  await dialog.getByText("Ok", { exact: true }).click();
+  await expect(page).toHaveURL(`${base}/.spaces/users`);
+
+  const resp = await page.request.get(
+    `${base}/.spaces/api/admin/users/doomed-user`,
+  );
+  expect(resp.status()).toBe(404);
 });

@@ -11,6 +11,10 @@ import {
 // belong at each DOM-side consumer, not the kit files themselves.
 import "@m3e/web/button";
 import "@m3e/web/form-field";
+// The API-token list renders `m3e-list`/`m3e-list-item` directly — see
+// FolderPicker.tsx's identical self-import comment.
+import "@m3e/web/list";
+import "../m3e-jsx.d.ts";
 import {
   createToken,
   createUser,
@@ -25,6 +29,15 @@ import {
 import { useNavigate } from "../navigation.ts";
 import { spacesUrl } from "../routes.ts";
 import type { UserInfo } from "../types.ts";
+import { Confirm } from "./ConfirmDialog.tsx";
+
+/** A pending confirmation, staged from a click handler and resolved once the
+ * user answers the `m3e-dialog` — see UserDetail's `confirmState`. */
+type PendingConfirm = {
+  message: string;
+  destructive?: boolean;
+  onConfirm: () => void;
+};
 
 function useUserList(onUnauthorized: () => void) {
   const [users, setUsers] = useState<Record<string, UserInfo>>({});
@@ -182,6 +195,13 @@ export function UserDetail({
   const [password, setPassword] = useState("");
   const [tokenName, setTokenName] = useState("");
   const [shownToken, setShownToken] = useState<string | undefined>();
+  // Staged confirmation for a destructive/self-affecting action — replaces
+  // the three `window.confirm()` calls this screen used to make (remove
+  // own-admin, revoke token, delete user) with the `m3e-dialog`-backed
+  // Confirm() rendered near the bottom of this component's JSX.
+  const [confirmState, setConfirmState] = useState<PendingConfirm | null>(
+    null,
+  );
   const isSelf = username === currentUsername;
 
   async function reload() {
@@ -237,20 +257,28 @@ export function UserDetail({
             checked={user.admin}
             onChange={(event) => {
               const admin = event.currentTarget.checked;
-              if (
-                isSelf &&
-                !admin &&
-                !confirm(
-                  `Remove admin rights from your own account "${username}"? Your session will lose admin access immediately.`,
-                )
-              ) {
-                event.currentTarget.checked = true;
+              // The checkbox is controlled by `user.admin`, which does not
+              // change until this resolves — cancelling just leaves the
+              // dialog closed and the checkbox showing its unchanged value,
+              // no manual revert needed (the old `window.confirm()` version
+              // needed one, since the DOM checkbox flips before that
+              // blocking call returns).
+              if (isSelf && !admin) {
+                setConfirmState({
+                  message:
+                    `Remove admin rights from your own account "${username}"? Your session will lose admin access immediately.`,
+                  onConfirm: () => {
+                    void run(async () => {
+                      await setUserAdmin(username, admin);
+                      location.assign("/");
+                    });
+                  },
+                });
                 return;
               }
               void run(async () => {
                 await setUserAdmin(username, admin);
-                if (isSelf && !admin) location.assign("/");
-                else await reload();
+                await reload();
               });
             }}
           />{" "}
@@ -285,30 +313,34 @@ export function UserDetail({
         <h2>API tokens</h2>
         {tokenNames.length === 0 && <p>No tokens.</p>}
         {tokenNames.length > 0 && (
-          <ul class="sb-token-list">
+          <m3e-list class="sb-token-list">
             {tokenNames.map((name) => (
-              <li key={name}>
-                <strong>{name}</strong>
-                <span>
+              <m3e-list-item key={name}>
+                {name}
+                <span slot="supporting-text">
                   created{" "}
                   {new Date(user.tokens[name].createdAt).toLocaleString()}
                 </span>
                 <Button
+                  slot="trailing"
                   onClick={() => {
-                    if (!confirm(`Revoke token "${name}" for "${username}"?`)) {
-                      return;
-                    }
-                    void run(async () => {
-                      await deleteToken(username, name);
-                      await reload();
+                    setConfirmState({
+                      message: `Revoke token "${name}" for "${username}"?`,
+                      destructive: true,
+                      onConfirm: () => {
+                        void run(async () => {
+                          await deleteToken(username, name);
+                          await reload();
+                        });
+                      },
                     });
                   }}
                 >
                   Revoke
                 </Button>
-              </li>
+              </m3e-list-item>
             ))}
-          </ul>
+          </m3e-list>
         )}
         <div class="row">
           <Input
@@ -353,19 +385,35 @@ export function UserDetail({
             const message = isSelf
               ? `Delete your own account "${username}"? You will be logged out immediately.`
               : `Delete user "${username}"?`;
-            if (!confirm(message)) return;
-            void run(async () => {
-              await deleteUser(username);
-              // Deleting your own account ends the session, so that one has
-              // to be a real navigation out of the app.
-              if (isSelf) location.assign("/");
-              else navigate(spacesUrl("/users"));
+            setConfirmState({
+              message,
+              destructive: true,
+              onConfirm: () => {
+                void run(async () => {
+                  await deleteUser(username);
+                  // Deleting your own account ends the session, so that one
+                  // has to be a real navigation out of the app.
+                  if (isSelf) location.assign("/");
+                  else navigate(spacesUrl("/users"));
+                });
+              },
             });
           }}
         >
           Delete user
         </Button>
       </div>
+      {confirmState && (
+        <Confirm
+          message={confirmState.message}
+          destructive={confirmState.destructive}
+          callback={(ok) => {
+            const { onConfirm } = confirmState;
+            setConfirmState(null);
+            if (ok) onConfirm();
+          }}
+        />
+      )}
     </div>
   );
 }
