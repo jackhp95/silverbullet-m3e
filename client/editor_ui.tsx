@@ -15,6 +15,10 @@ import {
   type BreadcrumbItem,
   TopBar,
 } from "./components/top_bar.tsx";
+import { FloatingToolbar } from "./components/floating_toolbar.tsx";
+import { SearchSheet } from "./components/search_sheet.tsx";
+import { NavigationSheet } from "./components/navigation_sheet.tsx";
+import { notificationsIconFor } from "./lib/push_ui.ts";
 import reducer from "./reducer.ts";
 import {
   type Action,
@@ -572,7 +576,8 @@ export class MainUI {
             button.standalone === viewState.isStandalone) &&
           // The Std library's "Read Only Mode.md" ships this exact
           // actionButton (icon "lock", mobile-only, static icon that never
-          // reflects real state). Our own readOnlyToggle below replaces it
+          // reflects real state). Our own `readOnlyToggle`, passed to TopBar
+          // and rendered in the app-bar trailing slot (spec §2.2), replaces it
           // with a live, state-reflecting one shown regardless of device —
           // filter the static original out here so it's not duplicated.
           !(button.icon === "lock" &&
@@ -702,15 +707,17 @@ export class MainUI {
       ).flatMap(({ extensions }) => extensions),
     );
 
-    // Item 11 / L8, then 2026-09-17 nav-bar redesign spec §2.6/N9: trailing
-    // app-bar kebab contents (top_bar.tsx's `menuItems` prop, shell built in
-    // L6/L7). The Web Push toggle that used to live here (`pushMenuItem`,
-    // all 8 `pushState` labels via `pushToggle`/`PUSH_TOGGLE_LABELS` above)
-    // was moved out to a since-deleted notifications destination view —
-    // deleted from here rather than duplicated (spec's explicit
-    // no-duplication requirement). Two sources remain, in display order: a
-    // CONFIG-page link, then every CONFIG-defined actionButton
-    // (`configMenuItems` above).
+    // Item 11 / L8, then 2026-09-17 vertical-toolbar redesign spec §2.10 (V8):
+    // trailing app-bar kebab contents (top_bar.tsx's `menuItems` prop, shell
+    // built in L6/L7). The Web Push toggle (`pushMenuItem`, all 8 `pushState`
+    // labels via `pushToggle`/`PUSH_TOGGLE_LABELS` above) is RESTORED here —
+    // N9 had moved it out to a notifications destination view, but this spec
+    // deletes that view and makes the toolbar's Notifications button a plain
+    // page-nav action, so the settings-shaped push toggle comes back to the
+    // kebab where non-primary toggles belong (spec §2.10, symmetric to the
+    // read-only toggle's app-bar trailing placement in §2.2). Three sources,
+    // in display order: the push toggle, a CONFIG-page link, then every
+    // CONFIG-defined actionButton (`configMenuItems` above).
     //
     // No dedicated "open the CONFIG page" command exists in
     // `viewState.commands` — "Configuration: Open" (Cmd/Ctrl-,,
@@ -733,7 +740,24 @@ export class MainUI {
         }),
     };
 
+    // Web Push toggle, restored to the kebab (spec §2.10 / R9). Built from the
+    // `pushToggle` object above — `undefined` during the one-time "checking"
+    // state, same guard the pre-N9 item used, so that state simply omits the
+    // item rather than rendering something misleading. Icon comes from the
+    // extracted single-source `notificationsIconFor()` (client/lib/push_ui.ts,
+    // V2) — the same unavailable→off / active→active / else→notifications
+    // selection the old inline `pushMenuItem` hardcoded, now shared with the
+    // floating toolbar's Notifications button.
+    const pushMenuItem: AppBarMenuItem | undefined = pushToggle && {
+      key: "push-toggle",
+      icon: notificationsIconFor(pushToggle),
+      label: pushToggle.label,
+      disabled: pushToggle.unavailable || pushToggle.pending,
+      onClick: pushToggle.onClick,
+    };
+
     const menuItems: AppBarMenuItem[] = [
+      ...(pushMenuItem ? [pushMenuItem] : []),
       configLinkItem,
       ...configMenuItems,
     ];
@@ -899,6 +923,20 @@ export class MainUI {
           scrollContainerId={EDITOR_SCROLL_CONTAINER_ID}
           headerScrolled={headerScrolled}
           menuItems={menuItems}
+          // Read-only toggle in the app-bar trailing slot (spec §2.2 / R2) —
+          // a 1:1 port of the old floating-toolbar lock button's logic. Guarded
+          // on command availability the same way breadcrumb's "Navigate: Home"
+          // is above; `undefined` hides the button entirely. `isReadOnly` is
+          // the same single-source expression driving CodeMirror's editable
+          // config and the editor-font swap.
+          readOnlyToggle={viewState.commands.has("Editor: Toggle Read Only Mode")
+            ? {
+              active: isReadOnly,
+              label: isReadOnly ? "Disable read-only" : "Enable read-only",
+              onClick: () =>
+                client.runCommandByName("Editor: Toggle Read Only Mode"),
+            }
+            : undefined}
         />
         <m3e-drawer-container
           id="sb-main"
@@ -950,6 +988,68 @@ export class MainUI {
             <Panel config={viewState.panels.bhs} editor={client} />
           </div>
         )}
+        {/* Vertical floating toolbar (spec §2.1 / R1) — Search / Navigation /
+            Journal / Notifications. `position:fixed` via `.sb-floating-toolbar`,
+            so its place in the tree is immaterial to layout. Search/Navigation
+            open their own modal bottom-sheets; Journal/Notifications are plain
+            page-nav actions guarded on command availability (same guard the
+            breadcrumb's "Navigate: Home" uses). Notifications' icon mirrors the
+            kebab push toggle via the shared `notificationsIconFor()`. */}
+        <FloatingToolbar
+          onSearchClick={() => dispatch({ type: "show-search-sheet" })}
+          onNavigationClick={() => dispatch({ type: "show-navigation-sheet" })}
+          journal={{
+            available: viewState.commands.has("Journal: Today"),
+            onClick: () => client.runCommandByName("Journal: Today"),
+          }}
+          notifications={{
+            iconName: notificationsIconFor(pushToggle),
+            onClick: () => {
+              if (viewState.commands.has("Notifications: Today")) {
+                client.runCommandByName("Notifications: Today");
+              }
+            },
+          }}
+        />
+        {/* Search bottom sheet (spec §2.4 / R4), toggled by the toolbar's Search
+            button. navigate/trigger handlers reuse the exact same helpers
+            AnythingPicker/CommandPalette already use above, closing the sheet
+            (dispatch `hide-search-sheet`) once navigation/command actually
+            fires — not on every keypress. */}
+        <SearchSheet
+          open={viewState.searchSheetOpen}
+          onClose={() => dispatch({ type: "hide-search-sheet" })}
+          allPages={viewState.allPages}
+          allDocuments={viewState.allDocuments}
+          extensions={documentExtensions}
+          currentPath={client.currentPath()}
+          commands={viewState.commands}
+          recentPaths={client.recentPaths}
+          recentSearchTerms={client.recentSearchTerms}
+          onNavigate={(name) =>
+            navigateToAnythingPickerName(
+              name,
+              () => dispatch({ type: "hide-search-sheet" }),
+            )}
+          onNavigateRef={(ref) =>
+            navigateToAnythingPickerRef(
+              ref,
+              () => dispatch({ type: "hide-search-sheet" }),
+            )}
+          onTriggerCommand={(cmd) =>
+            triggerCommand(cmd, () => dispatch({ type: "hide-search-sheet" }))}
+        />
+        {/* Navigation bottom sheet (spec §2.6 / R6), toggled by the toolbar's
+            Navigation button. History/Changelog/Sitemap tabs; passive browse,
+            no input box (typed jump-to-page lives in the Search sheet's Open
+            mode). Tabs close the sheet on navigate via `onClose`. */}
+        <NavigationSheet
+          open={viewState.navigationSheetOpen}
+          onClose={() => dispatch({ type: "hide-navigation-sheet" })}
+          recentPaths={client.recentPaths}
+          currentPath={client.currentPath()}
+          allPages={viewState.allPages}
+        />
       </m3e-theme>
     );
   }

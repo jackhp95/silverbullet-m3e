@@ -55,6 +55,7 @@ import { reloadAllWidgets } from "./codemirror/code_widget.ts";
 import { broadcastReload } from "./components/widget_sandbox_iframe.ts";
 import type { Client } from "./client.ts";
 import type { CommandHook } from "./plugos/hooks/command.ts";
+import type { Path } from "@silverbulletmd/silverbullet/lib/ref";
 import {
   unbakeSectionAtCursor,
   updateBakedSections,
@@ -529,6 +530,20 @@ export function registerEditorCommands(
     mac: "Cmd-Shift-/",
     menu: { location: "navigate", group: "2_picker", order: 0, label: "Search…" },
     run: async () => client.startSearchSheet(),
+  });
+  // Notifications: Today (spec §2.10 / R8). App-owned, same file as the other
+  // app-specific "Navigate: *" commands above — deliberately a minimal TS
+  // command, NOT a parallel-to-Journal Space-Lua feature. Flagged honestly:
+  // hardcoded `Notifications/` prefix, no config, no template, UTC date (Journal's
+  // Lua `date.today()` may use local time — a minor documented inconsistency).
+  // The `.md` extension + `as Path` cast is required by the branded `Path` type
+  // (`${string}.${string} | ""`), mirroring the CONFIG.md nav in editor_ui.tsx.
+  hook.registerCommand({
+    name: "Notifications: Today",
+    run: async () => {
+      const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD, UTC
+      await client.navigate({ path: `Notifications/${today}.md` as Path });
+    },
   });
   hook.registerCommand({
     name: "Navigate: Page Picker",
