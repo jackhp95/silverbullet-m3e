@@ -83,7 +83,9 @@ test("trailing kebab opens sb-app-bar-menu positioned below the app bar", async 
 }) => {
   await gotoSilverBulletPage(page, sbServer, "Some Page");
 
-  const kebab = page.locator('m3e-app-bar m3e-icon-button[title="More actions"]');
+  const kebab = page.locator(
+    'm3e-app-bar m3e-icon-button[title="More actions"]',
+  );
   await expect(kebab).toHaveCount(1);
   await expect(kebab).toBeVisible();
 
@@ -94,9 +96,7 @@ test("trailing kebab opens sb-app-bar-menu positioned below the app bar", async 
   const kebabBox = (await kebab.boundingBox())!;
   await kebab.click();
 
-  await expect
-    .poll(() => menu.evaluate((el: any) => el.isOpen))
-    .toBe(true);
+  await expect.poll(() => menu.evaluate((el: any) => el.isOpen)).toBe(true);
 
   // L8 wires real content in now — the empty-state placeholder is gone.
   // Item-level content is covered by the dedicated tests below; this test
@@ -109,39 +109,101 @@ test("trailing kebab opens sb-app-bar-menu positioned below the app bar", async 
 
   // Clicking outside the menu should close it.
   await page.mouse.click(10, 10);
-  await expect
-    .poll(() => menu.evaluate((el: any) => el.isOpen))
-    .toBe(false);
+  await expect.poll(() => menu.evaluate((el: any) => el.isOpen)).toBe(false);
 });
 
-test("trailing kebab no longer shows a Web Push toggle — it moved to the Notifications nav-bar destination", async ({
-  sbServer,
-  page,
-}) => {
-  // 2026-09-17 nav-bar redesign spec §2.6 / leaf N9: the Web Push toggle
-  // this test used to find here (`pushMenuItem`, editor_ui.tsx, deleted by
-  // N9) moved to its own nav-bar destination
-  // (client/components/nav_views/notifications.tsx). This test is updated
-  // in place, rather than deleted, to assert the negative directly in the
-  // kebab's own regression suite — e2e/nav-notifications.test.ts carries
-  // the positive coverage (all reachable pushToggle states, disabled
-  // semantics, the switch itself) plus its own copy of this same
-  // no-duplication assertion.
+test("trailing kebab contains the push toggle", async ({ sbServer, page }) => {
+  // 2026-09-17 vertical-toolbar/nav redesign spec §2.10 / R9 / leaf V8:
+  // reverses the 2026-09-17 nav-bar spec's own N9 move (which had pulled the
+  // Web Push toggle out into a dedicated Notifications nav-bar destination).
+  // With Notifications now an action-only toolbar button (a page-nav
+  // shortcut, not a settings panel), the push toggle has nowhere else to
+  // live and is restored to the app-bar kebab — symmetric to the read-only
+  // toggle's own placement decision (§2.2). §6's e2e mapping table records
+  // this as "Reversed": the old "kebab no longer shows a Web Push toggle"
+  // assertion becomes this positive one.
   await gotoSilverBulletPage(page, sbServer, "Some Page");
 
-  const kebab = page.locator('m3e-app-bar m3e-icon-button[title="More actions"]');
+  const kebab = page.locator(
+    'm3e-app-bar m3e-icon-button[title="More actions"]',
+  );
   await kebab.click();
 
   const menu = page.locator("#sb-app-bar-menu");
-  await expect
-    .poll(() => menu.evaluate((el: any) => el.isOpen))
-    .toBe(true);
+  await expect.poll(() => menu.evaluate((el: any) => el.isOpen)).toBe(true);
 
-  await expect(
-    menu.locator(
-      'm3e-icon[name="notifications_active"], m3e-icon[name="notifications"], m3e-icon[name="notifications_off"]',
+  // `name` is a plain Lit reactive property on m3e-icon, not a reflected
+  // attribute (same fact this file's own leading-asterisk test already
+  // documents) — a CSS attribute selector like `m3e-icon[name="..."]` can
+  // never match it. Read the live JS property on every icon in the menu
+  // instead. (The pre-existing negative-assertion version of this test used
+  // the attribute-selector form and always resolved to 0 elements regardless
+  // of the real push item — a vacuous test that happened to still be
+  // correct-looking as a negative assertion. Fixed here now that it's load-
+  // bearing as a positive assertion.)
+  const iconNames = await menu
+    .locator("m3e-icon")
+    .evaluateAll((els) => els.map((el: any) => el.name));
+  expect(
+    iconNames.filter(
+      (n) =>
+        n === "notifications_active" ||
+        n === "notifications" ||
+        n === "notifications_off",
     ),
-  ).toHaveCount(0);
+  ).toHaveLength(1);
+});
+
+test("read-only trailing icon-button reflects state, before the kebab trigger", async ({
+  sbServer,
+  page,
+}) => {
+  // 2026-09-17 vertical-toolbar/nav redesign spec §2.2 / leaf V5: the
+  // read-only toggle's old floating-toolbar-era home (deleted by N2) moves
+  // to the app-bar trailing slot, rendered before the kebab trigger
+  // (top_bar.tsx's `slot="trailing"` span — readOnlyToggle then the kebab
+  // icon-button, in that JSX order). §6's e2e mapping table records this as
+  // "moved surfaces, not deleted."
+  await gotoSilverBulletPage(page, sbServer, "Some Page");
+
+  const trailing = page.locator("m3e-app-bar span.sb-trailing");
+  const readOnlyButton = trailing.locator(
+    'm3e-icon-button[title="Enable read-only"], m3e-icon-button[title="Disable read-only"]',
+  );
+  const kebab = trailing.locator('m3e-icon-button[title="More actions"]');
+
+  await expect(readOnlyButton).toHaveCount(1);
+  await expect(readOnlyButton).toBeVisible();
+  await expect(readOnlyButton).toHaveAttribute("title", "Enable read-only");
+  await expect(readOnlyButton.locator("m3e-icon")).toHaveJSProperty(
+    "name",
+    "lock_open",
+  );
+
+  // DOM order: the read-only button must precede the kebab trigger.
+  const order = await trailing.evaluate(
+    (el, [roSel, kebabSel]) => {
+      const ro = el.querySelector(roSel)!;
+      const kb = el.querySelector(kebabSel)!;
+      return ro.compareDocumentPosition(kb) & Node.DOCUMENT_POSITION_FOLLOWING
+        ? "before"
+        : "after";
+    },
+    [
+      'm3e-icon-button[title="Enable read-only"], m3e-icon-button[title="Disable read-only"]',
+      'm3e-icon-button[title="More actions"]',
+    ],
+  );
+  expect(order).toBe("before");
+
+  await readOnlyButton.click();
+
+  await expect(readOnlyButton).toHaveAttribute("title", "Disable read-only");
+  await expect(readOnlyButton.locator("m3e-icon")).toHaveJSProperty(
+    "name",
+    "lock",
+  );
+  await expect(kebab).toHaveCount(1);
 });
 
 test("trailing kebab's config link navigates to the CONFIG page", async ({
@@ -150,13 +212,13 @@ test("trailing kebab's config link navigates to the CONFIG page", async ({
 }) => {
   await gotoSilverBulletPage(page, sbServer, "Some Page");
 
-  const kebab = page.locator('m3e-app-bar m3e-icon-button[title="More actions"]');
+  const kebab = page.locator(
+    'm3e-app-bar m3e-icon-button[title="More actions"]',
+  );
   await kebab.click();
 
   const menu = page.locator("#sb-app-bar-menu");
-  await expect
-    .poll(() => menu.evaluate((el: any) => el.isOpen))
-    .toBe(true);
+  await expect.poll(() => menu.evaluate((el: any) => el.isOpen)).toBe(true);
 
   const configItem = menu.locator("m3e-menu-item").filter({
     hasText: "Open Config",
@@ -174,13 +236,13 @@ test("trailing kebab includes every CONFIG-defined actionButton", async ({
 }) => {
   await gotoSilverBulletPage(page, sbServer, "Some Page");
 
-  const kebab = page.locator('m3e-app-bar m3e-icon-button[title="More actions"]');
+  const kebab = page.locator(
+    'm3e-app-bar m3e-icon-button[title="More actions"]',
+  );
   await kebab.click();
 
   const menu = page.locator("#sb-app-bar-menu");
-  await expect
-    .poll(() => menu.evaluate((el: any) => el.isOpen))
-    .toBe(true);
+  await expect.poll(() => menu.evaluate((el: any) => el.isOpen)).toBe(true);
 
   // CONFIG.md (test.use above) defines exactly one actionButton — "Test
   // Action", bound to the real "Navigate: Home" command — via the raw
