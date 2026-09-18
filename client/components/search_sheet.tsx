@@ -450,21 +450,48 @@ export function SearchSheet({
               ))}
             </m3e-list>
           )}
+        {/* The mode menu MUST render as a DOM descendant of `m3e-search-view`,
+            NOT as a sibling of it inside the sheet (leaf V12 — hit-test fix).
+            Root cause, confirmed by decompile + a live browser hit-test probe:
+            `m3e-search-view` owns its own `InertController` (decompiled
+            node_modules/@m3e/web/dist/search.js:346), and its docked-open path
+            (`_openDocked`, search.js:668-669) calls `inertController.lock()`.
+            That `lock()` (core.js:1007) walks up from the search-view and marks
+            EVERY SIBLING inert at each ancestor level. The sheet auto-focuses
+            the input on open, which drives the docked view open, so the lock
+            fires immediately — and while the menu was a sibling of
+            `m3e-search-view` it was marked `inert`. An `inert` `popover=manual`
+            menu (menu.js:544/608) still paints in the top layer (so a
+            screenshot shows it "on top"), but is not hit-testable:
+            `document.elementFromPoint` at a menu item resolved to `#sb-root`
+            underneath, and even a `force:true` click was hit-tested onto the
+            page below — exactly the V9 diagnostic. The non-modal app-bar kebab
+            (`#sb-app-bar-menu`, top_bar.tsx) works precisely because it is NOT a
+            sibling of any `m3e-search-view`, so nothing inerts it. Moving the
+            menu OUT of the sheet entirely (into a sheet-sibling, the first
+            hypothesis) is WORSE: the sheet is itself a `modal` popover whose own
+            `InertController.lock()` then inerts it — verified in a live probe.
+            The one region left non-inert by BOTH locks is the search-view's own
+            subtree, so the menu lives here. Trigger↔menu are linked by
+            `for`/`id`, not DOM adjacency (already relied on by the duplicate-
+            trigger pattern above), so the physical nesting is free to change.
+            The menu is a top-layer popover, so rendering it in the results slot
+            has no visual effect — it anchors to its trigger. */}
+        <m3e-menu id="sb-search-mode-menu" position-y="above">
+          <m3e-menu-item-group>
+            {MODE_ORDER.map((m) => (
+              <m3e-menu-item-radio
+                key={m}
+                checked={mode === m}
+                onClick={() => setMode(m)}
+              >
+                <m3e-icon slot="icon" name={MODE_ICON[m]}></m3e-icon>
+                {MODE_LABEL[m]}
+              </m3e-menu-item-radio>
+            ))}
+          </m3e-menu-item-group>
+        </m3e-menu>
       </m3e-search-view>
-      <m3e-menu id="sb-search-mode-menu" position-y="above">
-        <m3e-menu-item-group>
-          {MODE_ORDER.map((m) => (
-            <m3e-menu-item-radio
-              key={m}
-              checked={mode === m}
-              onClick={() => setMode(m)}
-            >
-              <m3e-icon slot="icon" name={MODE_ICON[m]}></m3e-icon>
-              {MODE_LABEL[m]}
-            </m3e-menu-item-radio>
-          ))}
-        </m3e-menu-item-group>
-      </m3e-menu>
     </m3e-bottom-sheet>
   );
 }

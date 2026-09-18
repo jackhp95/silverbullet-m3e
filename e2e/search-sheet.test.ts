@@ -97,32 +97,19 @@ test.describe("Search sheet (client/components/search_sheet.tsx, V6)", () => {
     await expect(items).toContainText(["Search", "Open", "Run"]);
   });
 
-  // KNOWN APP DEFECT, discovered writing this leaf (V9) — not a stub/
-  // selector mismatch: #sb-search-mode-menu (position-y="above") renders
-  // visibly on top of the page when opened from inside the modal
-  // #sb-search-sheet, but is not actually hit-testable there. Verified with
-  // a throwaway diagnostic spec: a `click` listener attached directly to
-  // the "Search" m3e-menu-item-radio's own DOM node never fires for a real
-  // mouse click at its exact on-screen coordinates;
-  // `document.elementFromPoint` at that same coordinate resolves to
-  // `#sb-root` (the app shell) instead of the menu or its item, even though
-  // a screenshot at that moment shows the menu correctly painted on top;
-  // and even a Playwright `force: true` click (bypassing actionability/
-  // interception checks entirely) does not flip `mode` or fire the radio's
-  // own onClick — the menu instead closes exactly the way it does on an
-  // *outside* click, meaning the click is genuinely being hit-tested as
-  // landing on the page underneath, not on the popover. The identical
-  // `m3e-menu` pattern works correctly for the non-modal app-bar kebab
-  // (#sb-app-bar-menu — see app-bar-leading-trailing.test.ts, real clicks
-  // land fine there), so this is specific to a menu triggered from inside a
-  // `modal` m3e-bottom-sheet — looks like an interaction between the
-  // sheet's inert-lock/focus-trap and the menu's popover top-layer
-  // promotion (decompiled bottom-sheet.js: `modal` calls
-  // `inertController.lock()`). Left as `test.fixme` (not silently forced
-  // green via `force: true`, which was tried and doesn't even work) — see
-  // this leaf's (V9) final report for the write-up and a pointer at the
-  // underlying V6/app defect this blocks on.
-  test.fixme("selecting Search switches the placeholder and results source live", async ({
+  // Was a KNOWN APP DEFECT (found by leaf V9), FIXED by leaf V12: the mode
+  // menu opened from inside the modal search sheet was painted on top but not
+  // hit-testable (`document.elementFromPoint` at a menu item resolved to
+  // `#sb-root`; a `force:true` click was hit-tested onto the page beneath).
+  // Root cause, confirmed by decompile + a live browser probe: `m3e-search-
+  // view` owns its own `InertController` and calls `lock()` on docked-open
+  // (decompiled search.js:346/668), which marks every SIBLING inert — and the
+  // menu was a sibling of `m3e-search-view` inside the sheet. An inert
+  // top-layer popover paints but does not receive pointer hits. Fix (V12,
+  // search_sheet.tsx): render the menu as a DESCENDANT of `m3e-search-view`
+  // (the one subtree left non-inert by both the search-view's and the modal
+  // sheet's locks). See search_sheet.tsx's menu-placement comment.
+  test("selecting Search switches the placeholder and results source live", async ({
     sbPage,
   }) => {
     await openSearchSheet(sbPage);
@@ -148,13 +135,10 @@ test.describe("Search sheet (client/components/search_sheet.tsx, V6)", () => {
     await expect(sbPage.locator("m3e-autocomplete")).toHaveCount(0);
   });
 
-  // Same known app defect as "selecting Search switches the placeholder and
-  // results source live" above (see that test's comment for the full
-  // write-up): switching to Search mode requires clicking a real
-  // #sb-search-mode-menu item, which is not hit-testable from inside the
-  // modal search sheet. This test needs Search mode to be reachable at all,
-  // so it inherits the same block.
-  test.fixme("submitting a Search-mode term calls recordSearchTerm and it resurfaces as history on reopen", async ({
+  // Depends on reaching Search mode (a real #sb-search-mode-menu item click),
+  // which was blocked by the same V9 defect fixed in V12 (see the comment on
+  // "selecting Search switches the placeholder and results source live").
+  test("submitting a Search-mode term calls recordSearchTerm and it resurfaces as history on reopen", async ({
     sbPage,
   }) => {
     await openSearchSheet(sbPage);
