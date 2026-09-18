@@ -49,7 +49,7 @@ function showProgress(
 
 /** Drives the same `online-status-change` action client.ts's real
  * "online-status" service-worker message dispatches (client.ts:1114) —
- * bypassing the SW so the offline badge can be asserted deterministically
+ * bypassing the SW so the offline chip can be asserted deterministically
  * without real network-failure timing. */
 function setOnlineStatus(page: Page, isOnline: boolean): Promise<void> {
   return page.evaluate((isOnline: boolean) => {
@@ -138,19 +138,29 @@ test.describe("sync/status indicator (m3e-circular-progress-indicator)", () => {
   });
 });
 
-test.describe("offline state marker (m3e-badge)", () => {
+test.describe("offline state marker (m3e-chip)", () => {
   test.use({
     spaceFiles: {
       "index.md": "# Index\nOffline marker test space.",
     },
   });
 
-  test("going offline preserves the whole-bar error tint and adds an upgraded m3e-badge on the page title", async ({
+  // 2026-09-17 vertical-toolbar/nav redesign spec, leaf V11 (added
+  // mid-gauntlet by Jack, not in the original spec doc): the offline marker
+  // moved from a small `m3e-badge` dot anchored to the page title to a
+  // persistent, labeled `m3e-chip` in the app-bar trailing slot (before the
+  // kebab trigger) — easier to notice, same underlying `isOnline` state.
+  // This test previously asserted the old badge; updated here to match
+  // (`e2e/visual-verification.test.ts`'s "Offline chip" describe block
+  // covers the same chip via the heavier real-service-worker
+  // `context().setOffline()` path — this one keeps the lighter
+  // `setOnlineStatus()` fixture-level toggle for a fast, focused check).
+  test("going offline preserves the whole-bar error tint and shows the offline m3e-chip in the app-bar trailing slot", async ({
     sbPage,
   }) => {
     const topBar = sbPage.locator("#sb-top");
     await expect(topBar).not.toHaveClass(/sb-sync-error/);
-    await expect(sbPage.locator("m3e-badge")).toHaveCount(0);
+    await expect(sbPage.locator(".sb-offline-chip")).toHaveCount(0);
 
     await setOnlineStatus(sbPage, false);
 
@@ -158,14 +168,16 @@ test.describe("offline state marker (m3e-badge)", () => {
     // must still be there — this is additive, not a replacement.
     await expect(topBar).toHaveClass(/sb-sync-error/);
 
-    const badge = sbPage.locator('m3e-badge[for="sb-current-page"]');
-    await badge.waitFor({ state: "attached", timeout: 10_000 });
-    expect(
-      await isUpgraded(sbPage, "m3e-badge", 'm3e-badge[for="sb-current-page"]'),
-    ).toBe(true);
+    const chip = sbPage.locator(".sb-offline-chip");
+    await chip.waitFor({ state: "attached", timeout: 10_000 });
+    await expect(chip).toBeVisible();
+    await expect(chip).toContainText("Offline");
+    expect(await isUpgraded(sbPage, "m3e-chip", ".sb-offline-chip")).toBe(
+      true,
+    );
 
     await setOnlineStatus(sbPage, true);
     await expect(topBar).not.toHaveClass(/sb-sync-error/);
-    await expect(sbPage.locator("m3e-badge")).toHaveCount(0);
+    await expect(sbPage.locator(".sb-offline-chip")).toHaveCount(0);
   });
 });
