@@ -483,6 +483,34 @@ type M3eSwitchAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   onChange?: (e: Event) => void;
 };
 
+// m3e-tabs / m3e-tab / m3e-tab-panel: client/components/navigation_sheet.tsx's
+// History/Changelog/Sitemap tab strip (2026-09-17 nav redesign spec §2.6,
+// leaf V7). Verified against node_modules/@m3e/web/dist/custom-elements.json
+// (src/tabs/TabsElement.ts, TabElement.ts, TabPanelElement.ts) AND the
+// compiled dist/tabs.js: `m3e-tab-panel` self-assigns `slot="panel"` in its
+// own `connectedCallback` (no `slot` attribute needed in JSX); `variant`
+// defaults to `"secondary"` on `m3e-tabs` itself.
+type M3eTabsAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  "disable-pagination"?: boolean;
+  /** @default "before" */
+  "header-position"?: "before" | "after";
+  "next-page-label"?: string;
+  "previous-page-label"?: string;
+  stretch?: boolean;
+  /** @default "secondary" */
+  variant?: "primary" | "secondary";
+};
+
+type M3eTabAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  disabled?: boolean;
+  /** The DOM id of the `m3e-tab-panel` this tab is attached to. */
+  for?: string | null;
+  /** @default false */
+  selected?: boolean;
+};
+
+type M3eTabPanelAttributes = PreactJSX.HTMLAttributes<HTMLElement>;
+
 interface M3eIntrinsicElements {
   "m3e-search-view": M3eSearchViewAttributes;
   "m3e-list": M3eListAttributes;
@@ -516,6 +544,9 @@ interface M3eIntrinsicElements {
   "m3e-nav-bar": M3eNavBarAttributes;
   "m3e-nav-item": M3eNavItemAttributes;
   "m3e-fab": M3eFabAttributes;
+  "m3e-tabs": M3eTabsAttributes;
+  "m3e-tab": M3eTabAttributes;
+  "m3e-tab-panel": M3eTabPanelAttributes;
 }
 
 declare module "preact" {
