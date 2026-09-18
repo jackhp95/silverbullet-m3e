@@ -490,6 +490,12 @@ type M3eSwitchAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
 // compiled dist/tabs.js: `m3e-tab-panel` self-assigns `slot="panel"` in its
 // own `connectedCallback` (no `slot` attribute needed in JSX); `variant`
 // defaults to `"secondary"` on `m3e-tabs` itself.
+// `onChange` added for V13's tab-panel-overlap workaround (see
+// navigation_sheet.tsx): `change` ("Dispatched when the selected tab
+// changes" per custom-elements.json) is a native GlobalEventHandlers event
+// name (`onchange` already exists as a real HTMLElement IDL property), so
+// camelCase `onChange` resolves correctly — same reasoning as
+// M3eSwitchAttributes/M3eNavBarAttributes above, verified live.
 type M3eTabsAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   "disable-pagination"?: boolean;
   /** @default "before" */
@@ -499,6 +505,7 @@ type M3eTabsAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   stretch?: boolean;
   /** @default "secondary" */
   variant?: "primary" | "secondary";
+  onChange?: (e: Event) => void;
 };
 
 type M3eTabAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {

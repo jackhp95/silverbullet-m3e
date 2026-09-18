@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import "@m3e/web/bottom-sheet";
 import "@m3e/web/tabs";
 import "@m3e/web/icon";
@@ -50,6 +50,24 @@ export function NavigationSheet({
 }) {
   const sheetRef = useRef<HTMLElement>(null);
 
+  // V13 fix (KNOWN APP DEFECT found by V10, see e2e/visual-verification.test.ts's
+  // writeup above the "Navigation sheet tab-panel overlap" describe block):
+  // `@m3e/web@2.7.12`'s own `m3e-tabs` stylesheet has a CSS-invalid fallback
+  // (`visibility: var(--_tabs-slide-visibility, "hidden")` — the literal
+  // STRING `"hidden"`, not a valid `visibility` keyword) so a plain
+  // click-driven tab switch never actually hides the previously-active
+  // `m3e-tab-panel` (`getComputedStyle` stays `visible`, confirmed by
+  // decompiling dist/tabs.js). The library's own governance is broken, so —
+  // same pattern V6 used for `m3e-menu-item-radio`'s `checked` — drive the
+  // hiding explicitly ourselves via a controlled prop: track which panel is
+  // active off `m3e-tabs`' own public `change` event + `selectedTab` getter
+  // (both documented in custom-elements.json), and set the plain global
+  // HTML `hidden` attribute on every non-active panel. Confirmed safe:
+  // `m3e-tab-panel`'s own stylesheet already has `:host([hidden]) { display:
+  // none }` (dist/tabs.js:202), and `M3eTabPanelElement` has zero JS handling
+  // of `hidden` anywhere (grepped) — nothing to fight.
+  const [activePanelId, setActivePanelId] = useState<string>("sb-nav-history");
+
   // Same wart item_capture_sheet.tsx already documented and worked around:
   // Preact sets `handle`/`modal`/`hideable` as real DOM properties, but
   // M3eBottomSheetElement's compiled stylesheet gates the entire `.header`
@@ -73,7 +91,19 @@ export function NavigationSheet({
       onClosed={() => onClose()}
     >
       <span slot="header">Navigation</span>
-      <m3e-tabs variant="secondary">
+      <m3e-tabs
+        variant="secondary"
+        onChange={(e) => {
+          const forId = (
+            e.currentTarget as HTMLElement & {
+              selectedTab?: {
+                getAttribute(name: string): string | null;
+              } | null;
+            }
+          ).selectedTab?.getAttribute("for");
+          if (forId) setActivePanelId(forId);
+        }}
+      >
         <m3e-tab selected for="sb-nav-history">
           <m3e-icon slot="icon" name="history"></m3e-icon>
           History
@@ -86,17 +116,26 @@ export function NavigationSheet({
           <m3e-icon slot="icon" name="account_tree"></m3e-icon>
           Sitemap
         </m3e-tab>
-        <m3e-tab-panel id="sb-nav-history">
+        <m3e-tab-panel
+          id="sb-nav-history"
+          hidden={activePanelId !== "sb-nav-history"}
+        >
           <HistoryTab
             recentPaths={recentPaths}
             currentPath={currentPath}
             onNavigate={onClose}
           />
         </m3e-tab-panel>
-        <m3e-tab-panel id="sb-nav-changelog">
+        <m3e-tab-panel
+          id="sb-nav-changelog"
+          hidden={activePanelId !== "sb-nav-changelog"}
+        >
           <ChangelogTab allPages={allPages} onNavigate={onClose} />
         </m3e-tab-panel>
-        <m3e-tab-panel id="sb-nav-sitemap">
+        <m3e-tab-panel
+          id="sb-nav-sitemap"
+          hidden={activePanelId !== "sb-nav-sitemap"}
+        >
           <SitemapTab allPages={allPages} onNavigate={onClose} />
         </m3e-tab-panel>
       </m3e-tabs>

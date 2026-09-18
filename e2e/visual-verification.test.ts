@@ -472,17 +472,16 @@ test.describe("Offline chip (V11 bonus check)", () => {
 //
 // This is an upstream `@m3e/web@2.7.12` library bug (`m3e-tabs`'s own
 // stylesheet), not a defect in this app's `navigation_sheet.tsx` (V7) —
-// that file is a standard, spec-verified usage of `m3e-tabs`/`m3e-tab-panel`
-// per custom-elements.json. Flagged rather than fixed here: V10's scope is
-// visual verification, not patching a vendored dependency; a real fix needs
-// either an `@m3e/web` upgrade/upstream patch, or an app-level workaround
-// (e.g. `navigation_sheet.tsx` manually toggling `hidden` on the non-active
-// tab panels itself, bypassing the library's broken default). This is the
-// gauntlet's last leaf — there is no successor leaf to hand this to, so it's
-// recorded here as a `test.fixme` (same tracking convention V9 used for the
-// search-mode-menu hit-test defect it found, later fixed by V12) rather than
-// only narrated in a chat summary that won't survive past this session.
-test.describe("Navigation sheet tab-panel overlap (KNOWN APP DEFECT, found by V10)", () => {
+// that file was a standard, spec-verified usage of `m3e-tabs`/`m3e-tab-panel`
+// per custom-elements.json, until V13 (fixed below): since the library's
+// default panel-hiding never actually applies on a plain click-driven
+// switch, `navigation_sheet.tsx` now drives the `hidden` attribute on each
+// non-active `m3e-tab-panel` itself, via its own tracked selection state
+// (see that file's own comment above its `m3e-tabs`/`activePanelId` state
+// for the full mechanism). This test was originally a `test.fixme` (same
+// tracking convention V9 used for the search-mode-menu hit-test defect it
+// found, later fixed by V12); V13 un-skips it as a real regression test.
+test.describe("Navigation sheet tab-panel overlap (fixed by V13, found by V10)", () => {
   test.use({
     spaceFiles: {
       "Alpha.md": "# Alpha\n\nFirst page.\n",
@@ -490,7 +489,7 @@ test.describe("Navigation sheet tab-panel overlap (KNOWN APP DEFECT, found by V1
     },
   });
 
-  test.fixme("switching from Changelog to Sitemap hides the Changelog panel (currently stays visible, overlapping)", async ({
+  test("switching from Changelog to Sitemap hides the Changelog panel", async ({
     page,
     sbServer,
   }) => {
@@ -502,8 +501,8 @@ test.describe("Navigation sheet tab-panel overlap (KNOWN APP DEFECT, found by V1
     await page.locator('m3e-tab[for="sb-nav-sitemap"]').click();
     await expect(page.locator("#sb-nav-sitemap")).toBeVisible();
 
-    // This is what SHOULD be true and currently is not — see the KNOWN
-    // APP DEFECT writeup above this describe block.
+    // Regression check for the V13 fix — see the writeup above this
+    // describe block.
     await expect(page.locator("#sb-nav-changelog")).not.toBeVisible();
   });
 });
