@@ -1,151 +1,116 @@
-import { expect, gotoSilverBulletPage, mod, test } from "./fixtures.ts";
+import { test } from "./fixtures.ts";
 
-// Exercises search_sheet.tsx (spec §2 items 3+4+5, plan leaves L9-L12): the
-// consolidated open/run/search bottom sheet. Opened here via its own
-// keybinding (Ctrl-Shift-/ / Cmd-Shift-/, client/editor_commands.ts's
-// "Navigate: Search Sheet") — the floating toolbar's "Search" button (L13,
-// e2e/floating-toolbar.test.ts) calls the exact same `client.startSearchSheet()`
-// this command runs, so this suite's coverage of the sheet's own behavior
-// (modes, history, Escape/backdrop close, etc.) applies regardless of which
-// trigger opened it. The older AnythingPicker/CommandPalette modals stay
-// independently reachable (see e2e/command-palette.test.ts,
-// e2e/page-picker.test.ts) since this sheet reuses their
-// option-building/navigate/trigger logic rather than replacing them.
-test.describe("Consolidated search sheet", () => {
-  test.use({
-    spaceFiles: {
-      "index.md": "Welcome to the wondrous world of SilverBullet",
-      "Fruit Apple.md": "apple",
-      "Fruit Banana.md": "banana",
-      "Fruit Cherry.md": "cherry",
+// Rewritten from scratch for the vertical-toolbar redesign
+// (docs/plans/2026-09-17-vertical-toolbar-search-nav-redesign-spec.md, leaf
+// V6). The pre-existing content tested the deleted segmented-button +
+// m3e-autocomplete search_sheet.tsx (§1.4) and was already stale/orphaned; no
+// carry-forward.
+//
+// The new search sheet is `client/components/search_sheet.tsx` (leaf V6):
+// a modal m3e-bottom-sheet hosting one `m3e-search-view mode="docked"
+// contained`, a leading-icon m3e-menu-trigger opening a 3-item Search/Open/Run
+// mode menu (m3e-menu-item-radio in an m3e-menu-item-group), an Input in
+// slot="input", and an m3e-list of NavListRow rows below — query-empty shows
+// per-mode history, a typed query shows per-mode live results, and there is NO
+// m3e-autocomplete/dropdown anywhere in the composition (the whole point of
+// the redesign, §2.4).
+//
+// This component is NOT yet wired into the live app (client/editor_ui.tsx) —
+// that is leaf V8, a later, separate worktree (same pattern V4/V5/V7 used). A
+// real `sbPage` today therefore has no `#sb-search-sheet` in its DOM at all,
+// so the interactive assertions below would assert on nothing. They are left
+// as `test.fixme` (visible-but-skipped in the runner summary, not silently
+// deleted) recording the EXACT acceptance criteria from spec §5 V6's "Accept:"
+// bullet; leaf V9 (e2e reconciliation, §5 P3) un-skips them — or supersedes
+// them if V8's wiring changes the selectors — and runs them for real once the
+// toolbar's Search button opens the sheet in the live app.
+//
+// The statically-checkable half (mode→source wiring, exactly-3-radios,
+// default Open + recentPaths history, default placeholder, and the
+// load-bearing NEGATIVE `no m3e-autocomplete` assertion) is already covered,
+// green, today by the co-located node/vitest render test
+// client/components/search_sheet.test.ts.
+
+test.describe("Search sheet (client/components/search_sheet.tsx, V6)", () => {
+  test.fixme(
+    "opens in Open mode by default, showing recentPaths history (once V8 wires the toolbar Search button)",
+    async ({ sbPage }) => {
+      // Open the sheet via the floating toolbar's Search button (V4/V8).
+      // const sheet = sbPage.locator("#sb-search-sheet");
+      // await expect(sheet).toHaveAttribute("open", "");
+      // Default placeholder is the Open-mode placeholder.
+      // await expect(sbPage.locator("#sb-search-sheet-input")).toHaveAttribute(
+      //   "placeholder",
+      //   "Jump to a page, document, tag, or $anchor",
+      // );
+      // Empty query -> recentPaths history rows in the sheet's own m3e-list.
+      // await expect(
+      //   sheet.locator(".sb-search-sheet-list .sb-name"),
+      // ).toContainText(["<a recent page name>"]);
+      void sbPage;
     },
-  });
+  );
 
-  test("opens via keybinding, defaults to Open mode, and closes via Escape", async ({
-    sbPage,
-  }) => {
-    const editor = sbPage.locator("#sb-editor .cm-content");
-    await expect(editor).toContainText("Welcome");
+  test.fixme(
+    "the leading-icon menu has exactly 3 items (Search / Open / Run)",
+    async ({ sbPage }) => {
+      // await sbPage.locator("#sb-search-sheet m3e-menu-trigger").first().click();
+      // const items = sbPage.locator("#sb-search-mode-menu m3e-menu-item-radio");
+      // await expect(items).toHaveCount(3);
+      // await expect(items).toContainText(["Search", "Open", "Run"]);
+      void sbPage;
+    },
+  );
 
-    await sbPage.keyboard.press(`${mod}+Shift+/`);
-    const sheet = sbPage.locator("#sb-search-sheet");
-    await expect(sheet).toBeVisible();
-    await expect(sbPage.getByRole("radio", { name: "Open" })).toBeChecked();
+  test.fixme(
+    "selecting Search switches the placeholder and results source live",
+    async ({ sbPage }) => {
+      // Open the menu, click the "Search" radio.
+      // await sbPage.locator("#sb-search-sheet m3e-menu-trigger").first().click();
+      // await sbPage.locator("#sb-search-mode-menu m3e-menu-item-radio", {
+      //   hasText: "Search",
+      // }).click();
+      // Placeholder flips to the Search-mode placeholder immediately.
+      // await expect(sbPage.locator("#sb-search-sheet-input")).toHaveAttribute(
+      //   "placeholder",
+      //   "Find in space",
+      // );
+      // Empty-query history source is now recentSearchTerms, not recentPaths.
+      void sbPage;
+    },
+  );
 
-    await sbPage.keyboard.press("Escape");
-    await expect(sheet).not.toBeVisible();
-  });
+  test.fixme(
+    "typing updates the m3e-list with ZERO m3e-autocomplete elements in the DOM",
+    async ({ sbPage }) => {
+      // await sbPage.locator("#sb-search-sheet-input").fill("wid");
+      // Results render inside the sheet's own slotted list...
+      // await expect(
+      //   sbPage.locator("#sb-search-sheet .sb-search-sheet-list .sb-name"),
+      // ).not.toHaveCount(0);
+      // ...and crucially, NO dropdown/autocomplete overlay exists anywhere —
+      // this is the exact defect class prior attempts shipped (§2.4).
+      // await expect(sbPage.locator("m3e-autocomplete")).toHaveCount(0);
+      void sbPage;
+    },
+  );
 
-  test("closes via backdrop click", async ({ sbPage }) => {
-    await sbPage.keyboard.press(`${mod}+Shift+/`);
-    const sheet = sbPage.locator("#sb-search-sheet");
-    await expect(sheet).toBeVisible();
+  test.fixme(
+    "submitting a Search-mode term calls recordSearchTerm and it resurfaces as history on reopen",
+    async ({ sbPage }) => {
+      // Switch to Search mode, type a term, press Enter (or activate a row).
+      // Reopen the sheet in Search mode -> the term is now a "Recent search"
+      // history row (client.recordSearchTerm persisted it).
+      void sbPage;
+    },
+  );
 
-    // `modal` renders a real ::backdrop covering the viewport — click a
-    // corner far from the sheet's own content box.
-    await sbPage.mouse.click(5, 5);
-    await expect(sheet).not.toBeVisible();
-  });
-
-  test("open mode: typing a page name and pressing Enter navigates to it", async ({
-    sbPage,
-  }) => {
-    await sbPage.keyboard.press(`${mod}+Shift+/`);
-    const sheet = sbPage.locator("#sb-search-sheet");
-    await expect(sheet).toBeVisible();
-
-    const input = sbPage.locator("#sb-search-sheet-input");
-    await input.click();
-    await sbPage.keyboard.type("Fruit Cherry", { delay: 30 });
-    await expect(
-      sheet.locator(".sb-option .sb-name", { hasText: "Fruit Cherry" }),
-    ).toBeVisible();
-
-    await sbPage.keyboard.press("Enter");
-    await expect(sheet).not.toBeVisible();
-    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
-      "Fruit Cherry",
-    );
-  });
-
-  test("run mode: switching segments, running a command, and registering its recency in history", async ({
-    sbPage,
-  }) => {
-    await sbPage.keyboard.press(`${mod}+Shift+/`);
-    const sheet = sbPage.locator("#sb-search-sheet");
-    await expect(sheet).toBeVisible();
-
-    await sbPage.getByRole("radio", { name: "Run" }).click();
-    const input = sbPage.locator("#sb-search-sheet-input");
-    await input.click();
-    await sbPage.keyboard.type("Stats: Show", { delay: 30 });
-    await expect(
-      sheet.locator(".sb-option .sb-name", { hasText: "Stats: Show" }),
-    ).toBeVisible();
-
-    await sbPage.keyboard.press("Enter");
-    await expect(sheet).not.toBeVisible();
-
-    // L12: run-mode's empty-query history is commands sorted by
-    // def.lastRun — the command just run should now be the first (only)
-    // row when reopening in Run mode with an empty query.
-    await sbPage.keyboard.press(`${mod}+Shift+/`);
-    await expect(sheet).toBeVisible();
-    await sbPage.getByRole("radio", { name: "Run" }).click();
-    await expect(
-      sheet.locator(".sb-option .sb-name").first(),
-    ).toHaveText("Stats: Show");
-    await sbPage.keyboard.press("Escape");
-  });
-
-  test("search mode: submitting a term records it, and it resurfaces as history on reopen", async ({
-    sbPage,
-  }) => {
-    await sbPage.keyboard.press(`${mod}+Shift+/`);
-    const sheet = sbPage.locator("#sb-search-sheet");
-    await expect(sheet).toBeVisible();
-
-    await sbPage.getByRole("radio", { name: "Search" }).click();
-    const input = sbPage.locator("#sb-search-sheet-input");
-    await input.click();
-    await sbPage.keyboard.type("banana", { delay: 30 });
-    // Search mode fuzzy-matches page names too, so "Fruit Banana" should
-    // show up as a candidate result underneath.
-    await expect(
-      sheet.locator(".sb-option .sb-name", { hasText: "Fruit Banana" }),
-    ).toBeVisible();
-
-    await sbPage.keyboard.press("Enter");
-    await expect(sheet).not.toBeVisible();
-
-    // L9/L12: the submitted term is recorded into recentSearchTerms and
-    // resurfaces as Search-mode's empty-query history on reopen.
-    await sbPage.keyboard.press(`${mod}+Shift+/`);
-    await expect(sheet).toBeVisible();
-    await sbPage.getByRole("radio", { name: "Search" }).click();
-    await expect(
-      sheet.locator(".sb-option .sb-name", { hasText: "banana" }),
-    ).toBeVisible();
-    await sbPage.keyboard.press("Escape");
-  });
-
-  test("open mode's empty-query history is client.recentPaths, not the default page order", async ({
-    sbPage,
-    sbServer,
-  }) => {
-    // Visit a page first so it lands in recentPaths.
-    await gotoSilverBulletPage(sbPage, sbServer, "Fruit Apple");
-
-    await sbPage.keyboard.press(`${mod}+Shift+/`);
-    const sheet = sbPage.locator("#sb-search-sheet");
-    await expect(sheet).toBeVisible();
-    await expect(sbPage.getByRole("radio", { name: "Open" })).toBeChecked();
-
-    // Empty query -> history, filtered to recentPaths (current page
-    // excluded — see search_sheet.tsx's history builder).
-    await expect(
-      sheet.locator(".sb-option .sb-hint", { hasText: "Recent" }).first(),
-    ).toBeVisible();
-    await sbPage.keyboard.press("Escape");
+  test.fixme("Escape closes the sheet", async ({ sbPage }) => {
+    // await sbPage.locator("#sb-search-sheet-input").press("Escape");
+    // await expect(sbPage.locator("#sb-search-sheet")).not.toHaveAttribute(
+    //   "open",
+    //   "",
+    // );
+    void sbPage;
   });
 });
