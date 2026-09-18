@@ -36,3 +36,4 @@ AGENTS.md
 # Rust workspace build artifacts (Cargo.lock is intentionally tracked — this
 # workspace produces binaries)
 /target
+demo-space/
