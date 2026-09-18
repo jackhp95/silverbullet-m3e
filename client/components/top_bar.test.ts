@@ -67,3 +67,32 @@ test("omitting readOnlyToggle renders no read-only button", () => {
   // Kebab trigger still renders regardless.
   expect(html).toContain("more_vert");
 });
+
+// V11: persistent offline chip (trailing slot, left of the kebab trigger) —
+// replaces the old anchored `m3e-badge` dot on the page title.
+test("isOnline:false renders a labeled offline chip before the kebab trigger", () => {
+  const html = render(h(TopBar, { ...baseProps, isOnline: false }));
+
+  const trailing = html.slice(html.indexOf('slot="trailing"'));
+  const chipIndex = trailing.indexOf("<m3e-chip");
+  const kebabIndex = trailing.indexOf("more_vert");
+  expect(chipIndex).toBeGreaterThan(-1);
+  expect(kebabIndex).toBeGreaterThan(-1);
+  expect(chipIndex).toBeLessThan(kebabIndex);
+  expect(trailing.slice(chipIndex, kebabIndex)).toContain("Offline");
+  expect(trailing.slice(chipIndex, kebabIndex)).toContain(
+    'title="Offline — changes will sync once reconnected"',
+  );
+  expect(trailing.slice(chipIndex, kebabIndex)).toContain(
+    'aria-label="Offline"',
+  );
+  // Old anchored badge is gone entirely.
+  expect(html).not.toContain("m3e-badge");
+});
+
+test("isOnline:true renders no offline chip", () => {
+  const html = render(h(TopBar, { ...baseProps, isOnline: true }));
+
+  expect(html).not.toContain("<m3e-chip");
+  expect(html).not.toContain("m3e-badge");
+});

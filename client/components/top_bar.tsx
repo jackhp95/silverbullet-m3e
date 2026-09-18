@@ -4,10 +4,17 @@ import { Input } from "@silverbulletmd/silverbullet/ui";
 import "@m3e/web/app-bar";
 import "@m3e/web/breadcrumb";
 import "@m3e/web/progress-indicator";
-import "@m3e/web/badge";
 import "@m3e/web/icon-button";
 import "@m3e/web/icon";
 import "@m3e/web/menu";
+// V11: offline indicator, moved from an anchored `m3e-badge` dot (no
+// longer used in this file) to a persistent, labeled trailing chip — see
+// the trailing-slot comment below. Snackbar fires a one-shot toast on the
+// online<->offline transition (`M3eSnackbar.open`, a `globalThis` static
+// method this side-effect import registers — see Snackbar.d.ts's
+// `declare global`), imperative-only, no JSX involved.
+import "@m3e/web/chips";
+import "@m3e/web/snackbar";
 import "./m3e-jsx.d.ts";
 
 // One segment of the folder-path trail rendered above the app bar (see
@@ -210,6 +217,25 @@ export function TopBar({
   // binding, two entry points into it. Disabled under the same condition
   // the breadcrumb segment itself uses (command unavailable -> no onClick).
   const homeOnClick = breadcrumbItems[0]?.onClick;
+
+  // V11: one-shot toast on the online<->offline *transition* — the chip
+  // above is the sustained-state indicator; this is just the moment-of-
+  // change nudge, so it must not fire on initial mount (a freshly loaded
+  // page that happens to start offline isn't a "transition"). `isMounted`
+  // guards exactly that first run, same skip-on-mount pattern as
+  // PageNameEditor's `committing` ref above. Not covered by
+  // top_bar.test.ts's preact-render-to-string tests — effects don't run
+  // under SSR-style rendering (no DOM `M3eSnackbar.open` could act on), same
+  // documented gap as this file's e2e note.
+  const isMounted = useRef(false);
+  useEffect(() => {
+    if (!isMounted.current) {
+      isMounted.current = true;
+      return;
+    }
+    M3eSnackbar.open(isOnline ? "Back online" : "You're offline");
+  }, [isOnline]);
+
   return (
     <div
       id="sb-top"
@@ -274,20 +300,6 @@ export function TopBar({
                 onRename={onRename}
               />
             </span>
-            {/* Distinct offline marker, additive to the whole-bar
-                `#sb-top.sb-sync-error` tint above — a small error-colored dot
-                (badge's own default colors: DesignToken.color.error/onError,
-                badge.md) anchored to the page title, so "offline" reads at a
-                glance even where the bar tint alone might not stand out. */}
-            {!isOnline && (
-              <m3e-badge
-                for="sb-current-page"
-                size="small"
-                title="Offline — changes will sync once reconnected"
-                aria-label="Offline"
-              >
-              </m3e-badge>
-            )}
           </span>
           <span slot="trailing" className="sb-trailing">
             <SyncProgressIndicator
@@ -314,6 +326,40 @@ export function TopBar({
                 >
                 </m3e-icon>
               </m3e-icon-button>
+            )}
+            {/* V11: persistent offline indicator — replaces the old
+                anchored `m3e-badge` dot on the page title (easy to miss).
+                Offline is a sustained state, so a labeled, glanceable chip
+                in the trailing slot (left of the kebab trigger, per Jack's
+                own placement call) is the right affordance, not a dot or a
+                one-shot snackbar. `m3e-chip` (not m3e-assist-chip) since
+                this isn't clickable — ChipElement.d.ts's own doc comment
+                calls it "a non-interactive chip used to convey small pieces
+                of information," exactly this case. `m3e-chip` has no
+                color-role/`variant` option for an error treatment (verified
+                against custom-elements.json: `variant` is only
+                "outlined" | "elevated" — no color attr) — the error color is
+                set via the same CSS custom properties colors.scss already
+                uses for the analogous case (chip error-role tags, e.g.
+                `m3e-assist-chip[data-tag-name="issue"]`):
+                `--m3e-outlined-chip-outline-color` /
+                `--m3e-chip-label-text-color` pointed at
+                `--md-sys-color-error`. Done inline via `style` rather than a
+                new colors.scss rule since this leaf is scoped to this file
+                only. */}
+            {!isOnline && (
+              <m3e-chip
+                className="sb-offline-chip"
+                title="Offline — changes will sync once reconnected"
+                aria-label="Offline"
+                style={{
+                  "--m3e-outlined-chip-outline-color":
+                    "var(--md-sys-color-error)",
+                  "--m3e-chip-label-text-color": "var(--md-sys-color-error)",
+                }}
+              >
+                Offline
+              </m3e-chip>
             )}
             {/* L7: kebab menu — shell + trigger + positioning only in this
                 leaf. Real content (Web Push toggle, CONFIG link, etc.) is

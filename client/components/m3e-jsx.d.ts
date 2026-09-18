@@ -511,6 +511,21 @@ type M3eTabAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
 
 type M3eTabPanelAttributes = PreactJSX.HTMLAttributes<HTMLElement>;
 
+// m3e-chip: top_bar.tsx's persistent offline indicator (V11 leaf,
+// replacing the old anchored m3e-badge dot — see top_bar.tsx's own trailing-
+// slot comment). Non-interactive chip — see @m3e/web/chips card /
+// ChipElement.d.ts. No `disabled`/color-role attribute exists on this
+// element (verified against custom-elements.json); error-color treatment is
+// set via the `--m3e-outlined-chip-outline-color` /
+// `--m3e-chip-label-text-color` CSS custom properties instead (inline
+// `style`, same tokens colors.scss already uses for chip error roles
+// elsewhere in this fork).
+type M3eChipAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  value?: string;
+  /** @default "outlined" */
+  variant?: "outlined" | "elevated";
+};
+
 interface M3eIntrinsicElements {
   "m3e-search-view": M3eSearchViewAttributes;
   "m3e-list": M3eListAttributes;
@@ -547,6 +562,7 @@ interface M3eIntrinsicElements {
   "m3e-tabs": M3eTabsAttributes;
   "m3e-tab": M3eTabAttributes;
   "m3e-tab-panel": M3eTabPanelAttributes;
+  "m3e-chip": M3eChipAttributes;
 }
 
 declare module "preact" {
