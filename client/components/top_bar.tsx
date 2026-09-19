@@ -39,9 +39,9 @@ export type BreadcrumbItem = {
 // owned by the follow-up leaf L8, sequenced after this one to avoid a merge
 // conflict on that file). L8 populates it with real items (Web Push toggle,
 // CONFIG link, etc.) without needing to restructure anything here. `icon` is a
-// Material Symbols ligature name (string), not a component, since
-// m3e-menu-item's own content is a plain slotted child, not a leading-icon
-// prop.
+// Material Symbols ligature name (string), not a component, because the icon is
+// rendered as an `<m3e-icon slot="icon">` child — m3e-menu-item's own
+// documented leading-icon slot (see the render below).
 export type AppBarMenuItem = {
   key: string;
   icon?: string;
@@ -66,9 +66,12 @@ function pageNameClass(
 function SyncProgressIndicator({
   percentage,
   type,
+  slot,
 }: {
   percentage?: number;
   type?: string;
+  /** Forwarded onto the root element so the caller can slot it directly. */
+  slot?: string;
 }) {
   if (percentage === undefined) return null;
   // `filesProcessed / totalFiles` (plugs/sync/sync.ts) is NaN when totalFiles
@@ -78,7 +81,7 @@ function SyncProgressIndicator({
   // `indeterminate` mode: "something is happening" without a bogus number.
   const indeterminate = Number.isNaN(percentage);
   return (
-    <div className="sb-sync-progress">
+    <div className="sb-sync-progress" slot={slot}>
       <div
         className={`progress-wrapper progress-${type}`}
         title={indeterminate
@@ -301,11 +304,25 @@ export function TopBar({
               />
             </span>
           </span>
-          <span slot="trailing" className="sb-trailing">
-            <SyncProgressIndicator
-              percentage={progressPercentage}
-              type={progressType}
-            />
+          {/* Each trailing item carries `slot="trailing"` ITSELF, as a direct
+              child of the app bar — the documented pattern (the app-bar card's
+              own examples slot several sibling buttons into `trailing`, and
+              client/codemirror/lua_widget.ts already builds its card header
+              this way). This replaced a single `<span slot="trailing"
+              className="sb-trailing">` wrapper whose `display:flex;
+              align-items:center; flex:none` CSS merely re-implemented what the
+              app bar's own internal `.trailing-icon` container already applies
+              to the slot (verified in node_modules/@m3e/web/dist/app-bar.js) —
+              custom CSS duplicating a component's own layout, which the
+              styling ladder puts last. It also let the app bar see the real
+              buttons rather than one opaque span, so its
+              `with-trailing-icon` slotchange toggle now reflects whether any
+              action is actually present instead of being permanently on. */}
+          <SyncProgressIndicator
+            slot="trailing"
+            percentage={progressPercentage}
+            type={progressType}
+          />
             {/* V5 (docs/plans/2026-09-17-vertical-toolbar-search-nav-redesign-spec.md
                 §2.2): read-only toggle, added directly to the trailing slot —
                 it previously had no UI home at all (a real regression, not a
@@ -314,6 +331,7 @@ export function TopBar({
                 state; undefined here just hides the button. */}
             {readOnlyToggle && (
               <m3e-icon-button
+                slot="trailing"
                 title={readOnlyToggle.label}
                 aria-label={readOnlyToggle.label}
                 onClick={(e: MouseEvent) => {
@@ -349,6 +367,7 @@ export function TopBar({
                 only. */}
             {!isOnline && (
               <m3e-chip
+                slot="trailing"
                 className="sb-offline-chip"
                 title="Offline — changes will sync once reconnected"
                 aria-label="Offline"
@@ -366,12 +385,15 @@ export function TopBar({
                 wired in by a follow-up leaf (L8) via the `menuItems` prop,
                 which also touches editor_ui.tsx and is sequenced after this
                 one lands to avoid a merge conflict on this file. */}
-            <m3e-icon-button title="More actions" aria-label="More actions">
+            <m3e-icon-button
+              slot="trailing"
+              title="More actions"
+              aria-label="More actions"
+            >
               <m3e-menu-trigger for="sb-app-bar-menu">
                 <m3e-icon name="more_vert"></m3e-icon>
               </m3e-menu-trigger>
             </m3e-icon-button>
-          </span>
         </m3e-app-bar>
         {/* `position-y="below"` is explicit here (it's also the component's
             own default, MenuPosition.d.ts) for the same self-documenting
@@ -395,7 +417,16 @@ export function TopBar({
                     item.onClick();
                   }}
               >
-                {item.icon && <m3e-icon name={item.icon}></m3e-icon>}
+                {/* `slot="icon"` is m3e-menu-item's OWN documented leading-
+                    icon slot ("Renders an icon before the item's label",
+                    menu component card / CEM). Without it the icon landed in
+                    the DEFAULT slot, which is the LABEL slot — so it rendered
+                    inline inside the label text instead of in the item's
+                    dedicated leading-icon region, losing the component's icon
+                    sizing/spacing/color treatment. */}
+                {item.icon && (
+                  <m3e-icon slot="icon" name={item.icon}></m3e-icon>
+                )}
                 {item.label}
               </m3e-menu-item>
             ))}

@@ -154,6 +154,37 @@ test("trailing kebab contains the push toggle", async ({ sbServer, page }) => {
   ).toHaveLength(1);
 });
 
+test("kebab menu icons land in m3e-menu-item's dedicated `icon` slot", async ({
+  sbServer,
+  page,
+}) => {
+  // m3e-menu-item documents a leading-icon slot: `icon` ("Renders an icon
+  // before the item's label"), alongside `trailing-icon` and the DEFAULT slot
+  // — and the default slot is the LABEL. The icons here previously carried no
+  // `slot` at all, so they were assigned to that default/label slot and
+  // rendered inline inside the label text, losing the component's own icon
+  // region, spacing and alignment (measured before the fix: assignedSlot.name
+  // === "", i.e. the default slot).
+  //
+  // Asserting `assignedSlot.name` rather than just the attribute is the
+  // load-bearing check — it proves the browser actually placed the icon in the
+  // shadow slot, not merely that we wrote an attribute.
+  await gotoSilverBulletPage(page, sbServer, "Some Page");
+  await page.locator('m3e-icon-button[title="More actions"]').click();
+
+  const menu = page.locator("#sb-app-bar-menu");
+  await expect.poll(() => menu.evaluate((el: any) => el.isOpen)).toBe(true);
+
+  const slots = await menu.locator("m3e-menu-item m3e-icon").evaluateAll((
+    els,
+  ) => els.map((el: any) => el.assignedSlot?.name ?? null));
+
+  expect(slots.length).toBeGreaterThan(0);
+  for (const s of slots) {
+    expect(s).toBe("icon");
+  }
+});
+
 test("read-only trailing icon-button reflects state, before the kebab trigger", async ({
   sbServer,
   page,
@@ -161,12 +192,15 @@ test("read-only trailing icon-button reflects state, before the kebab trigger", 
   // 2026-09-17 vertical-toolbar/nav redesign spec §2.2 / leaf V5: the
   // read-only toggle's old floating-toolbar-era home (deleted by N2) moves
   // to the app-bar trailing slot, rendered before the kebab trigger
-  // (top_bar.tsx's `slot="trailing"` span — readOnlyToggle then the kebab
-  // icon-button, in that JSX order). §6's e2e mapping table records this as
-  // "moved surfaces, not deleted."
+  // (readOnlyToggle then the kebab icon-button, in that JSX order). §6's e2e
+  // mapping table records this as "moved surfaces, not deleted."
+  //
+  // Scoped to the app bar itself rather than a wrapper element: each trailing
+  // item now carries `slot="trailing"` directly, as the app-bar component
+  // documents, so the `span.sb-trailing` wrapper this used to select is gone.
   await gotoSilverBulletPage(page, sbServer, "Some Page");
 
-  const trailing = page.locator("m3e-app-bar span.sb-trailing");
+  const trailing = page.locator("m3e-app-bar");
   const readOnlyButton = trailing.locator(
     'm3e-icon-button[title="Enable read-only"], m3e-icon-button[title="Disable read-only"]',
   );

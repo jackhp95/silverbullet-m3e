@@ -114,11 +114,11 @@
     }
   }
 
-  .sb-trailing {
-    display: flex;
-    align-items: center;
-    flex: 0 0 auto;
-  }
+  // (No `.sb-trailing` rule: the trailing actions are now slotted directly
+  // into `m3e-app-bar`'s `trailing` slot as siblings, and the app bar's own
+  // internal `.trailing-icon` container already supplies
+  // `display:flex; align-items:center; flex:none`. The old wrapper span's
+  // hand-rolled equivalent was custom CSS duplicating the component.)
 
   // m3e-circular-progress-indicator (top_bar.tsx's SyncProgressIndicator)
   // replaces the old hand-rolled conic-gradient circle. Diameter/thickness

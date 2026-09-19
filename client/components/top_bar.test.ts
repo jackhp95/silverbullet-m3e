@@ -37,7 +37,11 @@ test("readOnlyToggle active:true renders a lock icon-button before the kebab tri
     }),
   );
 
-  const trailing = html.slice(html.indexOf('slot="trailing"'));
+  // Anchored on the app bar itself, not on the first `slot="trailing"`
+  // occurrence: each trailing item now carries that attribute directly (the
+  // old wrapper span is gone), so slicing at the attribute would start
+  // mid-tag and cut off the very element being looked for.
+  const trailing = html.slice(html.indexOf("<m3e-app-bar"));
   const lockIndex = trailing.indexOf('name="lock"');
   const kebabIndex = trailing.indexOf("more_vert");
   expect(lockIndex).toBeGreaterThan(-1);
@@ -73,7 +77,7 @@ test("omitting readOnlyToggle renders no read-only button", () => {
 test("isOnline:false renders a labeled offline chip before the kebab trigger", () => {
   const html = render(h(TopBar, { ...baseProps, isOnline: false }));
 
-  const trailing = html.slice(html.indexOf('slot="trailing"'));
+  const trailing = html.slice(html.indexOf("<m3e-app-bar"));
   const chipIndex = trailing.indexOf("<m3e-chip");
   const kebabIndex = trailing.indexOf("more_vert");
   expect(chipIndex).toBeGreaterThan(-1);

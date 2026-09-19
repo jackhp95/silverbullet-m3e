@@ -326,7 +326,10 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
     );
 
     await test.step("7. app bar: read-only icon-button visible in trailing slot, before the kebab trigger", async () => {
-      const trailing = page.locator("m3e-app-bar span.sb-trailing");
+      // Scoped to the app bar itself: each trailing action now carries
+      // `slot="trailing"` directly, as m3e-app-bar documents, so the
+      // `span.sb-trailing` wrapper this used to select no longer exists.
+      const trailing = page.locator("m3e-app-bar");
       const readOnlyButton = trailing.locator(
         'm3e-icon-button[title="Enable read-only"], m3e-icon-button[title="Disable read-only"]',
       );
@@ -360,7 +363,7 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
         page,
         [
           ".sb-floating-toolbar m3e-icon-button",
-          "m3e-app-bar span.sb-trailing > *",
+          'm3e-app-bar > [slot="trailing"]',
         ],
         `base state (${name})`,
       );
