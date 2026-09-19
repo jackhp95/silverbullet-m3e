@@ -215,8 +215,27 @@ export function SearchSheet({
   // a CSS *attribute* selector but is not a reflecting property, so Preact's
   // boolean-property assignment alone never adds the HTML attribute. Force it
   // once the element exists.
+  //
+  // `detents` needs its own, DIFFERENT workaround, live-verified: Preact sets
+  // it as a raw property assignment (the `detents` instance field already
+  // exists on the element post-construction, so Preact's custom-element diff
+  // takes the property branch, not `setAttribute`) — bypassing Lit's
+  // attribute-to-array converter entirely. A plain JSX `detents="half"`
+  // therefore left `el.detents` as the STRING `"half"`, not `["half"]`;
+  // `this.detents[this.activeDetent]` (bottom-sheet.js) then indexed the
+  // string by position (`"half"[0]` === `"h"`), which matched none of
+  // `_computeDetentHeight`'s cases and silently fell back to peek/collapsed
+  // height — the sheet was opening to ~48px, not ~50vh (caught by a live
+  // Playwright rect check while diagnosing feedback #3, not visible from
+  // source alone). Fix: assign the real array directly on the element via
+  // this ref effect instead of the JSX attribute.
   useEffect(() => {
-    sheetRef.current?.setAttribute("handle", "");
+    const el = sheetRef.current;
+    if (!el) {
+      return;
+    }
+    el.setAttribute("handle", "");
+    (el as unknown as { detents: string[] }).detents = ["half"];
   }, []);
 
   // The sheet dispatches a native `cancel` event on Escape, scrim click and
@@ -236,17 +255,67 @@ export function SearchSheet({
     return () => el.removeEventListener("cancel", handler);
   }, [onClose]);
 
-  // Reset to the default mode + empty query and focus the input each time the
-  // sheet opens. Resetting mode here (rather than persisting it) is the
-  // documented §2.4 limitation, carried forward deliberately.
+  // Reset to the default mode + empty query each time the sheet opens.
+  // Resetting mode here (rather than persisting it) is the documented §2.4
+  // limitation, carried forward deliberately.
+  //
+  // Focus is intentionally NOT requested here (moved to the `opened`
+  // listener below) — feedback #5: focusing the input immediately (the old
+  // `requestAnimationFrame` here) drove `m3e-search-view` into its
+  // docked-open state — which promotes its internal `.view` to a top-layer
+  // popover (search.js `_openDocked`, `view.popover = "manual"` +
+  // `showPopover()`) positioned via a ONE-TIME snapshot of the trigger
+  // icon's `getBoundingClientRect()` — WHILE the modal `m3e-bottom-sheet`
+  // was still mid-transform on its own opening transition. That snapshot
+  // going stale mid-animation is exactly the reported "moves inconsistently
+  // as the sheet animates open" defect (verified live: the popover's
+  // computed `top`/`left` froze at the pre-transition anchor position, so
+  // the promoted search bar visibly detached from the animating sheet).
   useEffect(() => {
     if (open) {
       setMode(DEFAULT_MODE);
       setModePickerOpen(false);
       setQuery("");
       setSelectedIndex(0);
-      requestAnimationFrame(() => inputRef.current?.focus());
     }
+  }, [open]);
+
+  // Focus the input only once the sheet's own slide-up CSS transition has
+  // actually finished — NOT on the `opened` event, which (verified against
+  // decompiled bottom-sheet.js's `updated()`) dispatches synchronously the
+  // instant `open` flips, before the `transform: translateY(...)` transition
+  // that animates the sheet into place has even started. `transitionend`
+  // (filtered to the `transform` property, since border-radius/backdrop also
+  // transition) is the real "animation settled" signal. This is what
+  // actually fixes feedback #5 — see the effect above for why focusing
+  // early caused the drift.
+  useEffect(() => {
+    const el = sheetRef.current;
+    if (!open || !el) {
+      return;
+    }
+    let focused = false;
+    function focusOnce() {
+      if (!focused) {
+        focused = true;
+        inputRef.current?.focus();
+      }
+    }
+    const handler = (e: TransitionEvent) => {
+      if (e.propertyName === "transform") {
+        focusOnce();
+      }
+    };
+    el.addEventListener("transitionend", handler);
+    // Fallback for `prefers-reduced-motion` (bottom-sheet.js's own `@media
+    // (prefers-reduced-motion)` block sets `transition: none`, so
+    // `transitionend` never fires there) — matches the host's own
+    // `medium2` transition duration as an upper bound.
+    const fallback = window.setTimeout(focusOnce, 400);
+    return () => {
+      el.removeEventListener("transitionend", handler);
+      window.clearTimeout(fallback);
+    };
   }, [open]);
 
   // Two upstream `m3e-search-view` shadow-DOM behaviors have no supported
@@ -415,15 +484,15 @@ export function SearchSheet({
       open={open}
       class="sb-search-sheet"
       // Feedback #3: cap the sheet at ~50vh instead of full height, leaving
-      // visible content behind it. `detents="half"` is the component's own
-      // supported sizing lever (not custom CSS) — decompiled
-      // node_modules/@m3e/web/dist/bottom-sheet.js's
+      // visible content behind it. `detents=["half"]` (assigned via the ref
+      // effect above, NOT this JSX attribute — see that effect's comment)
+      // is the component's own supported sizing lever (not custom CSS) —
+      // decompiled node_modules/@m3e/web/dist/bottom-sheet.js's
       // `_computeDetentHeight("half")` resolves to exactly
       // `_computeMaxHeight() * 0.5`, i.e. 50% of the viewport height minus
       // the sheet's own top inset, so it tracks real viewport height instead
       // of a hardcoded `50vh` that would drift from the component's own
       // metrics.
-      detents="half"
     >
       {/* `open` attribute deliberately NOT set on m3e-search-view: decompiled
           dist/search.js drives its own open state off input focus/blur/Escape,

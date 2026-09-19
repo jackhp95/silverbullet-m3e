@@ -45,24 +45,20 @@ function modeTrigger(sbPage: Page) {
   );
 }
 
+/**
+ * The mode picker (live-testing feedback #1) is a plain `m3e-list` rendered
+ * in place of the results list, not a floating `m3e-menu` popup — so
+ * switching mode is just: click the trigger to swap the results slot for
+ * the picker, click the target row.
+ */
 async function switchMode(
   sbPage: Page,
   mode: "Search" | "Open" | "Run",
 ): Promise<void> {
   await modeTrigger(sbPage).click();
-  // Wait for the popover to actually finish opening/anchoring before
-  // interacting with an item inside it — same `isOpen` poll this repo's own
-  // app-bar-leading-trailing.test.ts and push-notifications.test.ts already
-  // use before interacting with a menu. Kept as good practice, but it does
-  // NOT fix the underlying issue: verified directly (flip
-  // "selecting Search switches..."/"submitting a Search-mode..." below from
-  // `test.fixme` to `test` and rerun with this poll in place) that the item
-  // click still fails identically even once `isOpen` is confirmed true —
-  // this is not a mount/positioning race, see the KNOWN APP DEFECT
-  // writeup on those two tests.
-  const menu = sbPage.locator("#sb-search-mode-menu");
-  await expect.poll(() => menu.evaluate((el: any) => el.isOpen)).toBe(true);
-  await menu.locator("m3e-menu-item-radio", { hasText: mode }).click();
+  const list = sbPage.locator("#sb-search-sheet .sb-search-sheet-mode-list");
+  await expect(list).toBeVisible();
+  await list.locator("m3e-list-item", { hasText: mode }).click();
 }
 
 test.describe("Search sheet (client/components/search_sheet.tsx, V6)", () => {
@@ -86,29 +82,91 @@ test.describe("Search sheet (client/components/search_sheet.tsx, V6)", () => {
     ).toContainText(["Alpha"]);
   });
 
-  test("the leading-icon menu has exactly 3 items (Search / Open / Run)", async ({
+  // Feedback #1: the mode picker is an `m3e-list` of `m3e-list-item`s, not a
+  // dropdown/menu — supersedes the old `m3e-menu`/`m3e-menu-item-radio`
+  // picker V6/V12 shipped (see git history for that prior approach).
+  test("the mode picker is an m3e-list with exactly 3 items (Search / Open / Run), no m3e-menu anywhere", async ({
     sbPage,
   }) => {
     await openSearchSheet(sbPage);
     await modeTrigger(sbPage).click();
 
-    const items = sbPage.locator("#sb-search-mode-menu m3e-menu-item-radio");
+    const list = sbPage.locator("#sb-search-sheet .sb-search-sheet-mode-list");
+    await expect(list).toBeVisible();
+    expect(await list.evaluate((el) => el.tagName.toLowerCase())).toBe(
+      "m3e-list",
+    );
+
+    const items = list.locator("m3e-list-item");
     await expect(items).toHaveCount(3);
     await expect(items).toContainText(["Search", "Open", "Run"]);
+
+    await expect(sbPage.locator("m3e-menu")).toHaveCount(0);
+    await expect(sbPage.locator("m3e-menu-item-radio")).toHaveCount(0);
   });
 
-  // Was a KNOWN APP DEFECT (found by leaf V9), FIXED by leaf V12: the mode
-  // menu opened from inside the modal search sheet was painted on top but not
-  // hit-testable (`document.elementFromPoint` at a menu item resolved to
-  // `#sb-root`; a `force:true` click was hit-tested onto the page beneath).
-  // Root cause, confirmed by decompile + a live browser probe: `m3e-search-
-  // view` owns its own `InertController` and calls `lock()` on docked-open
-  // (decompiled search.js:346/668), which marks every SIBLING inert — and the
-  // menu was a sibling of `m3e-search-view` inside the sheet. An inert
-  // top-layer popover paints but does not receive pointer hits. Fix (V12,
-  // search_sheet.tsx): render the menu as a DESCENDANT of `m3e-search-view`
-  // (the one subtree left non-inert by both the search-view's and the modal
-  // sheet's locks). See search_sheet.tsx's menu-placement comment.
+  // Feedback #2: the search bar's leading back-arrow (m3e-search-view's own
+  // built-in `_renderIconOrBackButton`, shown whenever its internal `open`
+  // state is true) is suppressed — the mode icon alone is sufficient.
+  test("no back-arrow renders in the search bar while the sheet is open", async ({
+    sbPage,
+  }) => {
+    await openSearchSheet(sbPage);
+
+    const searchView = sbPage.locator(".sb-search-sheet-view");
+    const backButtonDisplay = await searchView.evaluate((el) => {
+      const btn = el.shadowRoot?.querySelector<HTMLElement>(".icon .close");
+      return btn ? getComputedStyle(btn).display : "absent";
+    });
+    expect(["none", "absent"]).toContain(backButtonDisplay);
+  });
+
+  // Feedback #3: the sheet caps at ~50vh (the `detents="half"` lever) rather
+  // than expanding to full height.
+  test("the sheet's rendered height is capped at roughly 50% of the viewport", async ({
+    sbPage,
+  }) => {
+    await openSearchSheet(sbPage);
+
+    const viewportHeight = sbPage.viewportSize()?.height ?? 0;
+    const sheetHeight = await sbPage
+      .locator("#sb-search-sheet")
+      .evaluate((el) => el.getBoundingClientRect().height);
+
+    expect(sheetHeight).toBeGreaterThan(0);
+    // Generous tolerance (detent math includes a top-inset subtraction) —
+    // the load-bearing assertion is "well under full height", not exact px.
+    expect(sheetHeight).toBeLessThanOrEqual(viewportHeight * 0.6);
+  });
+
+  // Feedback #5: the search bar stays in normal document flow (no
+  // fixed/sticky positioning that could drift during the sheet's own
+  // open/close animation), both before opening and once the open animation
+  // has settled.
+  test("the search bar's computed position is static, before opening and after the open animation settles", async ({
+    sbPage,
+  }) => {
+    const staticBefore = await sbPage
+      .locator(".sb-search-sheet-view")
+      .evaluate((el) => {
+        const view = el.shadowRoot?.querySelector<HTMLElement>(".view");
+        return view ? getComputedStyle(view).position : "absent";
+      });
+    expect(["static", "absent"]).toContain(staticBefore);
+
+    await openSearchSheet(sbPage);
+    // Let the sheet's own open transition settle.
+    await sbPage.waitForTimeout(500);
+
+    const staticAfter = await sbPage
+      .locator(".sb-search-sheet-view")
+      .evaluate((el) => {
+        const view = el.shadowRoot?.querySelector<HTMLElement>(".view");
+        return view ? getComputedStyle(view).position : "absent";
+      });
+    expect(staticAfter).toBe("static");
+  });
+
   test("selecting Search switches the placeholder and results source live", async ({
     sbPage,
   }) => {
