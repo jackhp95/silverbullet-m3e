@@ -270,13 +270,37 @@ export function SearchSheet({
   //
   // `["half", "full"]` rather than the docs' `fit half full`: index 0 must
   // stay `half`, because opening at ~50vh (leaving content visible behind the
-  // sheet) is the explicit requirement from feedback #3. `fit` is
-  // deliberately omitted — `_computeDetentHeight("fit")` is the CONTENT
-  // height, and this sheet's content is an unbounded, variable-length result
-  // list, so `fit` is not reliably ordered against `half` (tiny when results
-  // are empty, taller than `half` when they are not). Non-monotonic detents
-  // make "snap to nearest" erratic, which is the same class of bug being
-  // fixed here. Two monotonic, distinct detents fully restore drag.
+  // sheet) is the explicit requirement from feedback #3.
+  //
+  // `fit` is deliberately omitted, and this was RE-TESTED live rather than
+  // re-reasoned (2026-09-19). Measured at 390x844 with the real page open, a
+  // real query typed, and the component's own cycle() driven directly:
+  //
+  //   detents ["fit","half","full"], query "e" (a result list, content
+  //   scrollHeight 428px, header 68px):
+  //     fit  = 504px   <- header + content + body padding
+  //     half = 386px   <- maxHeight(772) * 0.5
+  //     full = 772px
+  //   tap sequence on the drag handle: 504 -> 386 -> 772
+  //
+  // So the FIRST tap on the handle SHRINKS the sheet by 118px. That is not a
+  // "snap to nearest" problem — #getClosestDetent() in BottomSheetElement.ts
+  // picks by absolute height distance and is genuinely order-independent, so
+  // the original note was wrong about the mechanism. The real order-dependent
+  // surface is cycle(), which is strictly INDEX ordered
+  // (`if (activeDetent < detents.length - 1) activeDetent++`), so a
+  // non-monotonic array makes tap-to-cycle move the sheet the wrong way. With
+  // an empty result list fit is 204px and the order is fine (204 -> 386 ->
+  // 772) — which is exactly the problem: the ordering flips based on how many
+  // results the query happens to return.
+  //
+  // Adding `fit` also has a second, non-obvious effect: #computeMinHeight()
+  // returns the FIT height whenever "fit" is present and "collapsed" is not,
+  // so `fit` would also raise the sheet's minimum drag height and its
+  // hideable threshold in proportion to the result count.
+  //
+  // Verdict: the concern was real, not overcautious. Two monotonic, distinct
+  // detents stay.
   useEffect(() => {
     const el = sheetRef.current;
     if (!el) {

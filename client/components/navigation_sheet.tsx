@@ -136,10 +136,31 @@ export function NavigationSheet({
   //
   //    `["half", "full"]` rather than all three: index 0 must stay `half` so
   //    the sheet still opens at ~50vh with the floating switcher pinned to a
-  //    stable edge. `fit` is deliberately omitted — it resolves to the
-  //    CONTENT height, and this sheet's three sections (History / Changelog /
-  //    Sitemap) are variable-length scrolling lists, so `fit` is not reliably
-  //    ordered against `half` and would make "snap to nearest" erratic.
+  //    stable edge.
+  //
+  //    `fit` is deliberately omitted, RE-TESTED live 2026-09-19 rather than
+  //    re-reasoned. The mechanism in the original note was wrong: "snap to
+  //    nearest" (#getClosestDetent in BottomSheetElement.ts) picks by
+  //    absolute height distance and IS order-independent. The order-dependent
+  //    surface is cycle(), the drag handle's tap-to-cycle, which is strictly
+  //    INDEX ordered — so a non-monotonic array makes a tap move the sheet
+  //    the wrong way.
+  //
+  //    Measured at 390x844: this sheet's default section is short (content
+  //    scrollHeight 114px), giving fit=190 < half=386 < full=772, so adding
+  //    `fit` here would in fact be monotonic TODAY. It is still omitted, for
+  //    two reasons. First, the three sections (History / Changelog / Sitemap)
+  //    are unbounded scrolling lists and the section is switched while the
+  //    sheet is open, so the ordering is a property of the current content,
+  //    not of the sheet — the sibling search sheet measures fit=504 > half=386
+  //    as soon as a query returns results (see the matching note in
+  //    search_sheet.tsx). Second, `fit` is not just an extra stop:
+  //    #computeMinHeight() returns the FIT height whenever "fit" is present
+  //    and "collapsed" is not, so it would also tie this sheet's minimum drag
+  //    height and hideable threshold to whichever section is showing. Keeping
+  //    both sheets on the same two monotonic detents also keeps them
+  //    behaviourally identical, which is worth more here than matching the
+  //    docs example literally.
   useEffect(() => {
     const el = sheetRef.current;
     if (!el) {
