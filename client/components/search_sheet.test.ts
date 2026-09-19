@@ -6,7 +6,6 @@ import type { Path } from "@silverbulletmd/silverbullet/lib/ref";
 import type { Command } from "../types/command.ts";
 import {
   DEFAULT_MODE,
-  MODE_ORDER,
   MODE_PLACEHOLDER,
   type SearchSheetData,
   SearchSheet,
@@ -162,22 +161,18 @@ test("renders a modal m3e-bottom-sheet with the search-view inside", () => {
   expect(html).toContain("m3e-search-view");
 });
 
-test("the mode menu has exactly 3 radio items: Search / Open / Run", () => {
+test("the mode picker is NOT rendered by default (m3e-list toggled by the mode icon, not an open m3e-menu)", () => {
   const html = renderSheet();
-  const radioCount = (html.match(/<m3e-menu-item-radio/g) ?? []).length;
-  expect(radioCount).toBe(3);
-  expect(MODE_ORDER).toEqual(["search", "open", "run"]);
-  expect(html).toContain(">Search</m3e-menu-item-radio>");
-  expect(html).toContain(">Open</m3e-menu-item-radio>");
-  expect(html).toContain(">Run</m3e-menu-item-radio>");
+  // Mode picker only appears once toggled open (interactive — see
+  // e2e/search-sheet.test.ts); the default render shows history/results.
+  expect(html).not.toContain("sb-search-sheet-mode-list");
 });
 
-test("exactly one radio is checked, and it is the default Open mode", () => {
+test("NO m3e-menu / m3e-menu-item-radio anywhere in the composition (feedback #1: m3e-list, not a dropdown menu)", () => {
   const html = renderSheet();
-  const checkedCount = (html.match(/checked/g) ?? []).length;
-  expect(checkedCount).toBe(1);
-  // The checked marker sits on the Open radio's opening tag.
-  expect(html).toMatch(/<m3e-menu-item-radio[^>]*checked[^>]*>[\s\S]*?>Open</);
+  expect(html).not.toContain("m3e-menu");
+  expect(html).not.toContain("m3e-menu-item-radio");
+  expect(html).not.toContain("m3e-menu-trigger");
 });
 
 test("NO m3e-autocomplete / dropdown anywhere in the composition (spec §2.4)", () => {

@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import type { JSX as PreactJSX } from "preact";
 import { Input } from "@silverbulletmd/silverbullet/ui";
 import "@m3e/web/bottom-sheet"; // registers m3e-bottom-sheet
 import "@m3e/web/search"; // registers m3e-search-view (+ m3e-search-bar)
 import "@m3e/web/list"; // registers m3e-list / m3e-list-item
-import "@m3e/web/menu"; // m3e-menu / -trigger / -item-radio / -item-group
 import "@m3e/web/icon-button"; // registers m3e-icon-button
 import "@m3e/web/icon"; // registers m3e-icon
 import "./m3e-jsx.d.ts";
@@ -34,10 +32,12 @@ import {
 } from "./search_modes.ts";
 
 // Search bottom sheet (spec docs/plans/2026-09-17-vertical-toolbar-search-nav-
-// redesign-spec.md §2.4, leaf V6). A modal `m3e-bottom-sheet` hosting one
-// `m3e-search-view mode="docked" contained`, whose leading icon is an
-// `m3e-menu-trigger` opening a 3-item mode menu (Search / Open / Run), an
-// `Input` in `slot="input"`, and an `m3e-list` of `NavListRow`s below it:
+// redesign-spec.md §2.4, leaf V6; mode-picker superseded post-spec by Jack's
+// live-testing feedback — see the mode-model comment below). A modal
+// `m3e-bottom-sheet` hosting one `m3e-search-view mode="docked" contained`,
+// whose leading icon toggles a 3-item `m3e-list` mode picker (Search / Open /
+// Run) in place of the results, an `Input` in `slot="input"`, and an
+// `m3e-list` of `NavListRow`s below it:
 // query-empty renders per-mode history, a typed query renders per-mode live
 // results. THE WHOLE POINT of the redesign is that results live inside the
 // sheet — there is NO `m3e-autocomplete`/dropdown anywhere in this
@@ -58,54 +58,21 @@ import {
 // behavior cannot be exercised in a unit test); the statically-checkable
 // structure is covered by the co-located search_sheet.test.ts render test.
 
-// --- m3e JSX typing (scoped to this leaf) --------------------------------
-//
-// `m3e-menu-item-radio` / `m3e-menu-item-group` are not declared in the
-// shared client/components/m3e-jsx.d.ts. That file is V1/V2-owned and leaf
-// V7 also augments the same m3e-* JSX surface (for m3e-tabs); editing it from
-// here would collide. Instead, declaration-merge the two tags this leaf needs
-// into the same Preact `JSX.IntrinsicElements` interface from this file, so
-// the change stays inside V6's owned file.
-//
-// `checked` is a real reflected property (the `Checked` mixin in
-// node_modules/@m3e/web/dist/menu.js) that Preact assigns as a DOM property
-// on the already-registered custom element. Exclusivity IS self-managed by
-// the component (decompiled dist/menu.js: M3eMenuItemRadioElement's `updated`
-// clears sibling radios in its group/menu when one becomes `checked`), but
-// per spec §1.1 we still drive `checked` as a Preact-controlled prop off local
-// `mode` state — our state is the source of truth and the component's own
-// exclusivity merely agrees with it. `m3e-menu-item-radio` dispatches ONLY
-// `click` (no `change`/`input` — verified against
-// node_modules/@m3e/web/dist/custom-elements.json AND the decompiled
-// dist/menu.js), so the mode switch is wired via `onClick`; `click` is a
-// native GlobalEventHandlers event, so camelCase `onClick` (already provided
-// by PreactJSX.HTMLAttributes) resolves correctly. Clicking a radio also
-// auto-closes the menu (menu.js `_handleClick` → `this.menu?.hideAll(true)`),
-// so the handler only needs to set `mode`.
-type M3eMenuItemRadioAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
-  checked?: boolean;
-  disabled?: boolean;
-};
-type M3eMenuItemGroupAttributes = PreactJSX.HTMLAttributes<HTMLElement>;
-
-declare module "preact" {
-  namespace JSX {
-    interface IntrinsicElements {
-      "m3e-menu-item-radio": M3eMenuItemRadioAttributes;
-      "m3e-menu-item-group": M3eMenuItemGroupAttributes;
-    }
-  }
-}
-declare module "preact/jsx-runtime" {
-  namespace JSX {
-    interface IntrinsicElements {
-      "m3e-menu-item-radio": M3eMenuItemRadioAttributes;
-      "m3e-menu-item-group": M3eMenuItemGroupAttributes;
-    }
-  }
-}
-
 // --- mode model (spec §2.4) ----------------------------------------------
+//
+// Mode picker (this section + the render below) is an `m3e-list` of
+// `m3e-list-item`s, NOT an `m3e-menu`/`m3e-menu-item-radio` popup (Jack's
+// live-testing feedback #1, superseding V6/V12's `m3e-menu`-based picker —
+// see git history for that prior approach). `m3e-list-item` is inert by
+// itself (spec doc's own component table notes this — "use `m3e-list-action`
+// for clickable rows"), but `nav_list_row.tsx`'s `NavListRow` already drives
+// click/select behavior on plain `m3e-list-item`s throughout this same
+// sheet (selection + activation via `onClick`/`onMouseMove`, no
+// `m3e-list-action`), so the mode-picker rows below follow that exact,
+// already-proven precedent rather than introducing a second list-item
+// idiom. No `PreactJSX` augmentation is needed any more (that was only for
+// `m3e-menu-item-radio`/`-group`; `m3e-list`/`m3e-list-item` are already
+// declared in the shared client/components/m3e-jsx.d.ts).
 
 export type SearchMode = "search" | "open" | "run";
 
@@ -232,10 +199,16 @@ export function SearchSheet({
   onTriggerCommand: (cmd: Command | undefined) => void;
 }) {
   const [mode, setMode] = useState<SearchMode>(DEFAULT_MODE);
+  // Whether the mode-picker `m3e-list` (Search/Open/Run) is showing in place
+  // of the normal history/results list — toggled by the leading mode icon,
+  // closed again on a pick (feedback #1: this replaced the old `m3e-menu`
+  // popup, see the mode-model comment above).
+  const [modePickerOpen, setModePickerOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const sheetRef = useRef<HTMLElement>(null);
+  const searchViewRef = useRef<HTMLElement>(null);
 
   // Same m3e-bottom-sheet `handle` workaround item_capture_sheet.tsx
   // documented + verified: `handle` gates the drag dimple + slot="header" via
@@ -269,11 +242,64 @@ export function SearchSheet({
   useEffect(() => {
     if (open) {
       setMode(DEFAULT_MODE);
+      setModePickerOpen(false);
       setQuery("");
       setSelectedIndex(0);
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open]);
+
+  // Two upstream `m3e-search-view` shadow-DOM behaviors have no supported
+  // attribute/CSS-part escape hatch (verified against decompiled
+  // node_modules/@m3e/web/dist/search.js — no `part=` anywhere in its
+  // template, so neither `::part()` nor a CSS custom property can reach
+  // either node from our light DOM):
+  //
+  // 1. Feedback #2 ("remove the back-arrow"): whenever the view's internal
+  //    `open` state is true, `_renderIconOrBackButton` unconditionally
+  //    swaps the leading search icon for a back-arrow `m3e-icon-button.close`
+  //    (search.js:510-513) — there's no attribute (`hide-search-icon` only
+  //    suppresses the icon while *closed*, search.js:511) to keep it off
+  //    while open. Our own mode icon (`modeTrigger` below) already
+  //    communicates + drives search/open/run, so the redundant back-arrow is
+  //    hidden directly in the shadow tree.
+  // 2. Feedback #5 ("search bar position: static"): docked mode promotes the
+  //    view to a native top-layer popover (`view.popover = "manual"` +
+  //    `showPopover()`, search.js:665/752/771) so it can escape the sheet's
+  //    own stacking context — but the UA popover stylesheet's implicit
+  //    `position: fixed` is exactly what let the bar visually detach from
+  //    the modal `m3e-bottom-sheet`'s own open/close transform, drifting
+  //    inconsistently instead of moving with the sheet. Forcing the
+  //    shadow `.view` back to `position: static` keeps it in normal flow
+  //    inside the sheet regardless of the popover promotion.
+  //
+  // Re-run on every `toggle` (search.js dispatches this after the view's
+  // open state actually changes, search/SearchViewElement.ts's `@fires
+  // toggle`) so the fix survives lit's per-open/close re-render of this
+  // subtree, not just the initial mount.
+  useEffect(() => {
+    const el = searchViewRef.current;
+    if (!el) {
+      return;
+    }
+    function applyFixes() {
+      const root = (el as HTMLElement).shadowRoot;
+      if (!root) {
+        return;
+      }
+      const backButton = root.querySelector<HTMLElement>(".icon .close");
+      if (backButton) {
+        backButton.style.display = "none";
+      }
+      const view = root.querySelector<HTMLElement>(".view");
+      if (view) {
+        view.style.position = "static";
+      }
+    }
+    applyFixes();
+    el.addEventListener("toggle", applyFixes);
+    return () => el.removeEventListener("toggle", applyFixes);
+  }, []);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -368,18 +394,15 @@ export function SearchSheet({
   // own internal open state (decompiled dist/search.js:482 —
   // `${this.open ? <slot open-leading> : <slot closed-leading>}`), so the
   // mode trigger has to appear in both to stay visible across that toggle.
-  // Both `m3e-menu-trigger`s share `for="sb-search-mode-menu"`; each resolves
-  // the menu by id and toggles it anchored to its own parent icon-button
-  // (dist/menu.js `_onClick` → `this.menu?.toggle(this.parentElement)`), so a
-  // shared `for` is safe.
+  // Clicking it toggles the `m3e-list` mode picker rendered below (feedback
+  // #1), not an `m3e-menu` popup.
   const modeTrigger = () => (
     <m3e-icon-button
       title="Change search mode"
       aria-label="Change search mode"
+      onClick={() => setModePickerOpen((v) => !v)}
     >
-      <m3e-menu-trigger for="sb-search-mode-menu">
-        <m3e-icon name={MODE_ICON[mode]}></m3e-icon>
-      </m3e-menu-trigger>
+      <m3e-icon name={MODE_ICON[mode]}></m3e-icon>
     </m3e-icon-button>
   );
 
@@ -391,13 +414,28 @@ export function SearchSheet({
       hideable
       open={open}
       class="sb-search-sheet"
+      // Feedback #3: cap the sheet at ~50vh instead of full height, leaving
+      // visible content behind it. `detents="half"` is the component's own
+      // supported sizing lever (not custom CSS) — decompiled
+      // node_modules/@m3e/web/dist/bottom-sheet.js's
+      // `_computeDetentHeight("half")` resolves to exactly
+      // `_computeMaxHeight() * 0.5`, i.e. 50% of the viewport height minus
+      // the sheet's own top inset, so it tracks real viewport height instead
+      // of a hardcoded `50vh` that would drift from the component's own
+      // metrics.
+      detents="half"
     >
       {/* `open` attribute deliberately NOT set on m3e-search-view: decompiled
           dist/search.js drives its own open state off input focus/blur/Escape,
           and a controlled `open` prop fights that state machine (verified note
           carried from the deleted nav_views/recent.tsx). The slotted m3e-list
           below renders regardless of that internal open state. */}
-      <m3e-search-view mode="docked" contained class="sb-search-sheet-view">
+      <m3e-search-view
+        ref={searchViewRef}
+        mode="docked"
+        contained
+        class="sb-search-sheet-view"
+      >
         <span slot="closed-leading">{modeTrigger()}</span>
         <span slot="open-leading">{modeTrigger()}</span>
         <Input
@@ -417,7 +455,14 @@ export function SearchSheet({
               activate(visible[selectedIndex]);
             } else if (e.key === "Escape") {
               e.preventDefault();
-              onClose();
+              // Escape backs out of the mode picker first (if it's open)
+              // rather than closing the whole sheet underneath it.
+              if (modePickerOpen) {
+                setModePickerOpen(false);
+                refocus();
+              } else {
+                onClose();
+              }
             } else if (e.key === "ArrowDown") {
               e.preventDefault();
               setSelectedIndex((i) => Math.min(visible.length - 1, i + 1));
@@ -427,7 +472,38 @@ export function SearchSheet({
             }
           }}
         />
-        {visible.length === 0
+        {/* Mode picker (feedback #1): an `m3e-list` of `m3e-list-item`s, not
+            a floating `m3e-menu`/dropdown. Rendered in the same results slot
+            the history/results list uses below — toggled by `modeTrigger`'s
+            click, closed again by picking a mode. This sidesteps the
+            InertController hit-test hazard V12 found for a floating popup
+            menu nested here (see that fix's git history): it's normal
+            slotted content, not a top-layer popover, so it was never at
+            risk of being inerted by `m3e-search-view`'s own docked-open
+            lock in the first place. */}
+        {modePickerOpen
+          ? (
+            <m3e-list class="sb-search-sheet-mode-list" tabIndex={-1}>
+              {MODE_ORDER.map((m) => (
+                <m3e-list-item
+                  key={m}
+                  class={m === mode ? "sb-option sb-selected-option" : "sb-option"}
+                  onClick={() => {
+                    setMode(m);
+                    setModePickerOpen(false);
+                    refocus();
+                  }}
+                >
+                  <m3e-icon slot="leading" name={MODE_ICON[m]}></m3e-icon>
+                  {MODE_LABEL[m]}
+                  {m === mode && (
+                    <m3e-icon slot="trailing" name="check"></m3e-icon>
+                  )}
+                </m3e-list-item>
+              ))}
+            </m3e-list>
+          )
+          : visible.length === 0
           ? (
             <div class="sb-search-sheet-empty">
               {isEmpty ? MODE_EMPTY_MESSAGE[mode] : "No results"}
@@ -450,47 +526,6 @@ export function SearchSheet({
               ))}
             </m3e-list>
           )}
-        {/* The mode menu MUST render as a DOM descendant of `m3e-search-view`,
-            NOT as a sibling of it inside the sheet (leaf V12 — hit-test fix).
-            Root cause, confirmed by decompile + a live browser hit-test probe:
-            `m3e-search-view` owns its own `InertController` (decompiled
-            node_modules/@m3e/web/dist/search.js:346), and its docked-open path
-            (`_openDocked`, search.js:668-669) calls `inertController.lock()`.
-            That `lock()` (core.js:1007) walks up from the search-view and marks
-            EVERY SIBLING inert at each ancestor level. The sheet auto-focuses
-            the input on open, which drives the docked view open, so the lock
-            fires immediately — and while the menu was a sibling of
-            `m3e-search-view` it was marked `inert`. An `inert` `popover=manual`
-            menu (menu.js:544/608) still paints in the top layer (so a
-            screenshot shows it "on top"), but is not hit-testable:
-            `document.elementFromPoint` at a menu item resolved to `#sb-root`
-            underneath, and even a `force:true` click was hit-tested onto the
-            page below — exactly the V9 diagnostic. The non-modal app-bar kebab
-            (`#sb-app-bar-menu`, top_bar.tsx) works precisely because it is NOT a
-            sibling of any `m3e-search-view`, so nothing inerts it. Moving the
-            menu OUT of the sheet entirely (into a sheet-sibling, the first
-            hypothesis) is WORSE: the sheet is itself a `modal` popover whose own
-            `InertController.lock()` then inerts it — verified in a live probe.
-            The one region left non-inert by BOTH locks is the search-view's own
-            subtree, so the menu lives here. Trigger↔menu are linked by
-            `for`/`id`, not DOM adjacency (already relied on by the duplicate-
-            trigger pattern above), so the physical nesting is free to change.
-            The menu is a top-layer popover, so rendering it in the results slot
-            has no visual effect — it anchors to its trigger. */}
-        <m3e-menu id="sb-search-mode-menu" position-y="above">
-          <m3e-menu-item-group>
-            {MODE_ORDER.map((m) => (
-              <m3e-menu-item-radio
-                key={m}
-                checked={mode === m}
-                onClick={() => setMode(m)}
-              >
-                <m3e-icon slot="icon" name={MODE_ICON[m]}></m3e-icon>
-                {MODE_LABEL[m]}
-              </m3e-menu-item-radio>
-            ))}
-          </m3e-menu-item-group>
-        </m3e-menu>
       </m3e-search-view>
     </m3e-bottom-sheet>
   );
