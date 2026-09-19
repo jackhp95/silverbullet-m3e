@@ -335,17 +335,27 @@ m3e-search-view.sb-modal-box {
   width: 100%;
 }
 
-// Prompt()/Confirm()'s actions row, slotted into m3e-dialog's `actions` slot
-// (see the "Confirmation dialog with header and actions" composition in the
-// dialog card — a plain flex row is the documented pattern; m3e-dialog's own
-// ::slotted([slot="actions"]) rule already right-aligns and gaps this, but
-// that's Shadow-DOM CSS which can't reach into further-nested slotted
-// content, so the *inner* row here still needs its own layout).
-.sb-dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
+// No `.sb-dialog-actions` rule: Prompt()/Confirm()'s actions row is now
+// `class="flex justify-end gap-2"` directly on the slotted div in
+// client/components/basic_modals.tsx. The rule it replaced was
+// `display: flex; justify-content: flex-end; gap: 8px` — pure layout glue
+// with no M3E or CodeMirror content, i.e. bucket (a) of
+// docs/plans/2026-09-19-tailwind-m3e-bridge-and-custom-css-audit.md.
+// `gap-2` is 0.5rem against a 16px root = the same 8px.
+//
+// (The reason a rule is needed at all is still worth knowing: the
+// "Confirmation dialog with header and actions" composition in the m3e
+// dialog card documents a plain flex row as the pattern. m3e-dialog's own
+// ::slotted([slot="actions"]) rule right-aligns and gaps its direct slotted
+// children, but that is Shadow-DOM CSS and cannot reach further-nested
+// content, so this *inner* row still needs its own layout.)
+//
+// This is the Phase 1 proof-of-pipeline conversion. Note what it bought
+// beyond deleting four lines: the identical rule was duplicated in
+// _standalone.scss, because app.scss never @uses modals.scss and the two
+// bundles are deliberately separate. Utilities are emitted into both
+// bundles from one scan, so that duplication is gone structurally rather
+// than by convention.
 
 // Confirm()'s destructive action: recolor a `filled` m3e-button to the
 // Material error role. No dedicated "danger"/"destructive" variant exists on
