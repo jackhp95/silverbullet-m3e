@@ -47,12 +47,19 @@ import { expect, test } from "./fixtures.ts";
  *   and `self.addEventListener("push", ...)` matches purely on
  *   `event.type`, so it can't tell the difference.
  *
- * Requires the client bundle under test to have been built with a
- * non-empty `VAPID_PUBLIC_KEY` / `PUSH_SIDECAR_URL` (see
- * `build/build_client.ts`) — otherwise the toggle correctly renders
- * "not configured" and disabled, which is the right production behavior
- * for an unset env var but isn't what's under test here. See this task's
- * completion report for the exact env vars and how this suite was built.
+ * ENVIRONMENT DEPENDENCY: the subscribe test requires the client bundle
+ * under test to have been BUILT with a non-empty `VAPID_PUBLIC_KEY` /
+ * `PUSH_SIDECAR_URL` (see `patchPushConfig` in `build/build_client.ts` —
+ * these are build-time text substitutions, not runtime settings, so they
+ * cannot be stubbed from the test). Without them the toggle correctly
+ * renders "Push not configured" and disabled, which is the right
+ * production behavior for an unset env var but isn't what's under test.
+ * That case is detected at runtime by `readPushBuildConfig` below and
+ * SKIPPED with the reason and the exact rebuild command — it is not a
+ * failure, and a red result here would say nothing about the client code.
+ * The other two tests in this suite (the synthetic `push` event and the
+ * `notificationclick` handler) exercise the service worker only and have
+ * no such dependency — they run unconditionally.
  *
  * 2026-09-16 (L13, docs/plans/2026-09-16-toolbar-search-feedback-spec.md):
  * the toggle itself moved from the floating toolbar's `#sb-push-toggle`
@@ -116,6 +123,39 @@ async function stubPushClientApis(page: Page): Promise<void> {
   }, FAKE_SUBSCRIPTION);
 }
 
+/**
+ * Read the push configuration the client bundle under test was actually
+ * BUILT with.
+ *
+ * `BootConfig.vapidPublicKey` / `pushSidecarUrl` are not runtime settings:
+ * `client/boot.ts` stamps the literal placeholders `{{VAPID_PUBLIC_KEY}}` /
+ * `{{PUSH_SIDECAR_URL}}` into BootConfig, and `patchPushConfig()` in
+ * `build/build_client.ts` text-substitutes them from the `VAPID_PUBLIC_KEY`
+ * / `PUSH_SIDECAR_URL` env vars *at build time*, defaulting to `""`. So no
+ * amount of test-side stubbing can turn an unconfigured bundle into a
+ * configured one — with both empty, `client/editor_ui.tsx` correctly and
+ * deliberately resolves `pushState` to `"not-configured"` and renders a
+ * disabled "Push not configured" item instead of "Enable push
+ * notifications". That is the intended production behavior for an unset
+ * env var, not a defect, which is exactly why the subscribe test below
+ * skips rather than fails when it sees it.
+ *
+ * Read via `globalThis.client`, the handle `client/boot.ts` always assigns
+ * (same access pattern e2e/sync-progress-indicator.test.ts already uses).
+ */
+async function readPushBuildConfig(
+  page: Page,
+): Promise<{ vapidPublicKey: string; pushSidecarUrl: string }> {
+  return await page.evaluate(() => {
+    // deno-lint-ignore no-explicit-any
+    const boot = (globalThis as any).client?.bootConfig ?? {};
+    return {
+      vapidPublicKey: boot.vapidPublicKey ?? "",
+      pushSidecarUrl: boot.pushSidecarUrl ?? "",
+    };
+  });
+}
+
 /** The active service worker for this page, once it's controlling. */
 async function getActiveServiceWorker(page: Page): Promise<Worker> {
   await page.evaluate(async () => {
@@ -148,6 +188,22 @@ test.describe("Web Push client (spec §5)", () => {
       state: "visible",
       timeout: 30_000,
     });
+
+    // Environment gate, not a correctness gate. This assertion chain only
+    // means anything against a bundle built with real push config; against
+    // an unconfigured build the toggle is *correctly* "Push not configured"
+    // and disabled. Skip loudly with the reason and the fix rather than
+    // leaving a red test whose failure says nothing about the code.
+    const pushConfig = await readPushBuildConfig(page);
+    test.skip(
+      !pushConfig.vapidPublicKey || !pushConfig.pushSidecarUrl,
+      "Client bundle was built without VAPID_PUBLIC_KEY / PUSH_SIDECAR_URL, " +
+        "so the toggle is correctly in its disabled \"not configured\" state. " +
+        "Rebuild with e.g. `VAPID_PUBLIC_KEY=<base64url-key> " +
+        "PUSH_SIDECAR_URL=http://localhost:9999 npm run build:client` to " +
+        "exercise this test (the sidecar itself is stubbed — the URL only " +
+        "has to match the assertion below).",
+    );
 
     const kebab = page.locator(
       'm3e-app-bar m3e-icon-button[title="More actions"]',
