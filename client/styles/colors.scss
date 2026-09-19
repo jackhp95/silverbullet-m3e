@@ -150,6 +150,17 @@
 // `.sb-search-sheet-list`/`.sb-search-sheet-mode-list` class names, grouped
 // since both use the identical `.sb-option`/`.sb-selected-option`/`.sb-hint`
 // row treatment.
+// The `m3e-search-bar` slotted inside `m3e-search-view` paints its `.base`
+// div from `var(--m3e-search-bar-container-color, surfaceContainerHigh)`
+// (decompiled node_modules/@m3e/web/dist/search.js) — with no override that
+// resolves to a solid gray pill sitting inside the already-colored bottom
+// sheet, which read as a visual bug against the sheet's own background
+// (grep confirmed zero prior overrides of this token in the repo). Scoped
+// to the search sheet only — not a global token change.
+#sb-search-sheet {
+  --m3e-search-bar-container-color: transparent;
+}
+
 .sb-search-sheet-list,
 .sb-search-sheet-mode-list {
   .sb-hint {
