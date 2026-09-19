@@ -260,23 +260,42 @@ export function TopBar({
     >
       {lhs}
       <div className="main">
-        <m3e-breadcrumb className="sb-breadcrumb-row" aria-label="Breadcrumb">
-          {breadcrumbItems.map((item) => (
-            <m3e-breadcrumb-item
-              key={item.key}
-              current={item.current ? "page" : null}
-              disabled={!item.onClick}
-              onClick={item.onClick
-                ? (e: MouseEvent) => {
-                  e.preventDefault();
-                  item.onClick!();
-                }
-                : undefined}
+        {/* Two structural wrappers, one job each, so the breadcrumb's
+            collapse-on-scroll animates a single property and still reaches a
+            genuine zero height:
+              .sb-breadcrumb-row-shell — the grid; its one row animates
+                `1fr` -> `0fr`.
+              .sb-breadcrumb-row-clip  — the grid item; carries no padding of
+                its own (an element with padding cannot collapse below its
+                padding sum) so the track can reach 0, and clips the padded
+                breadcrumb inside it.
+            Both are measured and justified at `.sb-breadcrumb-row-shell` in
+            client/styles/top.scss — including why the previous single-element
+            `max-height` version had to go. */}
+        <div className="sb-breadcrumb-row-shell">
+          <div className="sb-breadcrumb-row-clip">
+            <m3e-breadcrumb
+              className="sb-breadcrumb-row"
+              aria-label="Breadcrumb"
             >
-              {item.label}
-            </m3e-breadcrumb-item>
-          ))}
-        </m3e-breadcrumb>
+              {breadcrumbItems.map((item) => (
+                <m3e-breadcrumb-item
+                  key={item.key}
+                  current={item.current ? "page" : null}
+                  disabled={!item.onClick}
+                  onClick={item.onClick
+                    ? (e: MouseEvent) => {
+                      e.preventDefault();
+                      item.onClick!();
+                    }
+                    : undefined}
+                >
+                  {item.label}
+                </m3e-breadcrumb-item>
+              ))}
+            </m3e-breadcrumb>
+          </div>
+        </div>
         <m3e-app-bar
           size="small"
           for={scrollContainerId}

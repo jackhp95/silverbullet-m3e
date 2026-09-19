@@ -231,51 +231,104 @@
 // app bar's own elevation-on-scroll (its `for` attribute, still wired in
 // top_bar.tsx) reacts to that same real scroll independently, via its own
 // documented internal mechanism.
-.sb-breadcrumb-row {
-  overflow: hidden;
-  // 28px of content + this breathing room below it, so the trail doesn't
-  // read as glued directly onto the app bar's own background/shadow edge
-  // (flagged live 2026-09-16) — max-height has to grow to match or the
-  // padding gets clipped by the same rule that drives the collapse-on-
-  // scroll animation below.
-  //
-  // CORRECTION (2026-09-17, verified live via a headless-Chrome computed-
-  // style dump, not just reasoning about the spec): an earlier version of
-  // this comment claimed `padding` didn't need to be transitioned because
-  // `box-sizing: border-box` + `max-height: 0` already caps the padding-box
-  // at zero regardless of the padding values. That's wrong. Per box-sizing
-  // semantics, a border-box element's content area cannot go negative — if
-  // the vertical padding sum (4px + 10px = 14px here) exceeds the declared
-  // `max-height`, the *rendered* height floors at the padding sum, not at
-  // `max-height`. Confirmed: collapsed `getComputedStyle(row).height` was
-  // `14px`, exactly `padding-top + padding-bottom`, even with `max-height:
-  // 0`. That 14px residual box (this fork's real "breadcrumb peaks above
-  // the app bar" bug) is why `padding` must also collapse to `0` below, in
-  // step with `max-height`.
-  padding: 4px 20px 10px;
-  max-height: 42px;
-  box-sizing: border-box;
+// HISTORY — why this is a grid and not a `max-height` transition.
+//
+// The collapse used to animate `max-height: 42px -> 0` plus `padding` on the
+// m3e-breadcrumb itself. `padding` had to be animated in lockstep because of
+// a real box-sizing rule (established 2026-09-17 by computed-style dump): a
+// border-box element's content area cannot go negative, so when the vertical
+// padding sum (4 + 10 = 14px) exceeds the declared `max-height`, the rendered
+// height floors at the padding sum, not at `max-height`. Collapsed height was
+// `14px` — this fork's "breadcrumb peaks above the app bar" bug.
+//
+// That worked, but the `42px` was a hand-maintained magic number, and on
+// 2026-09-19 it was measured to be WRONG and actively clipping content:
+//
+//   getComputedStyle(row).maxHeight  42px
+//   row.scrollHeight                 54px
+//   row.clientHeight                 42px   -> 12px of the row clipped
+//   breadcrumb items                 top 4, bottom 44, height 40 (not the
+//                                    28px the old comment assumed)
+//   row bottom                       42     -> items ended 2px BELOW the row
+//
+// So the 10px of "breathing room below the trail" that the 2026-09-16 fix
+// added was being clipped away again by the same magic number it had to be
+// kept in sync with, and every breadcrumb item was cut off 2px into its own
+// box. The number could have been bumped to 54px, but it would have gone
+// stale again the next time the padding, the type scale or the m3e item
+// height moved.
+//
+// The grid form removes the number entirely. `grid-template-rows: 1fr -> 0fr`
+// sizes the track from the content, so the expanded state is always exactly
+// the natural height and the collapsed state is a zero-height track, with no
+// constant to keep in sync with the padding or the type scale.
+//
+// The padding floor does NOT go away just by switching to a grid, though —
+// this was measured, not assumed, and two plausible shapes were rejected on
+// evidence before the third was adopted:
+//
+//   grid + padding left on the grid item      collapsed shell = 14px  (the
+//     floor is a property of any padded box, not of `max-height`)
+//   ...plus `overflow: hidden` on the grid
+//     CONTAINER                               collapsed shell = 14px  (the
+//     floored item still sizes the track; clipping the container doesn't
+//     shrink it)
+//   grid + a bare clip element as the grid
+//     item, padding on the breadcrumb inside  collapsed shell = 0px   ADOPTED
+//
+// So the rule the structure encodes is simply: the element that collapses
+// must not be the element that has padding. `.sb-breadcrumb-row-clip` is that
+// bare element.
+//
+// Verified live at 390x844 by toggling `#sb-top[data-scrolled]` and dumping
+// computed styles:
+//   expanded   shell 54px, #sb-top 110px   (was 42 / 98 — the 12px is back)
+//   collapsed  shell  0px, #sb-top  56px   (no 14px residual box)
+//
+// Note `grid-template-rows` is a layout-animated property, same as the
+// `max-height` it replaces — this change is for correctness and for deleting
+// the magic number, not a compositor win. The element is a single short row
+// that animates only on a scroll-direction change, so layout cost is not the
+// concern here.
+.sb-breadcrumb-row-shell {
+  display: grid;
+  grid-template-rows: 1fr;
   visibility: visible;
-  // `visibility` rides along with `max-height`/`opacity`/`padding` but with
-  // its own 0s-duration transition — undelayed here (expanding), delayed to
-  // match the others below (collapsing). That delay is the point: relying
-  // on `max-height`/`padding` reaching zero alone still left some browsers
-  // sub-pixel-rendering shadow-DOM content from `m3e-breadcrumb` for the
-  // last instant of the collapse. `visibility: hidden` is a genuinely
-  // non-painting state, not just a zero-size box, so it needs to land only
-  // once the collapse has visually finished, or it'd snap the row away
-  // before the other properties settle.
-  transition: max-height 0.2s ease, opacity 0.15s ease, padding 0.2s ease,
+  // `visibility` rides along with the track/opacity but with its own
+  // 0s-duration transition — undelayed here (expanding), delayed to match
+  // the others below (collapsing). That delay is the point: a zero-height
+  // track alone still left some browsers sub-pixel-rendering shadow-DOM
+  // content from `m3e-breadcrumb` for the last instant of the collapse.
+  // `visibility: hidden` is a genuinely non-painting state, not just a
+  // zero-size box, so it must land only once the collapse has visually
+  // finished, or it'd snap the row away before the other properties settle.
+  transition: grid-template-rows 0.2s ease, opacity 0.15s ease,
     visibility 0s linear 0s;
 }
 
-#sb-top[data-scrolled="on"] .sb-breadcrumb-row {
-  max-height: 0;
+#sb-top[data-scrolled="on"] .sb-breadcrumb-row-shell {
+  grid-template-rows: 0fr;
   opacity: 0;
-  padding: 0 20px;
   visibility: hidden;
-  transition: max-height 0.2s ease, opacity 0.15s ease, padding 0.2s ease,
+  transition: grid-template-rows 0.2s ease, opacity 0.15s ease,
     visibility 0s linear 0.2s;
+}
+
+// The grid item. Deliberately empty of padding — that is the whole point of
+// it existing (see above). `min-height: 0` lets it follow the track down to
+// zero, since a grid item's automatic minimum size would otherwise floor it
+// at its content height; `overflow: hidden` clips the padded breadcrumb
+// inside it as the track shrinks.
+.sb-breadcrumb-row-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sb-breadcrumb-row {
+  // The breathing room below the trail, so it doesn't read as glued onto the
+  // app bar's own background/shadow edge (flagged live 2026-09-16). It lives
+  // here, inside the clip, precisely so it can never floor the collapse.
+  padding: 4px 20px 10px;
 }
 
 // ---------------------------------------------------------------------------
