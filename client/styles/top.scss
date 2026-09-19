@@ -277,3 +277,62 @@
   transition: max-height 0.2s ease, opacity 0.15s ease, padding 0.2s ease,
     visibility 0s linear 0.2s;
 }
+
+// ---------------------------------------------------------------------------
+// App-bar kebab menu (#sb-app-bar-menu, client/components/top_bar.tsx)
+//
+// Fixes a genuine clipping bug, root-caused by live measurement at 390px
+// (the "Push notifications are not configured for this server" item):
+//
+//   item host        left  79  right 351  width 272
+//   shadow .wrapper  left  79  right 475  width 396   <- 124px outside its item
+//   shadow .content  left 119  right 463  width 344   ellipsized: FALSE
+//   viewport width 390 -> the label ran 73px past the screen edge and was
+//   hard-clipped by the menu's own `contain: content` .base. No ellipsis.
+//
+// Why the component's own ellipsis never fired: m3e-menu-item's shadow
+// `.content` does declare `overflow: hidden; text-overflow: ellipsis;
+// white-space: nowrap`, but it sits inside `.wrapper { flex: 1 1 auto }`,
+// which has no `min-width: 0`. `overflow: hidden` zeroes a flex item's own
+// automatic minimum size, yet it does NOT zero the min-content *contribution*
+// that item makes to its container's intrinsic size. So `.wrapper`'s
+// `min-width: auto` floored at the full nowrap text width (344px + 52px of
+// icon/gap/padding = 396px), `.wrapper` could not shrink into its 272px item,
+// `.content` was therefore never squeezed, and an ellipsis that is only ever
+// applied under shrink pressure never applied. This is an upstream @m3e/web
+// bug (v2.7.3): `.wrapper` is missing `min-width: 0`. It is not reachable
+// from here — m3e-menu-item exports no `part` and no width custom property
+// (grepped against the sourcemapped MenuItemElement.ts / MenuItemElementBase
+// .ts) — so the fix has to work entirely through the one thing the light DOM
+// owns: the slotted label element.
+//
+// `max-width: 0` is what does the real work. It clamps the label's *intrinsic*
+// (min-content) contribution to zero, which removes the floor that pinned
+// `.wrapper`. `min-width: 100%` then beats `max-width` for the *used* width
+// (per CSS box sizing, min-width is resolved last), so the label still fills
+// whatever width the now-unfloored flex chain hands it, and ellipsizes there.
+// Measured after: wrapper overhang 0px at 320/390/1280, long label
+// `ellipsized: true`, short labels untouched (`ellipsized: false`).
+//
+// Zeroing the intrinsic contribution has one consequence that must be paid
+// for: with no item contributing intrinsic width, the menu's shrink-to-fit
+// collapsed to the 112px `--m3e-menu-container-min-width` default (measured:
+// 120px incl. padding). Pinning min-width to the same value as max-width
+// gives the surface a fixed width again — both are the component's own
+// documented custom properties, no shadow-piercing and no magic geometry.
+// `min(280px, 100vw - 32px)` keeps that surface inside the viewport on narrow
+// screens, so the menu also constrains itself against the viewport edge
+// rather than relying solely on the anchoring middleware's shift.
+#sb-app-bar-menu {
+  --m3e-menu-container-min-width: min(280px, calc(100vw - 32px));
+  --m3e-menu-container-max-width: min(280px, calc(100vw - 32px));
+
+  .sb-app-bar-menu-label {
+    display: block;
+    min-width: 100%;
+    max-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

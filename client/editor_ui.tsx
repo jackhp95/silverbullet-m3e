@@ -382,7 +382,29 @@ export class MainUI {
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // Two registers for the same state, because a kebab menu item and a
+    // flash notification want different lengths. `PUSH_TOGGLE_LABELS` is
+    // what the item renders: short enough to fit the ~228px an m3e-menu-item
+    // gives a label (see `AppBarMenuItem.label` in
+    // client/components/top_bar.tsx). `PUSH_TOGGLE_DETAILS` is the full
+    // sentence — it becomes the item's hover tooltip, and it's what gets
+    // flashed when an unavailable state is clicked, so nothing that
+    // explained *why* was lost in shortening the labels.
     const PUSH_TOGGLE_LABELS: Record<typeof pushState, string> = {
+      checking: "Checking push support…",
+      unsupported: "Push not supported",
+      "not-configured": "Push not configured",
+      denied: "Push permission denied",
+      // These two are asserted verbatim by e2e/push-notifications.test.ts
+      // and are the states a working install actually sits in — leave the
+      // wording alone.
+      off: "Enable push notifications",
+      pending: "Enabling push notifications…",
+      on: "Push notifications are on — click to turn off",
+      error: "Push failed — click to retry",
+    };
+
+    const PUSH_TOGGLE_DETAILS: Record<typeof pushState, string> = {
       checking: "Checking push notification support…",
       unsupported: "Push notifications are not supported in this browser",
       "not-configured": "Push notifications are not configured for this server",
@@ -400,6 +422,7 @@ export class MainUI {
         pushState === "denied",
       pending: pushState === "pending",
       label: PUSH_TOGGLE_LABELS[pushState],
+      detail: PUSH_TOGGLE_DETAILS[pushState],
       onClick: () =>
         safeRun(async () => {
           if (
@@ -408,7 +431,10 @@ export class MainUI {
           ) {
             // Nothing actionable from here — surface why, same channel as
             // every other client-side notice.
-            client.ui.flashNotification(PUSH_TOGGLE_LABELS[pushState], "info");
+            client.ui.flashNotification(
+              PUSH_TOGGLE_DETAILS[pushState],
+              "info",
+            );
             return;
           }
           const registration = await navigator.serviceWorker.ready;
@@ -752,6 +778,7 @@ export class MainUI {
       key: "push-toggle",
       icon: notificationsIconFor(pushToggle),
       label: pushToggle.label,
+      detail: pushToggle.detail,
       disabled: pushToggle.unavailable || pushToggle.pending,
       onClick: pushToggle.onClick,
     };

@@ -45,7 +45,19 @@ export type BreadcrumbItem = {
 export type AppBarMenuItem = {
   key: string;
   icon?: string;
+  /**
+   * The visible label. Keep it short — a kebab item has ~228px (roughly 30
+   * characters at the label-large type scale) before it ellipsizes. Longer
+   * text degrades gracefully rather than clipping (see `.sb-app-bar-menu-
+   * label` in client/styles/top.scss), but an ellipsized label is still a
+   * label the user can't read.
+   */
   label: string;
+  /**
+   * The full sentence behind a deliberately terse `label`, surfaced as the
+   * item's hover tooltip. Omit when the label already says everything.
+   */
+  detail?: string;
   onClick: () => void;
   disabled?: boolean;
 };
@@ -427,7 +439,22 @@ export function TopBar({
                 {item.icon && (
                   <m3e-icon slot="icon" name={item.icon}></m3e-icon>
                 )}
-                {item.label}
+                {/* The label is wrapped rather than slotted as a bare text
+                    node so `.sb-app-bar-menu-label` (client/styles/top.scss)
+                    has something to bind to. m3e-menu-item's own shadow
+                    `.content` declares `text-overflow: ellipsis`, but that
+                    ellipsis can never fire for a long label — see the
+                    stylesheet for the measured root cause. Slotting an
+                    element is the only lever the light DOM has here:
+                    m3e-menu-item exports no `part` and no width-related
+                    custom property. `title` keeps the untruncated text
+                    reachable on hover once the label does ellipsize. */}
+                <span
+                  className="sb-app-bar-menu-label"
+                  title={item.detail ?? item.label}
+                >
+                  {item.label}
+                </span>
               </m3e-menu-item>
             ))}
         </m3e-menu>
