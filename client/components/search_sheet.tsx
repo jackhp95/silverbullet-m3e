@@ -251,13 +251,39 @@ export function SearchSheet({
   // Playwright rect check while diagnosing feedback #3, not visible from
   // source alone). Fix: assign the real array directly on the element via
   // this ref effect instead of the JSX attribute.
+  //
+  // Re-verified live (Playwright, against the running app): the blame here is
+  // PREACT's property branch, not Lit's converter. An imperative
+  // `el.setAttribute("detents", "half full")` on the live element yields a
+  // real `["half", "full"]` array — Lit's attribute-to-array converter works
+  // fine. It is only the JSX route that never reaches it. So either
+  // imperative form is correct; the direct array assignment below is kept as
+  // the more direct of the two.
+  //
+  // MULTI-DETENT (Jack's feedback: "stuck at half height, can't drag"). The
+  // root cause was NOT a missing `handle` — `handle` is forced below and the
+  // shadow root really does render `#handle[role=button]` — it was that a
+  // ONE-entry `detents` array gives the drag gesture nowhere to land: the
+  // component snaps to the nearest detent on release, and with a single
+  // detent the nearest is always the one you started on, so the sheet
+  // rubber-bands straight back and reads as immovable.
+  //
+  // `["half", "full"]` rather than the docs' `fit half full`: index 0 must
+  // stay `half`, because opening at ~50vh (leaving content visible behind the
+  // sheet) is the explicit requirement from feedback #3. `fit` is
+  // deliberately omitted — `_computeDetentHeight("fit")` is the CONTENT
+  // height, and this sheet's content is an unbounded, variable-length result
+  // list, so `fit` is not reliably ordered against `half` (tiny when results
+  // are empty, taller than `half` when they are not). Non-monotonic detents
+  // make "snap to nearest" erratic, which is the same class of bug being
+  // fixed here. Two monotonic, distinct detents fully restore drag.
   useEffect(() => {
     const el = sheetRef.current;
     if (!el) {
       return;
     }
     el.setAttribute("handle", "");
-    (el as unknown as { detents: string[] }).detents = ["half"];
+    (el as unknown as { detents: string[] }).detents = ["half", "full"];
   }, []);
 
   // The sheet dispatches a native `cancel` event on Escape, scrim click and
@@ -434,8 +460,10 @@ export function SearchSheet({
       hideable
       open={open}
       class="sb-search-sheet"
-      // Feedback #3: cap the sheet at ~50vh instead of full height, leaving
-      // visible content behind it. `detents=["half"]` (assigned via the ref
+      // Feedback #3: OPEN the sheet at ~50vh instead of full height, leaving
+      // visible content behind it — `half` is detent index 0, and the user
+      // can still drag the handle up to `full`.
+      // `detents=["half", "full"]` (assigned via the ref
       // effect above, NOT this JSX attribute — see that effect's comment)
       // is the component's own supported sizing lever (not custom CSS) —
       // decompiled node_modules/@m3e/web/dist/bottom-sheet.js's

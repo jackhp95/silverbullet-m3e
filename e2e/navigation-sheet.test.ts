@@ -125,7 +125,10 @@ test.describe("Navigation bottom sheet (client/components/navigation_sheet.tsx, 
   // this round it declared no detents at all and collapsed to its content
   // height (live-measured at 19% of the viewport), which left the floating
   // switcher nothing stable to pin to.
-  test("the sheet's rendered height is capped at roughly 50% of the viewport via detents", async ({
+  // It OPENS at `half` (detent index 0) and can be dragged up to `full` — a
+  // single-entry detents array is what made it feel stuck (see the drag test
+  // below), so "capped" here means "opens at", not "cannot exceed".
+  test("the sheet opens at roughly 50% of the viewport via detents", async ({
     sbServer,
     page,
   }) => {
@@ -145,7 +148,63 @@ test.describe("Navigation bottom sheet (client/components/navigation_sheet.tsx, 
     const detents = await page
       .locator("#sb-navigation-sheet")
       .evaluate((el) => (el as unknown as { detents: string[] }).detents);
-    expect(detents).toEqual(["half"]);
+    expect(detents).toEqual(["half", "full"]);
+  });
+
+  // Jack's feedback: the sheet was "stuck at half height, can't drag". The
+  // cause was NOT a missing `handle` (it was already forced on, and the
+  // shadow root renders `#handle[role=button]`) — it was that a ONE-entry
+  // `detents` array leaves the drag gesture nowhere to snap to, so every
+  // drag rubber-banded back. Measured before the fix: a 220px upward drag
+  // moved the sheet from 324px to 347px (pure overshoot) and stayed there.
+  // This test drives the real pointer gesture on the real handle.
+  test("dragging the handle upward snaps the sheet to the `full` detent, and back down to `half`", async ({
+    sbServer,
+    page,
+  }) => {
+    await gotoSilverBulletPage(page, sbServer, "Alpha");
+    await openNavigationSheet(page);
+    await page.waitForTimeout(900);
+
+    const sheet = page.locator("#sb-navigation-sheet");
+    const height = () =>
+      sheet.evaluate((el) => Math.round(el.getBoundingClientRect().height));
+
+    // The handle lives in the sheet's shadow root, so its coordinates come
+    // from an evaluate; the gesture itself is a real page.mouse drag, which
+    // emits the pointerdown/pointermove/pointerup the component listens for.
+    const handleCenter = () =>
+      sheet.evaluate((el) => {
+        const h = (el as unknown as { shadowRoot: ShadowRoot }).shadowRoot
+          .querySelector("#handle")!;
+        const r = h.getBoundingClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      });
+
+    async function drag(dy: number) {
+      const c = await handleCenter();
+      await page.mouse.move(c.x, c.y);
+      await page.mouse.down();
+      for (let i = 1; i <= 12; i++) {
+        await page.mouse.move(c.x, c.y + (i * dy) / 12);
+        await page.waitForTimeout(16);
+      }
+      await page.mouse.up();
+      await page.waitForTimeout(900);
+    }
+
+    const atHalf = await height();
+    expect(atHalf).toBeGreaterThan(0);
+
+    await drag(-220);
+    const atFull = await height();
+    // Distinct detents: `full` is materially taller than `half`, not the few
+    // px of overshoot the single-detent version produced.
+    expect(atFull).toBeGreaterThan(atHalf * 1.5);
+
+    await drag(220);
+    const backToHalf = await height();
+    expect(backToHalf).toBeLessThan(atFull);
   });
 
   test("clicking Changelog shows pages sorted by lastModified descending with no 'who'/author column rendered anywhere", async ({

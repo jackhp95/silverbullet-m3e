@@ -117,20 +117,36 @@ export function NavigationSheet({
   //    === "h"), matches no case in `_computeDetentHeight`, and the sheet
   //    silently falls back to collapsed peek height.
   //
-  // `["half"]` is the component's own supported sizing lever:
+  // `half` is the component's own supported sizing lever:
   // `_computeDetentHeight("half")` resolves to `_computeMaxHeight() * 0.5`,
   // i.e. half the viewport minus the sheet's own top inset — it tracks real
   // viewport metrics, which a hardcoded `50vh` would drift from. This sheet
   // previously declared no detents at all and therefore collapsed to its
   // content height (live-measured at 19% of the viewport), which left the
   // floating switcher nothing stable to pin to.
+  //
+  // 3. A ONE-entry `detents` array made the sheet undraggable (Jack's
+  //    feedback: "stuck at half height"). `handle` was already forced, and
+  //    the shadow root really does render `#handle[role=button]` with
+  //    pointerdown/move/up wired — but the component snaps to the NEAREST
+  //    detent on release, so with a single detent every drag rubber-bands
+  //    back to where it started and the sheet reads as immovable. Multiple
+  //    detents are what give the gesture somewhere to go, matching the
+  //    component docs' own `detents="fit half full"` example.
+  //
+  //    `["half", "full"]` rather than all three: index 0 must stay `half` so
+  //    the sheet still opens at ~50vh with the floating switcher pinned to a
+  //    stable edge. `fit` is deliberately omitted — it resolves to the
+  //    CONTENT height, and this sheet's three sections (History / Changelog /
+  //    Sitemap) are variable-length scrolling lists, so `fit` is not reliably
+  //    ordered against `half` and would make "snap to nearest" erratic.
   useEffect(() => {
     const el = sheetRef.current;
     if (!el) {
       return;
     }
     el.setAttribute("handle", "");
-    (el as unknown as { detents: string[] }).detents = ["half"];
+    (el as unknown as { detents: string[] }).detents = ["half", "full"];
   }, []);
 
   // Reset to the default section each time the sheet opens, matching

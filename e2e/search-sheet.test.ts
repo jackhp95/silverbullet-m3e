@@ -140,9 +140,11 @@ test.describe("Search sheet (client/components/search_sheet.tsx, V6)", () => {
     ).toHaveCount(0);
   });
 
-  // Feedback #3: the sheet caps at ~50vh (the `detents="half"` lever) rather
-  // than expanding to full height.
-  test("the sheet's rendered height is capped at roughly 50% of the viewport", async ({
+  // Feedback #3: the sheet OPENS at ~50vh (detent index 0 of
+  // `["half", "full"]`) rather than expanding to full height. It can still be
+  // dragged up to `full` — the second detent is what makes the handle
+  // draggable at all (see navigation-sheet.test.ts's drag test).
+  test("the sheet opens at roughly 50% of the viewport", async ({
     sbPage,
   }) => {
     await openSearchSheet(sbPage);
