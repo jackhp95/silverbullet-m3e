@@ -93,13 +93,17 @@ async function switchMode(
   mode: "Search" | "Open" | "Run",
 ): Promise<void> {
   await modeTrigger(page).click();
-  // Id corrected from the stale `#sb-search-mode-menu`: this helper was left
-  // pointing at a menu that the round-2 floating-toolbar redesign had deleted
-  // outright, so it had been failing before the menu was restored. The live
-  // id is `#sb-search-sheet-mode-menu` (search_sheet.tsx).
-  const menu = page.locator("#sb-search-sheet-mode-menu");
-  await expect.poll(() => menu.evaluate((el: any) => el.isOpen)).toBe(true);
-  await menu.locator("m3e-menu-item-radio", { hasText: mode }).click();
+  // The picker is an `m3e-list` of `m3e-list-item`s split by `m3e-divider`s
+  // (search_sheet.tsx), replacing the `m3e-menu` this helper used to drive.
+  // It is rendered ONLY while open, so plain visibility is the readiness
+  // signal — there is no `isOpen` property to poll, because there is no
+  // component owning the open state any more.
+  const list = page.locator("#sb-search-sheet-mode-list");
+  await expect(list).toBeVisible();
+  await list.locator("m3e-list-item", { hasText: mode }).click();
+  // Picking unmounts the picker; wait for that so the screenshots this file
+  // takes can never catch a half-torn-down popover.
+  await expect(list).toHaveCount(0);
 }
 
 async function openNavigationSheet(page: Page): Promise<void> {
@@ -189,39 +193,42 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
       await page.screenshot({ path: `${dir}/02a-search-sheet-history.png` });
 
       await modeTrigger(page).click();
-      // Id corrected from the stale `#sb-search-mode-menu`: this helper was left
-  // pointing at a menu that the round-2 floating-toolbar redesign had deleted
-  // outright, so it had been failing before the menu was restored. The live
-  // id is `#sb-search-sheet-mode-menu` (search_sheet.tsx).
-  const menu = page.locator("#sb-search-sheet-mode-menu");
-      await expect.poll(() => menu.evaluate((el: any) => el.isOpen)).toBe(true);
+      // The picker is an `m3e-list` of `m3e-list-item`s split by
+      // `m3e-divider`s (search_sheet.tsx), replacing the `m3e-menu` this block
+      // used to assert against. It exists only while open, so visibility is
+      // the readiness signal rather than a component `isOpen` property.
+      const picker = page.locator("#sb-search-sheet-mode-list");
+      await expect(picker).toBeVisible();
 
-      const radios = menu.locator("m3e-menu-item-radio");
-      await expect(radios).toHaveCount(3);
-      await expect(radios).toContainText(["Search", "Open", "Run"]);
-      // Default mode is Open (search_sheet.tsx's DEFAULT_MODE) — its radio
-      // must carry the reflected `checked` attribute, the others must not.
-      await expect(radios.filter({ hasText: "Open" })).toHaveAttribute(
-        "checked",
-        "",
+      const rowsInPicker = picker.locator("m3e-list-item");
+      await expect(rowsInPicker).toHaveCount(3);
+      await expect(rowsInPicker).toContainText(["Search", "Open", "Run"]);
+      // Dividers separate the rows and never trail the last one.
+      await expect(picker.locator("m3e-divider")).toHaveCount(2);
+      // Default mode is Open (search_sheet.tsx's DEFAULT_MODE). Selection is
+      // carried by listbox/option ARIA now, not a component's `checked`
+      // attribute — plain `m3e-list-item` has no selection of its own.
+      await expect(rowsInPicker.filter({ hasText: "Open" })).toHaveAttribute(
+        "aria-selected",
+        "true",
       );
-      await expect(radios.filter({ hasText: "Search" })).not.toHaveAttribute(
-        "checked",
-        "",
+      await expect(rowsInPicker.filter({ hasText: "Search" })).toHaveAttribute(
+        "aria-selected",
+        "false",
       );
-      await expect(radios.filter({ hasText: "Run" })).not.toHaveAttribute(
-        "checked",
-        "",
+      await expect(rowsInPicker.filter({ hasText: "Run" })).toHaveAttribute(
+        "aria-selected",
+        "false",
       );
 
-      await page.screenshot({ path: `${dir}/02b-mode-menu-open.png` });
+      await page.screenshot({ path: `${dir}/02b-mode-picker-open.png` });
       await assertNoOverlap(
         page,
-        ["#sb-search-mode-menu m3e-menu-item-radio"],
-        "mode menu items",
+        ["#sb-search-sheet-mode-list m3e-list-item"],
+        "mode picker rows",
       );
 
-      // Dismiss the popover by clicking the input (outside the menu), then
+      // Dismiss the popover by clicking the input (outside the picker), then
       // type — proving the list live-updates, not a static snapshot.
       await page.locator("#sb-search-sheet-input").click();
       await page.locator("#sb-search-sheet-input").fill("Alpha");

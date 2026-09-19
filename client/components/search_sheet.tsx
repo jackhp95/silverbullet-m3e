@@ -1,9 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+// `Fragment` is imported explicitly (rather than written as `<>`) because each
+// mode row emits TWO siblings — an optional divider plus the item — and the
+// pair needs a stable `key`, which shorthand fragments cannot carry.
+import { Fragment } from "preact";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "preact/hooks";
 import { Input } from "@silverbulletmd/silverbullet/ui";
 import "@m3e/web/bottom-sheet"; // registers m3e-bottom-sheet
 import "@m3e/web/search"; // registers m3e-search-bar (+ m3e-search-view)
 import "@m3e/web/list"; // registers m3e-list / m3e-list-item
-import "@m3e/web/menu"; // registers m3e-menu / m3e-menu-item-radio / m3e-menu-trigger
+import "@m3e/web/divider"; // registers m3e-divider (mode-picker row separators)
 import "@m3e/web/icon-button"; // registers m3e-icon-button
 import "@m3e/web/icon"; // registers m3e-icon
 import "./m3e-jsx.d.ts";
@@ -38,7 +48,8 @@ import {
 // `m3e-bottom-sheet` hosting, as direct children: a title in `slot="header"`
 // naming the active mode, an `m3e-search-bar` (with an `Input` in its
 // `slot="input"` and the mode-picker icon button in its `slot="leading"`), an
-// `m3e-list` of `NavListRow`s, and the `m3e-menu` that picker opens:
+// `m3e-list` of `NavListRow`s, and the `m3e-list` mode picker that button
+// opens:
 // query-empty renders per-mode history, a typed query renders per-mode live
 // results. THE WHOLE POINT of the redesign is that RESULTS live inside the
 // sheet — there is NO `m3e-autocomplete`/result-dropdown anywhere in this
@@ -64,43 +75,78 @@ import {
 
 // --- mode model (spec §2.4) ----------------------------------------------
 //
-// The mode picker is the search bar's LEADING ICON BUTTON, which opens a real
-// `m3e-menu` of the three modes (Jack's round-3 direction, reversing round 2's
-// floating bottom toolbar — that toolbar idiom moved to `navigation_sheet.tsx`,
-// where it replaced tabs, which is what it was actually wanted for).
+// The mode picker is the search bar's LEADING ICON BUTTON, which opens an
+// `m3e-list` of the three modes, its rows separated by `m3e-divider`s (Jack's
+// round-4 direction, citing the component docs at
+// https://matraic.github.io/m3e/#/components/list.html — explicitly a divided
+// LIST, NOT the `m3e-menu` round 3 shipped and NOT the floating bottom toolbar
+// round 2 shipped; that toolbar idiom lives on in `navigation_sheet.tsx`, where
+// it replaced tabs, which is what it was actually wanted for).
 //
-// Why the real `m3e-menu` works now, where V6/V12's attempt did not: back then
-// the bar was `m3e-search-view mode="docked"`, whose InertController marks its
-// whole subtree inert while docked-open, so a nested menu was unclickable and
-// prior rounds reached for a `popover="auto"` `m3e-list` hack instead. The
-// search-view is gone (replaced by `m3e-search-bar`, which has no state machine
-// and no inerting), so the semantically-correct component is available again
-// and the hack is deleted rather than carried.
+// This is the third distinct attempt at this one interaction, so the two
+// mechanical defects the earlier rounds hit are called out here by name, along
+// with what structurally prevents each from recurring:
 //
-// Composition, verified against the decompiled
-// node_modules/@m3e/web/dist/menu.js rather than assumed:
-//   * `M3eMenuTriggerElement` extends `ActionElementBase`, whose
-//     `connectedCallback` binds its click handler to `this.parentElement` — NOT
-//     to itself. An EMPTY `<m3e-menu-trigger>` nested in the icon-button
-//     therefore makes the whole button the trigger, and `_onClick` calls
-//     `menu.toggle(this.parentElement)`, anchoring the menu to the button.
-//   * That empty-trigger form matters: the trigger renders `<slot>`, so an
-//     `<m3e-icon>` placed INSIDE it would be a grandchild of the icon-button
-//     and would never be assigned to the button's own default slot. The icon is
-//     a separate direct child of the button for that reason.
-//   * `attach()` sets `aria-haspopup="menu"` / `aria-expanded` / `aria-controls`
-//     on the parent button for us — no hand-rolled ARIA here.
-//   * The menu promotes itself to the top layer via the native popover API
-//     (`showPopover`, dist/menu.js:608), so it is nested inside the sheet —
-//     a sibling would be inerted by the modal sheet's own scrim/inert handling,
-//     while a top-layer popover is unaffected by being nested.
+//  (1) The closed popup was VISIBLE. Round 1 rendered the list permanently and
+//      toggled it with `popover="auto"`. `M3eListElement.styles` sets
+//      `:host { display: flex }` (dist/list.js L362) — AUTHOR-origin CSS, which
+//      outranks the UA popover stylesheet's `[popover]:not(:popover-open) {
+//      display: none }`, so the closed popover rendered unpositioned at the top
+//      of the flow. Round 1 patched that with a counter-rule in modals.scss.
+//      Here the list is CONDITIONALLY RENDERED instead: while the picker is
+//      closed the element does not exist, so there is no closed-state styling
+//      to lose a cascade fight over and the counter-rule stays deleted.
 //
-// The ACTIVE mode is shown two ways, neither of them a check-mark-only
-// affordance: the sheet's own `slot="header"` title (Search/Open/Run) and the
-// leading button's icon, which is the active mode's icon. Inside the menu,
-// `m3e-menu-item-radio checked` carries the selection semantically — these are
-// mutually exclusive modes, which is exactly what the radio item variant is
-// for.
+//  (2) Clicks on the rows timed out in e2e. Round 1 blamed
+//      `m3e-search-view`'s InertController; round 1's own follow-up disproved
+//      that and blamed a second dialog in the fixture. Both are now moot: the
+//      search-view is gone (replaced by the stateless `m3e-search-bar`), and
+//      the popup is promoted to the TOP LAYER via the native popover API, so
+//      nothing in the sheet or elsewhere in the document can cover it.
+//
+// Composition + a11y, verified against the decompiled
+// node_modules/@m3e/web/dist/list.js (v2.7.12 — the version actually installed
+// here), not assumed and not taken from the prose README:
+//
+//   * DIVIDERS ARE A FIRST-CLASS LIST CHILD. `M3eListElement.styles` maps
+//     `--m3e-list-divider-inset-start-size` / `-end-size` onto the divider's own
+//     `--m3e-divider-inset-*-size` on `:host` (L362), i.e. the list exists to
+//     supply inset values to `m3e-divider` children. Dividers go BETWEEN rows
+//     and never after the last one.
+//
+//   * PLAIN `m3e-list-item` IS NOT SELECTABLE, and this is the load-bearing
+//     finding. `M3eListItemElement extends ReconnectedCallback(AttachInternals(
+//     Role(LitElement, "listitem")))` (L106) — no `selected` property, no
+//     `Focusable`, no `KeyboardClick`, and its `_renderBase()` emits only slots:
+//     no `m3e-state-layer`, no `m3e-ripple`, no `m3e-focus-ring`. The natively
+//     selectable form is the SUBCLASS pair `m3e-selection-list` /
+//     `m3e-list-option` (`M3eListOptionElement extends KeyboardClick(Focusable(
+//     Selected(Disabled(AttachInternals(Role(M3eListItemElement, "option"))))))`,
+//     L933; `M3eSelectionListElement extends ... Role(M3eListElement, "listbox")`,
+//     L1059), which would give single-select, roving focus and a radio indicator
+//     for free. Jack asked for `m3e-list`/`m3e-list-item` by name, so this file
+//     drives selection MANUALLY — the "picker built from a list" pattern — and
+//     pays for it explicitly below (click + keydown handlers, roving tabindex,
+//     `aria-selected`, and an active-row fill). That trade is deliberate and
+//     documented rather than silently swapped for the subclass pair.
+//
+//   * OVERRIDING `role` IS SUPPORTED, NOT A HACK. The `Role` mixin is
+//     `this.role = this.role || role` (dist/core.js L3971-3979) — the component
+//     ships `list`/`listitem` as a DEFAULT that an author-set attribute wins
+//     over. So `role="listbox"` + `role="option"` here is the component's own
+//     documented opt-out, not an invented role bolted onto an element that
+//     fights it. Those are also the roles the subclass pair sets, so the
+//     accessibility tree is identical to the native pattern's.
+//
+//   * The active row's fill comes from `--m3e-list-item-container-color` (read
+//     by `.base`'s `background-color`, L~200), routed through this repo's
+//     existing `.sb-option`/`.sb-selected-option` modal tokens — the same
+//     mechanism the results list already uses. No ad-hoc palette, no custom
+//     Material surface.
+//
+// The ACTIVE mode is shown three ways: the sheet's own `slot="header"` title
+// (Search/Open/Run), the leading button's icon, and — inside the open picker —
+// the selected row's fill + trailing check + `aria-selected="true"`.
 
 export type SearchMode = "search" | "open" | "run";
 
@@ -231,6 +277,13 @@ export function SearchSheet({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const sheetRef = useRef<HTMLElement>(null);
+  // The mode picker's open state + the two elements the open effect needs: the
+  // leading icon button it anchors to, and the popup list itself. The list is
+  // conditionally rendered (see the mode-model comment's defect (1)), so
+  // `modeListRef` is null whenever `modePickerOpen` is false.
+  const [modePickerOpen, setModePickerOpen] = useState(false);
+  const modeTriggerRef = useRef<HTMLElement | null>(null);
+  const modeListRef = useRef<HTMLElement | null>(null);
 
   // Same m3e-bottom-sheet `handle` workaround item_capture_sheet.tsx
   // documented + verified: `handle` gates the drag dimple + slot="header" via
@@ -390,6 +443,119 @@ export function SearchSheet({
     setSelectedIndex(0);
   }, [mode, query]);
 
+  // Never leave the mode picker open across a sheet close/reopen — the sheet
+  // resets mode and query on open, so a stale open popup would be showing a
+  // selection that no longer matches.
+  useEffect(() => {
+    if (!open) {
+      setModePickerOpen(false);
+    }
+  }, [open]);
+
+  // Opening the mode picker: position it under the leading icon button, promote
+  // it to the top layer, and move focus into the active row.
+  //
+  // `useLayoutEffect`, not `useEffect`, and the top/left are written
+  // IMPERATIVELY rather than being routed through render state: the list is
+  // conditionally rendered, so it mounts unpositioned, and positioning it in a
+  // committed-but-pre-paint phase is what keeps the user from seeing one frame
+  // of the popup at the document origin. (A `pickerPos` state round-trip would
+  // guarantee that frame.) Everything except `top`/`left` is in modals.scss —
+  // only the trigger-dependent numbers are set here.
+  //
+  // `popover="auto"` gives light-dismiss (outside click + Escape) and top-layer
+  // promotion from the platform. The `toggle` event is the only reliable signal
+  // for a light-dismiss, since it bypasses our own handlers entirely — sync
+  // `modePickerOpen` off it so the trigger's `aria-expanded` cannot drift from
+  // the popup's real state.
+  useLayoutEffect(() => {
+    const listEl = modeListRef.current;
+    if (!modePickerOpen || !listEl) {
+      return;
+    }
+    const handleToggle = (e: Event) => {
+      if ((e as ToggleEvent).newState === "closed") {
+        setModePickerOpen(false);
+      }
+    };
+    listEl.addEventListener("toggle", handleToggle);
+    // Shown BEFORE measuring, deliberately: the popup must be in its final
+    // (top-layer) state for `offsetWidth`/`offsetHeight` to be trustworthy.
+    // Both steps are inside this one layout effect, so no paint happens
+    // between them and the user never sees the pre-positioned frame.
+    //
+    // Feature-detected rather than assumed: without popover support the list
+    // still renders and still works as a fixed-position picker, just without
+    // top-layer promotion or free light-dismiss.
+    if (listEl.hasAttribute("popover")) {
+      (listEl as unknown as { showPopover: () => void }).showPopover();
+    }
+    // Anchor under the trigger, then CLAMP into the viewport. The clamp is not
+    // hypothetical: at 390x664 (iPhone 13, sheet open) the unclamped popup ran
+    // ~6px past the bottom edge and cut the "Run" row off. A plain clamp rather
+    // than a flip-above, because the popup is short enough to always fit once
+    // clamped, and clamping keeps it adjacent to its trigger instead of jumping
+    // to the other side of it.
+    //
+    // Placement runs on every SIZE CHANGE, not on a guessed delay. The popup's
+    // height is not knowable synchronously here: its `m3e-list-item` children
+    // are custom elements that upgrade and render (Lit, asynchronously) after
+    // this effect, so an immediate measurement reads 0 and the clamp silently
+    // no-ops. That was live-measured twice — the mobile overflow survived both
+    // a synchronous clamp and a one-frame-deferred clamp, because neither
+    // frame had the real height yet.
+    //
+    // A ResizeObserver removes the guess entirely: whatever frame the rows
+    // actually land in is the frame that re-places the popup. The synchronous
+    // call below still runs first so the popup is never painted at the
+    // document origin.
+    const place = () => {
+      const trigger = modeTriggerRef.current;
+      if (!trigger) {
+        return;
+      }
+      const rect = trigger.getBoundingClientRect();
+      const gap = 4;
+      const margin = 8;
+      const { offsetWidth: w, offsetHeight: h } = listEl;
+      listEl.style.top = `${
+        Math.max(
+          margin,
+          Math.min(rect.bottom + gap, globalThis.innerHeight - h - margin),
+        )
+      }px`;
+      listEl.style.left = `${
+        Math.max(
+          margin,
+          Math.min(rect.left, globalThis.innerWidth - w - margin),
+        )
+      }px`;
+    };
+    place();
+    const resizeObserver = new ResizeObserver(place);
+    resizeObserver.observe(listEl);
+    // Focus the active row so the picker is immediately keyboard-operable.
+    // `m3e-list-item` is not focusable on its own (it has no `Focusable`
+    // mixin — see the mode-model comment), which is exactly why the rows carry
+    // an explicit roving `tabindex` in the render below.
+    //
+    // Deferred by one frame, and that is LOAD-BEARING rather than defensive:
+    // focusing synchronously here was live-measured as a no-op (focus stayed on
+    // the trigger icon-button, so arrow keys did nothing and Enter merely
+    // re-toggled the trigger), because the click that opened the picker is
+    // still settling focus onto that button. A one-frame defer lands after it —
+    // the same rAF pattern `refocus()` already uses to hand focus back to the
+    // input.
+    const focusFrame = requestAnimationFrame(() => {
+      listEl.querySelector<HTMLElement>('[aria-selected="true"]')?.focus();
+    });
+    return () => {
+      cancelAnimationFrame(focusFrame);
+      resizeObserver.disconnect();
+      listEl.removeEventListener("toggle", handleToggle);
+    };
+  }, [modePickerOpen]);
+
 
   const trimmedQuery = query.trim();
   const isEmpty = trimmedQuery === "";
@@ -441,6 +607,44 @@ export function SearchSheet({
 
   function refocus() {
     requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  // Picking a mode is one operation with three parts, so it lives in one place
+  // rather than being repeated across the rows' click and keydown handlers:
+  // set the mode (which retitles the sheet and re-placeholders the input),
+  // close the picker, and hand focus back to the query input.
+  function selectMode(m: SearchMode) {
+    setMode(m);
+    setModePickerOpen(false);
+    refocus();
+  }
+
+  // Roving-focus keyboard nav for the mode picker. This is hand-written
+  // because plain `m3e-list-item` ships no `KeyboardClick`/`Focusable` mixin —
+  // the documented cost of building the picker from `m3e-list`/`m3e-list-item`
+  // rather than the natively-selectable `m3e-selection-list`/`m3e-list-option`
+  // subclass pair (see the mode-model comment at the top of this file).
+  // Escape is deliberately NOT handled here: `popover="auto"`'s own
+  // light-dismiss already closes the popup on Escape, and the `toggle`
+  // listener syncs our state off that.
+  function onModeListKeyDown(e: KeyboardEvent) {
+    const delta = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
+    if (delta !== 0) {
+      e.preventDefault();
+      const rows = Array.from(
+        modeListRef.current?.querySelectorAll<HTMLElement>("m3e-list-item") ??
+          [],
+      );
+      const from = rows.indexOf(e.target as HTMLElement);
+      // Wraps at both ends, matching the listbox pattern the roles declare.
+      rows[(from + delta + rows.length) % rows.length]?.focus();
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      const m = (e.target as HTMLElement).dataset.mode as SearchMode | undefined;
+      if (m) {
+        selectMode(m);
+      }
+    }
   }
 
   function activate(opt: FilterOption | undefined) {
@@ -534,18 +738,27 @@ export function SearchSheet({
             `slot="closed-leading"`/`slot="open-leading"` wrapper spans that
             caused feedback #4 are gone with the search-view).
 
-            The empty `m3e-menu-trigger` is deliberate, not a stub: it binds to
-            its PARENT for clicks and anchoring — see the mode-model comment at
-            the top of this file for the decompiled-source justification of this
-            exact shape. The icon is a sibling of the trigger so that it lands
-            in the icon-button's default slot. */}
+            The button shows the ACTIVE mode's icon, so the picker announces the
+            current mode without being opened.
+
+            The ARIA is set here rather than being inherited from a component:
+            round 3's `m3e-menu-trigger` set `aria-haspopup`/`aria-expanded`/
+            `aria-controls` on its parent for us, but a hand-driven list popup
+            has no such helper. These three are the standard attributes for
+            "button that opens a listbox" — `haspopup="listbox"` matches the
+            `role="listbox"` actually on the popup below, so the two agree. */}
         <m3e-icon-button
           slot="leading"
+          ref={(el: HTMLElement | null) => {
+            modeTriggerRef.current = el;
+          }}
           title="Change search mode"
           aria-label="Change search mode"
+          aria-haspopup="listbox"
+          aria-expanded={modePickerOpen ? "true" : "false"}
+          aria-controls="sb-search-sheet-mode-list"
+          onClick={() => setModePickerOpen((v) => !v)}
         >
-          <m3e-menu-trigger for="sb-search-sheet-mode-menu">
-          </m3e-menu-trigger>
           <m3e-icon name={MODE_ICON[mode]}></m3e-icon>
         </m3e-icon-button>
         <Input
@@ -568,10 +781,13 @@ export function SearchSheet({
               // Escape here always closes the sheet, matching the sheet's own
               // `cancel` event.
               //
-              // MEASURED, not assumed: with the mode menu open, one Escape
-              // closes BOTH the menu and the sheet (live-checked at 1280x900
-              // and 390x844 — the menu's native-popover light-dismiss and the
-              // modal sheet's own `cancel` both fire for the same keypress).
+              // MEASURED, not assumed, and RE-measured for the m3e-list
+              // picker that replaced the menu: with the picker open, one
+              // Escape closes BOTH the picker and the sheet (the picker's
+              // `popover="auto"` light-dismiss and the modal sheet's own
+              // `cancel` both fire for the same keypress). e2e/search-sheet
+              // .test.ts asserts this explicitly so it stays a known, chosen
+              // behavior rather than a surprise.
               // Left as-is deliberately: Escape-closes-everything is the
               // behavior the sheet already had, no keystroke is swallowed, and
               // suppressing the sheet's `cancel` for one frame after a menu
@@ -618,32 +834,60 @@ export function SearchSheet({
             </m3e-list>
           )}
       </div>
-      {/* The mode menu itself, opened by the search bar's leading icon button
-          above. Nested inside the sheet on purpose (the modal sheet inerts
-          content outside itself; a top-layer popover is unaffected by being
-          nested) — see the mode-model comment at the top of this file.
+      {/* The mode picker: an `m3e-list` of `m3e-list-item`s separated by
+          `m3e-divider`s, opened by the search bar's leading icon button above.
+          Nested inside the sheet on purpose (the modal sheet inerts content
+          outside itself; a top-layer popover is unaffected by being nested).
 
-          `m3e-menu-item-radio` rather than plain `m3e-menu-item`: the three
-          modes are mutually exclusive, so the radio variant is the component
-          that carries that meaning (and the matching `role="menuitemradio"` +
-          `aria-checked`) instead of us painting a check column by hand.
-          `checked` is driven off our own `mode` state, which is the single
-          source of truth — the menu is a view of it, never the owner. */}
-      <m3e-menu id="sb-search-sheet-mode-menu">
-        {MODE_ORDER.map((m) => (
-          <m3e-menu-item-radio
-            key={m}
-            checked={m === mode}
-            onClick={() => {
-              setMode(m);
-              refocus();
-            }}
-          >
-            <m3e-icon slot="icon" name={MODE_ICON[m]}></m3e-icon>
-            {MODE_LABEL[m]}
-          </m3e-menu-item-radio>
-        ))}
-      </m3e-menu>
+          Rendered ONLY while open — that is what structurally prevents round
+          1's "closed popup is visible" defect, since `m3e-list`'s own
+          `:host { display: flex }` can no longer out-cascade the UA popover
+          stylesheet's closed-state `display: none` for an element that does not
+          exist. See the mode-model comment at the top of this file.
+
+          `role`/`aria-selected` are set explicitly: they are the `Role` mixin's
+          documented author override (`this.role || role`), and they are the
+          same roles `m3e-selection-list`/`m3e-list-option` would have set, so
+          the accessibility tree matches the native selectable pattern even
+          though the selection itself is driven by us. */}
+      {modePickerOpen && (
+        <m3e-list
+          id="sb-search-sheet-mode-list"
+          ref={modeListRef}
+          popover="auto"
+          role="listbox"
+          aria-label="Search mode"
+          class="sb-search-sheet-mode-list"
+          onKeyDown={onModeListKeyDown}
+        >
+          {MODE_ORDER.map((m, i) => (
+            <Fragment key={m}>
+              {/* BETWEEN rows only — never after the last one. `inset-start`
+                  aligns the rule with the row labels rather than the icons,
+                  using the inset size `m3e-list` itself feeds the divider. */}
+              {i > 0 && <m3e-divider inset-start></m3e-divider>}
+              <m3e-list-item
+                role="option"
+                aria-selected={m === mode ? "true" : "false"}
+                data-mode={m}
+                // Roving tabindex: only the active row is in the tab order, and
+                // the open effect focuses it. Arrow keys move between rows.
+                tabIndex={m === mode ? 0 : -1}
+                class={m === mode
+                  ? "sb-option sb-selected-option"
+                  : "sb-option"}
+                onClick={() => selectMode(m)}
+              >
+                <m3e-icon slot="leading" name={MODE_ICON[m]}></m3e-icon>
+                {MODE_LABEL[m]}
+                {m === mode && (
+                  <m3e-icon slot="trailing" name="check"></m3e-icon>
+                )}
+              </m3e-list-item>
+            </Fragment>
+          ))}
+        </m3e-list>
+      )}
     </m3e-bottom-sheet>
     </>
   );

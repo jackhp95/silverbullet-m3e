@@ -179,42 +179,49 @@ test("renders a modal m3e-bottom-sheet with an m3e-search-bar inside", () => {
   expect(html).toContain('<m3e-icon-button slot="leading"');
 });
 
-test("mode switching is a real m3e-menu opened by the bar's leading icon button", () => {
+test("the mode picker is NOT an m3e-menu and NOT a floating toolbar", () => {
   const html = renderSheet();
-  // Jack's round-3 direction, reversing round 2: the floating bottom toolbar
-  // is GONE from the search sheet (it moved to navigation_sheet.tsx, where it
-  // replaced tabs), and the picker is the semantically-correct component for
-  // "click an icon, get a list of options" — a real anchored m3e-menu.
+  // Round 2's floating bottom toolbar is gone (it moved to
+  // navigation_sheet.tsx, where it replaced tabs)...
   expect(html).not.toContain("m3e-toolbar");
   expect(html).not.toContain("sb-search-sheet-modes");
+  // ...and so is round 3's m3e-menu. Jack's round-4 direction is an m3e-list
+  // of m3e-list-items split by m3e-dividers, citing
+  // https://matraic.github.io/m3e/#/components/list.html. Assert the whole
+  // menu family is absent so a partial revert can't slip back in.
+  expect(html).not.toContain("m3e-menu");
+  expect(html).not.toContain("m3e-menu-item-radio");
+  expect(html).not.toContain("m3e-menu-trigger");
+});
 
-  // The trigger is an EMPTY m3e-menu-trigger nested in the icon button: it
-  // binds its click handler to its PARENT element (verified against the
-  // decompiled dist/menu.js — see search_sheet.tsx's mode-model comment), so
-  // the whole button is the trigger and the icon stays a direct child of the
-  // button where the button's default slot can claim it.
+test("the leading icon button is the picker trigger, with listbox ARIA", () => {
+  const html = renderSheet();
   expect(html).toContain('title="Change search mode"');
-  expect(html).toContain(
-    '<m3e-menu-trigger for="sb-search-sheet-mode-menu"></m3e-menu-trigger>',
-  );
-  expect(html).toContain('<m3e-menu id="sb-search-sheet-mode-menu">');
+  // Round 3 got these three attributes for free from m3e-menu-trigger's
+  // `attach()`. A hand-driven list popup has no such helper, so they are set
+  // explicitly — and `haspopup="listbox"` must agree with the `role="listbox"`
+  // the popup itself carries.
+  expect(html).toContain('aria-haspopup="listbox"');
+  expect(html).toContain('aria-controls="sb-search-sheet-mode-list"');
+  // Collapsed while closed — the e2e suite asserts this flips to "true" on a
+  // real click, which a static render cannot exercise.
+  expect(html).toContain('aria-expanded="false"');
+});
 
-  // Exactly one radio item per mode, in MODE_ORDER, each with its icon.
-  const items = [...html.matchAll(/<m3e-menu-item-radio\b[^>]*>/g)];
-  expect(items).toHaveLength(3);
-  for (const label of ["Search", "Open", "Run"]) {
-    expect(html).toContain(`${label}</m3e-menu-item-radio>`);
-  }
-  for (const icon of ["search", "description", "terminal"]) {
-    expect(html).toContain(`<m3e-icon slot="icon" name="${icon}"></m3e-icon>`);
-  }
-
-  // The menu is nested INSIDE the sheet, not a sibling: the modal sheet
-  // inerts content outside itself, while the menu's native-popover top-layer
-  // promotion makes nesting harmless.
-  expect(html.indexOf("<m3e-menu ")).toBeLessThan(
-    html.indexOf("</m3e-bottom-sheet>"),
-  );
+test("the mode picker popup is NOT rendered while closed", () => {
+  // This is the structural fix for round 1's live-verified defect, where the
+  // permanently-rendered popover was VISIBLE while closed because m3e-list's
+  // author-origin `:host { display: flex }` out-cascaded the UA popover
+  // stylesheet's `display: none`. The element simply does not exist now, so
+  // there is no cascade to lose — asserted here rather than left to a CSS
+  // counter-rule that a future refactor could silently drop.
+  const html = renderSheet();
+  // Match the ELEMENT, not the bare id — the id legitimately still appears in
+  // the trigger's `aria-controls`, which points at the popup it *would* open.
+  expect(html).not.toContain('<m3e-list id="sb-search-sheet-mode-list"');
+  expect(html).not.toContain("m3e-divider");
+  expect(html).not.toContain('role="listbox"');
+  expect(html).not.toContain('role="option"');
 });
 
 test("the ACTIVE mode is shown by the header title and the leading button's icon", () => {
@@ -227,11 +234,10 @@ test("the ACTIVE mode is shown by the header title and the leading button's icon
   expect(html).toMatch(
     /<m3e-icon-button slot="leading"[\s\S]*?<m3e-icon name="description">/,
   );
-  // Inside the menu, selection is carried by the radio item's own `checked`
-  // — not a hand-painted check column.
-  expect(html).toMatch(
-    /<m3e-menu-item-radio checked><m3e-icon slot="icon" name="description">/,
-  );
+  // The picker itself is closed (and therefore unrendered) by default, so the
+  // active-row marking inside it is an e2e concern, not a static one. What IS
+  // statically guaranteed: with the popup closed, the only check-style icon in
+  // the tree would have to come from a row that should not exist yet.
   expect(html).not.toContain('name="check"');
 });
 

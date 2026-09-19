@@ -177,6 +177,24 @@
   }
 }
 
+// search_sheet.tsx's mode picker — an `m3e-list` popup whose active row is
+// driven by us rather than by a selection-capable component (see that file's
+// mode-model comment). It marks the active row with the SAME
+// `.sb-selected-option` class and the SAME --modal-* tokens as every other
+// list in this app, so "selected" looks identical everywhere and no fourth
+// palette appears. Split out from the rule below only because the picker is a
+// top-layer popover and therefore not a descendant of `.sb-search-sheet-list`.
+.sb-search-sheet-mode-list {
+  .sb-selected-option {
+    --m3e-list-item-container-color: var(
+      --modal-selected-option-background-color
+    );
+    --m3e-list-item-label-text-color: var(--modal-selected-option-color);
+    --m3e-list-item-leading-color: var(--modal-selected-option-color);
+    --m3e-list-item-trailing-color: var(--modal-selected-option-color);
+  }
+}
+
 // search_sheet.tsx's result/history list — not a .sb-modal-box (it's a
 // bottom sheet, not a <dialog>), so it needs its own selector root, but
 // reuses the exact same --modal-* tokens as the .sb-modal-box block above
