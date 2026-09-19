@@ -179,24 +179,30 @@ m3e-search-view.sb-modal-box {
   }
 }
 
-// search_sheet.tsx's consolidated search bottom sheet body (L10-L12). Same
-// "plain flex + gap" bottom rung as .sb-item-capture-sheet-body above (no
-// m3e component here declares a sibling-gap cssprop of its own either).
+// search_sheet.tsx's consolidated search bottom sheet body. Same "plain
+// flex + gap" bottom rung as .sb-item-capture-sheet-body above (no m3e
+// component here declares a sibling-gap cssprop of its own either).
 // Result-row theming (.sb-option/.sb-selected-option/.sb-hint/.sb-name/
 // .sb-description) reuses the exact class names + --modal-* tokens the old
 // .sb-modal-box result list already uses (see colors.scss's matching
 // block) rather than inventing a second palette — this sheet just isn't a
 // <dialog>-based .sb-modal-box, so it needs its own (non-outer-chrome)
 // selector root instead of piggybacking on that class.
-.sb-search-sheet-body {
+//
+// Root selector corrected from a stale `.sb-search-sheet-body` (a class
+// search_sheet.tsx has never rendered — the real host is `.sb-search-sheet-
+// view`, on `m3e-search-view`) and the child selector from a stale
+// `.sb-search-sheet-result-list` to the component's actual
+// `.sb-search-sheet-list`. That mismatch meant this entire block was dead —
+// `.sb-option`/`.sb-selected-option`/`.sb-hint` never matched anything, so
+// rows/hints fell back to bare, non-m3e-consistent default styling
+// (live-testing feedback #4). `.sb-search-sheet-mode-list` (the feedback #1
+// mode-picker list) reuses the same `.sb-option`/`.sb-selected-option` row
+// treatment via nav_list_row.tsx's shared class names.
+.sb-search-sheet-view {
   display: flex;
   flex-direction: column;
   gap: 12px;
-
-  .sb-search-sheet-result-list {
-    max-height: 320px;
-    overflow-y: scroll;
-  }
 
   .sb-search-sheet-empty {
     padding: 12px 4px;
