@@ -78,9 +78,13 @@ async function openSearchSheet(page: Page): Promise<void> {
   await expect(page.locator("#sb-search-sheet")).toHaveAttribute("open", "");
 }
 
+// The mode picker is the search bar's single leading icon button — the
+// open/closed-leading slot split (and so the `:visible` disambiguation this
+// helper used to need) existed only for `m3e-search-view`'s internal states,
+// and the search-view is gone.
 function modeTrigger(page: Page) {
   return page.locator(
-    '#sb-search-sheet m3e-icon-button[title="Change search mode"]:visible',
+    '#sb-search-sheet m3e-icon-button[title="Change search mode"]',
   );
 }
 
@@ -89,7 +93,11 @@ async function switchMode(
   mode: "Search" | "Open" | "Run",
 ): Promise<void> {
   await modeTrigger(page).click();
-  const menu = page.locator("#sb-search-mode-menu");
+  // Id corrected from the stale `#sb-search-mode-menu`: this helper was left
+  // pointing at a menu that the round-2 floating-toolbar redesign had deleted
+  // outright, so it had been failing before the menu was restored. The live
+  // id is `#sb-search-sheet-mode-menu` (search_sheet.tsx).
+  const menu = page.locator("#sb-search-sheet-mode-menu");
   await expect.poll(() => menu.evaluate((el: any) => el.isOpen)).toBe(true);
   await menu.locator("m3e-menu-item-radio", { hasText: mode }).click();
 }
@@ -181,7 +189,11 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
       await page.screenshot({ path: `${dir}/02a-search-sheet-history.png` });
 
       await modeTrigger(page).click();
-      const menu = page.locator("#sb-search-mode-menu");
+      // Id corrected from the stale `#sb-search-mode-menu`: this helper was left
+  // pointing at a menu that the round-2 floating-toolbar redesign had deleted
+  // outright, so it had been failing before the menu was restored. The live
+  // id is `#sb-search-sheet-mode-menu` (search_sheet.tsx).
+  const menu = page.locator("#sb-search-sheet-mode-menu");
       await expect.poll(() => menu.evaluate((el: any) => el.isOpen)).toBe(true);
 
       const radios = menu.locator("m3e-menu-item-radio");

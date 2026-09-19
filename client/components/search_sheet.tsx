@@ -514,11 +514,18 @@ export function SearchSheet({
             } else if (e.key === "Escape") {
               e.preventDefault();
               // Escape here always closes the sheet, matching the sheet's own
-              // `cancel` event. This does NOT race the mode menu: the menu
-              // moves focus into itself when it opens, so while it is open
-              // this input is not the key target at all — Escape is handled by
-              // the popover's own light-dismiss, and only reaches here once
-              // the menu is already closed.
+              // `cancel` event.
+              //
+              // MEASURED, not assumed: with the mode menu open, one Escape
+              // closes BOTH the menu and the sheet (live-checked at 1280x900
+              // and 390x844 — the menu's native-popover light-dismiss and the
+              // modal sheet's own `cancel` both fire for the same keypress).
+              // Left as-is deliberately: Escape-closes-everything is the
+              // behavior the sheet already had, no keystroke is swallowed, and
+              // suppressing the sheet's `cancel` for one frame after a menu
+              // dismiss would mean racing two components' internal event
+              // ordering to buy a distinction nobody asked for. Noted here so
+              // the next reader doesn't rediscover it as a bug.
               onClose();
             } else if (e.key === "ArrowDown") {
               e.preventDefault();

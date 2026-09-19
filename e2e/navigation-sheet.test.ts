@@ -91,8 +91,21 @@ test.describe("Navigation bottom sheet (client/components/navigation_sheet.tsx, 
     await expect(toolbar).toBeVisible();
     await expect(toolbar.locator("m3e-icon-button")).toHaveCount(3);
 
-    // Icon-only: the switcher renders no visible section text at all.
-    await expect(toolbar).toHaveText("");
+    // Icon-only: the switcher carries no section LABEL text. Asserted
+    // against the light DOM specifically, because Playwright's text matchers
+    // pierce open shadow roots and `m3e-icon` renders its glyph NAME as
+    // ligature text ("history"/"update"/"account_tree") inside its own shadow
+    // root — that ligature is how the Material Symbols font draws the glyph,
+    // not a visible word, so a naive `toHaveText("")` here fails on correct
+    // markup. The labels survive only as `title`/`aria-label`, which is what
+    // makes the sheet's header title the sole visible indicator.
+    const lightDomText = await toolbar.evaluate((el) =>
+      el.textContent?.trim() ?? "",
+    );
+    expect(lightDomText).toBe("");
+    for (const label of ["History", "Changelog", "Sitemap"]) {
+      await expect(toolbar.getByText(label, { exact: true })).toHaveCount(0);
+    }
 
     // Pinned to the sheet's bottom edge, inside the sheet's own bounds.
     const [toolbarBox, sheetBox] = await Promise.all([
