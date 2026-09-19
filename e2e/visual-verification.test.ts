@@ -236,29 +236,41 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
       "",
     );
 
-    await test.step("4. navigation sheet, History tab: 3 tabs, History active, list populated", async () => {
+    await test.step("4. navigation sheet, History section: 3 switcher buttons, History active, list populated", async () => {
       await openNavigationSheet(page);
-      const tabs = page.locator("#sb-navigation-sheet m3e-tab");
-      await expect(tabs).toHaveCount(3);
+      const buttons = page.locator(
+        "#sb-navigation-sheet .sb-sheet-section-toolbar m3e-icon-button",
+      );
+      await expect(buttons).toHaveCount(3);
+      // Active section is named in the sheet's header title and filled in the
+      // switcher — there are no tabs any more.
       await expect(
-        page.locator('m3e-tab[for="sb-nav-history"]'),
-      ).toHaveAttribute("selected", "");
+        page.locator('#sb-navigation-sheet [slot="header"]'),
+      ).toHaveText("History");
+      await expect(buttons.nth(0)).toHaveAttribute("variant", "filled");
 
-      const historyRows = page.locator("#sb-nav-history .sb-name");
+      const historyRows = page.locator(
+        "#sb-navigation-sheet .sb-navigation-sheet-body .sb-name",
+      );
       const historyCount = await historyRows.count();
-      expect(historyCount, "History tab must be populated").toBeGreaterThan(0);
+      expect(historyCount, "History section must be populated")
+        .toBeGreaterThan(0);
 
       await page.screenshot({ path: `${dir}/04-navigation-history.png` });
       await assertNoOverlap(
         page,
-        ["#sb-navigation-sheet m3e-tab"],
-        "navigation sheet tabs",
+        ["#sb-navigation-sheet .sb-sheet-section-toolbar m3e-icon-button"],
+        "navigation sheet section switcher",
       );
     });
 
-    await test.step("5. navigation sheet, Changelog tab: pages + timestamps, no author column", async () => {
-      await page.locator('m3e-tab[for="sb-nav-changelog"]').click();
-      const panel = page.locator("#sb-nav-changelog");
+    await test.step("5. navigation sheet, Changelog section: pages + timestamps, no author column", async () => {
+      await page
+        .locator('#sb-navigation-sheet m3e-icon-button[aria-label="Changelog"]')
+        .click();
+      const panel = page.locator(
+        "#sb-navigation-sheet .sb-navigation-sheet-body",
+      );
       await expect(panel).toBeVisible();
 
       const nameCount = await panel.locator(".sb-name").count();
@@ -271,9 +283,13 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
       await page.screenshot({ path: `${dir}/05-navigation-changelog.png` });
     });
 
-    await test.step("6. navigation sheet, Sitemap tab: row count matches viewState.allPages.length", async () => {
-      await page.locator('m3e-tab[for="sb-nav-sitemap"]').click();
-      const panel = page.locator("#sb-nav-sitemap");
+    await test.step("6. navigation sheet, Sitemap section: row count matches viewState.allPages.length", async () => {
+      await page
+        .locator('#sb-navigation-sheet m3e-icon-button[aria-label="Sitemap"]')
+        .click();
+      const panel = page.locator(
+        "#sb-navigation-sheet .sb-navigation-sheet-body",
+      );
       await expect(panel).toBeVisible();
 
       // Read the total the same way the app itself computes allPages — the
@@ -441,47 +457,37 @@ test.describe("Offline chip (V11 bonus check)", () => {
   }
 });
 
-// --- KNOWN APP DEFECT, found while eyeballing the 06-navigation-sitemap.png
-// screenshot (real screenshot content, not a test artifact): switching
-// Navigation-sheet tabs leaves the PREVIOUSLY active `m3e-tab-panel`'s
-// content `visibility: visible`, overlapping the newly-selected panel's
-// content at the same screen position. Visually this is garbled overlapping
-// text — e.g. Changelog's "modified N seconds ago" hints bleeding through
-// onto the Sitemap panel underneath.
+// --- HISTORICAL DEFECT, now structurally impossible (found by V10, worked
+// around by V13, ELIMINATED in the round-3 nav redesign).
 //
-// Root-caused by direct decompile + a live getComputedStyle probe (verified
-// twice, independently, with two different tab sequences — History→Sitemap
-// direct, and History→Changelog→Sitemap — both reproduce the same class of
-// bug on whichever panel was active immediately before the current one):
+// The defect: switching Navigation-sheet TABS left the previously active
+// `m3e-tab-panel`'s content `visibility: visible`, overlapping the
+// newly-selected panel at the same screen position — garbled overlapping
+// text, e.g. Changelog's "modified N seconds ago" hints bleeding through the
+// Sitemap panel underneath.
 //
-//  - `node_modules/@m3e/web/dist/tabs.js`'s `M3eTabPanelElement` has NO
-//    default hiding for a non-selected panel beyond `:host([hidden])`
-//    (`m3e-tabs`/`m3e-tab-panel` never sets `hidden` on panels anywhere in
-//    the file — grepped).
-//  - `M3eTabsElement`'s own stylesheet has:
-//    `.tabs.sliding ::slotted([slot="panel"]) { ...
-//     visibility: var(--_tabs-slide-visibility, "hidden"); }`
-//    The fallback is the STRING `"hidden"` (with literal quote characters),
-//    which is not a valid CSS `visibility` keyword — so the browser drops
-//    the whole declaration when the custom property is unset, and
-//    `visibility` falls back to its initial/inherited value (`visible`),
-//    not `hidden`, on every panel the JS hasn't explicitly marked
-//    `--_tabs-slide-visibility: visible` during an active swipe gesture.
-//  - Confirmed directly: after a plain `.click()`-driven tab switch (no
-//    swipe), `getComputedStyle(previousPanel).visibility === "visible"`.
+// Root cause (direct decompile + live getComputedStyle probe, reproduced with
+// two independent tab sequences): `M3eTabsElement`'s own stylesheet has
+//   `.tabs.sliding ::slotted([slot="panel"]) {
+//      visibility: var(--_tabs-slide-visibility, "hidden"); }`
+// whose fallback is the STRING `"hidden"` (with literal quote characters),
+// which is not a valid CSS `visibility` keyword. The browser therefore drops
+// the whole declaration whenever the custom property is unset, and
+// `visibility` falls back to `visible` on every panel the JS has not
+// explicitly marked during an active swipe gesture. `m3e-tab-panel` has no
+// other hiding path (`m3e-tabs` never sets `hidden` on panels anywhere in the
+// file — grepped). An upstream `@m3e/web@2.7.12` library bug, not an app bug.
 //
-// This is an upstream `@m3e/web@2.7.12` library bug (`m3e-tabs`'s own
-// stylesheet), not a defect in this app's `navigation_sheet.tsx` (V7) —
-// that file was a standard, spec-verified usage of `m3e-tabs`/`m3e-tab-panel`
-// per custom-elements.json, until V13 (fixed below): since the library's
-// default panel-hiding never actually applies on a plain click-driven
-// switch, `navigation_sheet.tsx` now drives the `hidden` attribute on each
-// non-active `m3e-tab-panel` itself, via its own tracked selection state
-// (see that file's own comment above its `m3e-tabs`/`activePanelId` state
-// for the full mechanism). This test was originally a `test.fixme` (same
-// tracking convention V9 used for the search-mode-menu hit-test defect it
-// found, later fixed by V12); V13 un-skips it as a real regression test.
-test.describe("Navigation sheet tab-panel overlap (fixed by V13, found by V10)", () => {
+// V13 worked around it by driving the `hidden` attribute on each non-active
+// panel from `navigation_sheet.tsx`'s own tracked selection state. The
+// round-3 redesign removed the workaround along with its cause: there are no
+// tabs and no panels at all now — the sheet renders ONLY the active section,
+// so there is no second panel that could fail to hide.
+//
+// This test is kept, retargeted at the invariant that actually matters and
+// that now holds by construction: after switching sections, the previous
+// section's content is GONE, not merely visually hidden.
+test.describe("Navigation sheet renders only the active section (no panel overlap)", () => {
   test.use({
     spaceFiles: {
       "Alpha.md": "# Alpha\n\nFirst page.\n",
@@ -489,20 +495,34 @@ test.describe("Navigation sheet tab-panel overlap (fixed by V13, found by V10)",
     },
   });
 
-  test("switching from Changelog to Sitemap hides the Changelog panel", async ({
+  test("switching from Changelog to Sitemap removes the Changelog content entirely", async ({
     page,
     sbServer,
   }) => {
     await gotoSilverBulletPage(page, sbServer, "Alpha");
     await gotoSilverBulletPage(page, sbServer, "Beta");
     await openNavigationSheet(page);
-    await page.locator('m3e-tab[for="sb-nav-changelog"]').click();
-    await expect(page.locator("#sb-nav-changelog")).toBeVisible();
-    await page.locator('m3e-tab[for="sb-nav-sitemap"]').click();
-    await expect(page.locator("#sb-nav-sitemap")).toBeVisible();
 
-    // Regression check for the V13 fix — see the writeup above this
-    // describe block.
-    await expect(page.locator("#sb-nav-changelog")).not.toBeVisible();
+    const body = page.locator(
+      "#sb-navigation-sheet .sb-navigation-sheet-body",
+    );
+    const title = page.locator('#sb-navigation-sheet [slot="header"]');
+
+    await page
+      .locator('#sb-navigation-sheet m3e-icon-button[aria-label="Changelog"]')
+      .click();
+    await expect(title).toHaveText("Changelog");
+    // Changelog rows are the ones carrying a "modified ..." hint.
+    await expect(body.locator(".sb-hint").first()).toContainText("modified");
+
+    await page
+      .locator('#sb-navigation-sheet m3e-icon-button[aria-label="Sitemap"]')
+      .click();
+    await expect(title).toHaveText("Sitemap");
+
+    // The Changelog section is not in the DOM at all any more — the stronger
+    // form of the old `not.toBeVisible()` assertion.
+    await expect(body.locator(".sb-sitemap-all")).toHaveCount(1);
+    await expect(body.getByText("modified", { exact: false })).toHaveCount(0);
   });
 });

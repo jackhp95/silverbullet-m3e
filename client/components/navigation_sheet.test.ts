@@ -53,48 +53,67 @@ function renderSheet(props: {
   );
 }
 
-test("renders a modal, handle+hideable bottom sheet with the 'Navigation' header", () => {
+// The sheet's header title is the ACTIVE-SECTION indicator now that the
+// switcher is icon-only, so it reads "History" (the default section) rather
+// than a static "Navigation".
+test("renders a modal, handle+hideable bottom sheet titled by the active section", () => {
   const html = renderSheet({});
   expect(html).toContain("<m3e-bottom-sheet");
   expect(html).toContain('id="sb-navigation-sheet"');
   expect(html).toMatch(/\bmodal(="[^"]*")?[ >]/);
   expect(html).toMatch(/\bhandle(="[^"]*")?[ >]/);
   expect(html).toMatch(/\bhideable(="[^"]*")?[ >]/);
-  expect(html).toContain("Navigation</span>");
+  expect(html).toContain('<span slot="header">History</span>');
 });
 
-test("exactly 3 tabs (History/Changelog/Sitemap) linked to 3 matching panels, History selected by default", () => {
+// Jack's round-3 direction: the tabs are REPLACED by the same floating
+// icon-only toolbar idiom floating_toolbar.tsx uses. This is the load-bearing
+// negative assertion for that reversal — if m3e-tabs ever comes back, so does
+// the @m3e/web tab-panel visibility bug the V13 workaround existed to paper
+// over (see navigation_sheet.tsx's header comment).
+test("NO tabs anywhere — the section switcher is a floating m3e-toolbar", () => {
+  const html = renderSheet({});
+  expect(html).not.toContain("m3e-tabs");
+  expect(html).not.toContain("m3e-tab-panel");
+  expect(html).not.toContain("<m3e-tab ");
+  expect(html).toMatch(
+    /<m3e-toolbar[^>]*class="sb-sheet-section-toolbar"/,
+  );
+  expect(html).toMatch(/<m3e-toolbar[^>]*shape="rounded"/);
+  expect(html).toMatch(/<m3e-toolbar[^>]*\belevated(="[^"]*")?[ >]/);
+});
+
+test("exactly 3 icon-only switcher buttons, History filled by default", () => {
   const html = renderSheet({
     recentPaths: [{ path: "a.md" as Path, ts: 1 }],
     allPages: [page({ name: "a" })],
   });
 
-  const tabTags = [...html.matchAll(/<m3e-tab\s[^>]*>/g)].map((m) => m[0]);
-  expect(tabTags).toHaveLength(3);
-  expect(tabTags[0]).toContain('for="sb-nav-history"');
-  expect(tabTags[1]).toContain('for="sb-nav-changelog"');
-  expect(tabTags[2]).toContain('for="sb-nav-sitemap"');
-
-  // Only the first (History) tab carries `selected`.
-  expect(tabTags[0]).toMatch(/\bselected(="[^"]*")?[ >]/);
-  expect(tabTags[1]).not.toMatch(/\bselected(="[^"]*")?[ >]/);
-  expect(tabTags[2]).not.toMatch(/\bselected(="[^"]*")?[ >]/);
-
-  const panelTags = [...html.matchAll(/<m3e-tab-panel\b[^>]*>/g)].map(
+  const buttons = [...html.matchAll(/<m3e-icon-button\b[^>]*>/g)].map(
     (m) => m[0],
   );
-  expect(panelTags).toHaveLength(3);
-  expect(panelTags[0]).toContain('id="sb-nav-history"');
-  expect(panelTags[1]).toContain('id="sb-nav-changelog"');
-  expect(panelTags[2]).toContain('id="sb-nav-sitemap"');
+  expect(buttons).toHaveLength(3);
+  expect(buttons[0]).toContain('aria-label="History"');
+  expect(buttons[1]).toContain('aria-label="Changelog"');
+  expect(buttons[2]).toContain('aria-label="Sitemap"');
+
+  // Only the active (History) button is `variant="filled"`.
+  expect(buttons[0]).toContain('variant="filled"');
+  expect(buttons[1]).toContain('variant="standard"');
+  expect(buttons[2]).toContain('variant="standard"');
+
+  // Icon-ONLY: no section label text is rendered inside the toolbar. The
+  // labels survive as `title`/`aria-label` only, which is what makes the
+  // header title the sole visible indicator.
+  const toolbar = html.slice(html.indexOf("<m3e-toolbar"));
+  expect(toolbar).not.toContain(">History<");
+  expect(toolbar).not.toContain(">Changelog<");
+  expect(toolbar).not.toContain(">Sitemap<");
 });
 
-test("m3e-tabs uses variant=secondary explicitly", () => {
-  const html = renderSheet({});
-  expect(html).toMatch(/<m3e-tabs[^>]*variant="secondary"/);
-});
-
-test("History panel renders recentPaths rows with no input box; Sitemap panel row count matches allPages", () => {
+// Only the ACTIVE section is rendered — there is no hidden second panel any
+// more, which is precisely why the m3e-tabs visibility bug cannot recur.
+test("renders only the default History section, not Changelog/Sitemap content", () => {
   const html = renderSheet({
     recentPaths: [{ path: "recent-page.md" as Path, ts: 1 }],
     allPages: [page({ name: "recent-page" }), page({ name: "other-page" })],
@@ -102,7 +121,9 @@ test("History panel renders recentPaths rows with no input box; Sitemap panel ro
 
   expect(html).toContain(">recent-page<");
   expect(html).not.toMatch(/<input/);
-  expect(html).toContain(">other-page<");
+  // `other-page` is only reachable from the Sitemap section, which is not
+  // rendered while History is active.
+  expect(html).not.toContain(">other-page<");
 });
 
 test("renders to a real (non-empty, non-tofu) HTML string with verified icon names", () => {

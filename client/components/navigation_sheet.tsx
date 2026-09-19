@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import "@m3e/web/bottom-sheet";
-import "@m3e/web/tabs";
+import "@m3e/web/toolbar"; // registers m3e-toolbar (section switcher)
+import "@m3e/web/icon-button"; // registers m3e-icon-button
 import "@m3e/web/icon";
 import "./m3e-jsx.d.ts";
 import type { Path } from "@silverbulletmd/silverbullet/lib/ref";
@@ -11,30 +12,77 @@ import { SitemapTab } from "./nav_views/sitemap_tab.tsx";
 
 // Navigation bottom sheet (2026-09-17 vertical-toolbar/nav redesign spec
 // §2.6/§2.7/§2.8, leaf V7). Modal `m3e-bottom-sheet` (same `modal handle
-// hideable` composition `item_capture_sheet.tsx` already proved live) hosting
-// `m3e-tabs variant="secondary"` with History/Changelog/Sitemap. Wired to
-// `show-navigation-sheet`/`hide-navigation-sheet` (V1) via the `open`/
-// `onClose` props below — NOT rendered from client/editor_ui.tsx yet, that's
-// a later leaf (V8), same pattern V4/V5/V6 already used.
+// hideable` composition `item_capture_sheet.tsx` already proved live) showing
+// one of History/Changelog/Sitemap.
 //
-// `m3e-tabs`' own default `variant` is `"secondary"` (verified against this
-// repo's node_modules/@m3e/web/dist/custom-elements.json — TabsElement's
-// `variant` attribute defaults to `"secondary"`); passed explicitly anyway
-// per spec, since `"primary"` is for prominent top-level nav which a sheet's
-// internal tabs are not. `m3e-tab`'s `for` links each tab to its panel by DOM
-// id (also verified against the live manifest); `m3e-tab-panel` self-assigns
-// `slot="panel"` in its own `connectedCallback` (decompiled
-// dist/tabs.js:190-199) — no `slot="panel"` attribute needed in this JSX.
+// --- section switcher: floating icon-only toolbar, NOT tabs ----------------
+//
+// `m3e-tabs` is gone (Jack's round-3 direction). The switcher is a floating,
+// icon-only `m3e-toolbar shape="rounded" elevated` pinned to the sheet's
+// bottom edge, one `m3e-icon-button` per section, with the ACTIVE section
+// named in the sheet's own `slot="header"` title instead of by a tab label.
+// Same idiom as `floating_toolbar.tsx`'s vertical app toolbar, so the app's
+// floating surfaces read as one family.
+//
+// This is a deliberate DELETION, not a reskin. Dropping `m3e-tabs` also drops
+// the whole V13 workaround that existed only to serve it: `@m3e/web@2.7.12`'s
+// `m3e-tabs` stylesheet has a CSS-invalid fallback (`visibility:
+// var(--_tabs-slide-visibility, "hidden")` — the literal STRING `"hidden"`,
+// not a valid `visibility` keyword), so a click-driven tab switch never hid
+// the previously-active `m3e-tab-panel` and we had to force the global
+// `hidden` attribute on every inactive panel off `m3e-tabs`' `change` event.
+// With no tabs and no panels, only the active section is ever rendered, so
+// there is no second panel to hide and the library bug is simply out of the
+// picture — the overlap defect e2e/visual-verification.test.ts documented
+// cannot recur by construction.
+//
+// `m3e-toolbar` has no selection-manager concept (no `selected` attribute, no
+// `change` event — verified against node_modules/@m3e/web/dist/
+// custom-elements.json, same check `floating_toolbar.tsx` records), so the
+// active section is ours to drive. It is shown two ways, both via component
+// attributes rather than custom CSS: the sheet's `slot="header"` title, and
+// the active button's `variant="filled"` (m3e-icon-button's own documented
+// appearance variant — NOT `selected`, which the component scopes to `toggle`
+// buttons; these are mutually exclusive destinations, not independent
+// toggles).
+//
+// --- sizing ----------------------------------------------------------------
+//
+// Sized ONLY by the component's own `detents` API — no `vh`, no px height, no
+// manual viewport math anywhere in this component or its stylesheet. See the
+// ref effect below for why `detents` has to be assigned as a real array.
 //
 // Icon provenance: "history" was already live elsewhere in this fork before
-// this leaf (git log -S, dd47f410/abf4c3f9) — no re-check needed. "update"
-// and "account_tree" are new to this codebase, so — same discipline
-// top_bar.tsx/floating_toolbar.tsx already applied for "asterisk"/"explore"
-// — both were verified present via `fontTools.ttLib.TTFont(...).getGlyphOrder()`
-// against `client/fonts/MaterialSymbolsOutlined.woff2` (it's the full ~6618-
-// glyph Material Symbols Outlined set, not a hand-curated per-usage subset,
-// confirmed by inspecting `getGlyphOrder()`'s length): both glyph names are
-// present, not tofu.
+// this leaf (git log -S, dd47f410/abf4c3f9). "update" and "account_tree" were
+// verified present via `fontTools.ttLib.TTFont(...).getGlyphOrder()` against
+// `client/fonts/MaterialSymbolsOutlined.woff2` (the full ~6618-glyph Material
+// Symbols Outlined set, not a hand-curated per-usage subset) — both glyph
+// names are present, not tofu. All three are unchanged by this round; only
+// their container changed from tab to icon-button.
+
+export type NavSection = "history" | "changelog" | "sitemap";
+
+/** Left-to-right order in the switcher, matching the old tab order. */
+export const NAV_SECTION_ORDER: readonly NavSection[] = [
+  "history",
+  "changelog",
+  "sitemap",
+];
+
+export const NAV_SECTION_LABEL: Record<NavSection, string> = {
+  history: "History",
+  changelog: "Changelog",
+  sitemap: "Sitemap",
+};
+
+export const NAV_SECTION_ICON: Record<NavSection, string> = {
+  history: "history",
+  changelog: "update",
+  sitemap: "account_tree",
+};
+
+export const DEFAULT_NAV_SECTION: NavSection = "history";
+
 export function NavigationSheet({
   open,
   onClose,
@@ -49,35 +97,49 @@ export function NavigationSheet({
   allPages: PageMeta[];
 }) {
   const sheetRef = useRef<HTMLElement>(null);
+  const [section, setSection] = useState<NavSection>(DEFAULT_NAV_SECTION);
 
-  // V13 fix (KNOWN APP DEFECT found by V10, see e2e/visual-verification.test.ts's
-  // writeup above the "Navigation sheet tab-panel overlap" describe block):
-  // `@m3e/web@2.7.12`'s own `m3e-tabs` stylesheet has a CSS-invalid fallback
-  // (`visibility: var(--_tabs-slide-visibility, "hidden")` — the literal
-  // STRING `"hidden"`, not a valid `visibility` keyword) so a plain
-  // click-driven tab switch never actually hides the previously-active
-  // `m3e-tab-panel` (`getComputedStyle` stays `visible`, confirmed by
-  // decompiling dist/tabs.js). The library's own governance is broken, so —
-  // same pattern V6 used for `m3e-menu-item-radio`'s `checked` — drive the
-  // hiding explicitly ourselves via a controlled prop: track which panel is
-  // active off `m3e-tabs`' own public `change` event + `selectedTab` getter
-  // (both documented in custom-elements.json), and set the plain global
-  // HTML `hidden` attribute on every non-active panel. Confirmed safe:
-  // `m3e-tab-panel`'s own stylesheet already has `:host([hidden]) { display:
-  // none }` (dist/tabs.js:202), and `M3eTabPanelElement` has zero JS handling
-  // of `hidden` anywhere (grepped) — nothing to fight.
-  const [activePanelId, setActivePanelId] = useState<string>("sb-nav-history");
-
-  // Same wart item_capture_sheet.tsx already documented and worked around:
-  // Preact sets `handle`/`modal`/`hideable` as real DOM properties, but
-  // M3eBottomSheetElement's compiled stylesheet gates the entire `.header`
-  // region (drag handle + `slot="header"` title) behind a plain CSS
-  // *attribute* selector (`:host(:not([handle])) .header { display: none }`),
-  // and `handle` doesn't reflect prop->attribute. Force the real attribute
-  // once the element exists so the sheet's own CSS actually shows its header.
+  // Two separate m3e-bottom-sheet interop warts, both already live-verified in
+  // search_sheet.tsx and item_capture_sheet.tsx:
+  //
+  // 1. `handle` gates the entire `.header` region (drag handle + the
+  //    `slot="header"` title this sheet's active-section indicator lives in)
+  //    behind a plain CSS *attribute* selector (`:host(:not([handle]))
+  //    .header { display: none }`), and it does not reflect property->
+  //    attribute. Preact assigns the property, so the attribute never appears
+  //    and the title would silently not render. Force the attribute.
+  //
+  // 2. `detents` must be assigned as a REAL ARRAY from JS. Preact takes the
+  //    property branch for custom elements when the instance field already
+  //    exists, bypassing Lit's attribute->array converter, so a JSX
+  //    `detents="half"` leaves `el.detents` as the STRING "half";
+  //    `this.detents[this.activeDetent]` then indexes the string ("half"[0]
+  //    === "h"), matches no case in `_computeDetentHeight`, and the sheet
+  //    silently falls back to collapsed peek height.
+  //
+  // `["half"]` is the component's own supported sizing lever:
+  // `_computeDetentHeight("half")` resolves to `_computeMaxHeight() * 0.5`,
+  // i.e. half the viewport minus the sheet's own top inset — it tracks real
+  // viewport metrics, which a hardcoded `50vh` would drift from. This sheet
+  // previously declared no detents at all and therefore collapsed to its
+  // content height (live-measured at 19% of the viewport), which left the
+  // floating switcher nothing stable to pin to.
   useEffect(() => {
-    sheetRef.current?.setAttribute("handle", "");
+    const el = sheetRef.current;
+    if (!el) {
+      return;
+    }
+    el.setAttribute("handle", "");
+    (el as unknown as { detents: string[] }).detents = ["half"];
   }, []);
+
+  // Reset to the default section each time the sheet opens, matching
+  // search_sheet.tsx's equivalent mode reset.
+  useEffect(() => {
+    if (open) {
+      setSection(DEFAULT_NAV_SECTION);
+    }
+  }, [open]);
 
   return (
     <m3e-bottom-sheet
@@ -90,55 +152,46 @@ export function NavigationSheet({
       onCancel={() => onClose()}
       onClosed={() => onClose()}
     >
-      <span slot="header">Navigation</span>
-      <m3e-tabs
-        variant="secondary"
-        onChange={(e) => {
-          const forId = (
-            e.currentTarget as HTMLElement & {
-              selectedTab?: {
-                getAttribute(name: string): string | null;
-              } | null;
-            }
-          ).selectedTab?.getAttribute("for");
-          if (forId) setActivePanelId(forId);
-        }}
-      >
-        <m3e-tab selected for="sb-nav-history">
-          <m3e-icon slot="icon" name="history"></m3e-icon>
-          History
-        </m3e-tab>
-        <m3e-tab for="sb-nav-changelog">
-          <m3e-icon slot="icon" name="update"></m3e-icon>
-          Changelog
-        </m3e-tab>
-        <m3e-tab for="sb-nav-sitemap">
-          <m3e-icon slot="icon" name="account_tree"></m3e-icon>
-          Sitemap
-        </m3e-tab>
-        <m3e-tab-panel
-          id="sb-nav-history"
-          hidden={activePanelId !== "sb-nav-history"}
-        >
+      {/* The title IS the active-section indicator, replacing the tab labels
+          the icon-only switcher no longer carries. */}
+      <span slot="header">{NAV_SECTION_LABEL[section]}</span>
+      {/* Only the active section is rendered — see the header comment on why
+          that, rather than three panels with two hidden, is what removes the
+          m3e-tabs visibility bug entirely. */}
+      <div class="sb-navigation-sheet-body">
+        {section === "history" && (
           <HistoryTab
             recentPaths={recentPaths}
             currentPath={currentPath}
             onNavigate={onClose}
           />
-        </m3e-tab-panel>
-        <m3e-tab-panel
-          id="sb-nav-changelog"
-          hidden={activePanelId !== "sb-nav-changelog"}
-        >
+        )}
+        {section === "changelog" && (
           <ChangelogTab allPages={allPages} onNavigate={onClose} />
-        </m3e-tab-panel>
-        <m3e-tab-panel
-          id="sb-nav-sitemap"
-          hidden={activePanelId !== "sb-nav-sitemap"}
-        >
+        )}
+        {section === "sitemap" && (
           <SitemapTab allPages={allPages} onNavigate={onClose} />
-        </m3e-tab-panel>
-      </m3e-tabs>
+        )}
+      </div>
+      <m3e-toolbar
+        shape="rounded"
+        elevated
+        class="sb-sheet-section-toolbar"
+        aria-label="Navigation section"
+      >
+        {NAV_SECTION_ORDER.map((s) => (
+          <m3e-icon-button
+            key={s}
+            variant={s === section ? "filled" : "standard"}
+            title={NAV_SECTION_LABEL[s]}
+            aria-label={NAV_SECTION_LABEL[s]}
+            aria-pressed={s === section ? "true" : "false"}
+            onClick={() => setSection(s)}
+          >
+            <m3e-icon name={NAV_SECTION_ICON[s]}></m3e-icon>
+          </m3e-icon-button>
+        ))}
+      </m3e-toolbar>
     </m3e-bottom-sheet>
   );
 }

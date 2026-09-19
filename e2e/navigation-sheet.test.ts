@@ -17,6 +17,22 @@ test.use({
   },
 });
 
+/**
+ * The section switcher is a floating icon-only `m3e-toolbar` pinned to the
+ * sheet's bottom edge (Jack's round-3 direction — it replaced `m3e-tabs`).
+ * Sections are identified by the buttons' `aria-label`, since they carry no
+ * visible text; the ACTIVE one is named in the sheet's header title.
+ */
+function sectionButton(page: Page, label: string) {
+  return page.locator(
+    `#sb-navigation-sheet .sb-sheet-section-toolbar m3e-icon-button[aria-label="${label}"]`,
+  );
+}
+
+function sheetTitle(page: Page) {
+  return page.locator('#sb-navigation-sheet [slot="header"]');
+}
+
 async function openNavigationSheet(page: Page): Promise<void> {
   await page
     .locator('.sb-floating-toolbar m3e-icon-button[aria-label="Navigation"]')
@@ -28,7 +44,7 @@ async function openNavigationSheet(page: Page): Promise<void> {
 }
 
 test.describe("Navigation bottom sheet (client/components/navigation_sheet.tsx, V7)", () => {
-  test("opening the sheet shows History tab selected by default with recentPaths rows, no input box present", async ({
+  test("opening the sheet shows the History section by default with recentPaths rows, no input box present", async ({
     sbServer,
     page,
   }) => {
@@ -38,17 +54,85 @@ test.describe("Navigation bottom sheet (client/components/navigation_sheet.tsx, 
 
     await openNavigationSheet(page);
 
-    await expect(page.locator('m3e-tab[for="sb-nav-history"]')).toHaveAttribute(
-      "selected",
-      "",
+    // Active section is shown by the header title + the filled button, not
+    // by a selected tab.
+    await expect(sheetTitle(page)).toHaveText("History");
+    await expect(sectionButton(page, "History")).toHaveAttribute(
+      "variant",
+      "filled",
     );
 
     const sheet = page.locator("#sb-navigation-sheet");
-    await expect(sheet.locator("#sb-nav-history .sb-name")).toContainText([
-      "Beta",
-      "Alpha",
-    ]);
+    await expect(
+      sheet.locator(".sb-navigation-sheet-body .sb-name"),
+    ).toContainText(["Beta", "Alpha"]);
     await expect(sheet.locator("input")).toHaveCount(0);
+  });
+
+  // Load-bearing negative assertion for the round-3 reversal: the tabs are
+  // gone, replaced by the same floating icon-only toolbar idiom the search
+  // sheet briefly wore. Removing m3e-tabs also removes the @m3e/web
+  // tab-panel visibility bug the old V13 workaround existed to paper over.
+  test("NO tabs remain — the section switcher is a floating icon-only toolbar", async ({
+    sbServer,
+    page,
+  }) => {
+    await gotoSilverBulletPage(page, sbServer, "Alpha");
+    await openNavigationSheet(page);
+
+    await expect(page.locator("#sb-navigation-sheet m3e-tabs")).toHaveCount(0);
+    await expect(page.locator("#sb-navigation-sheet m3e-tab-panel")).toHaveCount(
+      0,
+    );
+
+    const toolbar = page.locator(
+      "#sb-navigation-sheet .sb-sheet-section-toolbar",
+    );
+    await expect(toolbar).toBeVisible();
+    await expect(toolbar.locator("m3e-icon-button")).toHaveCount(3);
+
+    // Icon-only: the switcher renders no visible section text at all.
+    await expect(toolbar).toHaveText("");
+
+    // Pinned to the sheet's bottom edge, inside the sheet's own bounds.
+    const [toolbarBox, sheetBox] = await Promise.all([
+      toolbar.boundingBox(),
+      page.locator("#sb-navigation-sheet").boundingBox(),
+    ]);
+    expect(toolbarBox).not.toBeNull();
+    expect(sheetBox).not.toBeNull();
+    expect(toolbarBox!.y).toBeGreaterThan(sheetBox!.y + sheetBox!.height / 2);
+    expect(toolbarBox!.y + toolbarBox!.height).toBeLessThanOrEqual(
+      sheetBox!.y + sheetBox!.height + 1,
+    );
+  });
+
+  // The sheet is sized ONLY by m3e-bottom-sheet's own `detents` API — no vh,
+  // no px height anywhere in navigation_sheet.tsx or its stylesheet. Before
+  // this round it declared no detents at all and collapsed to its content
+  // height (live-measured at 19% of the viewport), which left the floating
+  // switcher nothing stable to pin to.
+  test("the sheet's rendered height is capped at roughly 50% of the viewport via detents", async ({
+    sbServer,
+    page,
+  }) => {
+    await gotoSilverBulletPage(page, sbServer, "Alpha");
+    await openNavigationSheet(page);
+
+    const viewportHeight = page.viewportSize()?.height ?? 0;
+    const sheetHeight = await page
+      .locator("#sb-navigation-sheet")
+      .evaluate((el) => el.getBoundingClientRect().height);
+
+    expect(sheetHeight).toBeGreaterThan(viewportHeight * 0.3);
+    expect(sheetHeight).toBeLessThanOrEqual(viewportHeight * 0.6);
+
+    // `detents` is a real array, not the string a raw JSX attribute would
+    // leave behind (the Preact/Lit interop trap search_sheet.tsx documents).
+    const detents = await page
+      .locator("#sb-navigation-sheet")
+      .evaluate((el) => (el as unknown as { detents: string[] }).detents);
+    expect(detents).toEqual(["half"]);
   });
 
   test("clicking Changelog shows pages sorted by lastModified descending with no 'who'/author column rendered anywhere", async ({
@@ -94,9 +178,10 @@ test.describe("Navigation bottom sheet (client/components/navigation_sheet.tsx, 
     await gotoSilverBulletPage(page, sbServer, "Gamma");
 
     await openNavigationSheet(page);
-    await page.locator('m3e-tab[for="sb-nav-changelog"]').click();
+    await sectionButton(page, "Changelog").click();
 
-    const panel = page.locator("#sb-nav-changelog");
+    await expect(sheetTitle(page)).toHaveText("Changelog");
+    const panel = page.locator("#sb-navigation-sheet .sb-navigation-sheet-body");
     await expect(panel).toBeVisible();
     // `allPages` (and so this panel's rows) also includes the built-in Std
     // library pages, not just the 3 space files seeded above — so this
@@ -122,9 +207,10 @@ test.describe("Navigation bottom sheet (client/components/navigation_sheet.tsx, 
     await gotoSilverBulletPage(page, sbServer, "Gamma");
 
     await openNavigationSheet(page);
-    await page.locator('m3e-tab[for="sb-nav-sitemap"]').click();
+    await sectionButton(page, "Sitemap").click();
 
-    const panel = page.locator("#sb-nav-sitemap");
+    await expect(sheetTitle(page)).toHaveText("Sitemap");
+    const panel = page.locator("#sb-navigation-sheet .sb-navigation-sheet-body");
     await expect(panel).toBeVisible();
 
     // `allPages` also includes the built-in Std library pages (Journal,

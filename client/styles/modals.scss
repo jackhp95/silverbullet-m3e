@@ -197,26 +197,40 @@ m3e-search-view.sb-modal-box {
 // `.sb-option`/`.sb-selected-option`/`.sb-hint` never matched anything, so
 // rows/hints fell back to bare, non-m3e-consistent default styling
 // (live-testing feedback #4).
-// The mode-picker popup is GONE (see search_sheet.tsx's mode-model comment):
-// its `.sb-search-sheet-mode-list` block — UA-popover resets, the
+// The search sheet's mode picker is a real `m3e-menu` again, opened by the
+// search bar's leading icon button (see search_sheet.tsx's mode-model
+// comment). It needs NO CSS here at all: the menu promotes itself to the top
+// layer via the native popover API and positions itself against its trigger,
+// so the old `.sb-search-sheet-mode-list` block — UA-popover resets, the
 // `:not(:popover-open) { display: none }` cascade fight, the `::backdrop`
-// rule — went with it. The mode switcher is now `.sb-search-sheet-modes`
-// below, a plain in-flow floating toolbar with no top-layer promotion and
-// therefore none of that machinery.
+// rule — stays deleted rather than coming back with it. That block existed
+// only because a previous round hand-rolled a popover out of an `m3e-list`.
 
-// Mode switcher toolbar — floating, pinned to the bottom of the sheet.
+// Floating section-switcher toolbar — pinned to the bottom edge of a bottom
+// sheet. Used by the navigation sheet (`navigation_sheet.tsx`); the search
+// sheet no longer has a floating switcher at all.
+//
 // Layout-only CSS (bottom rung of the styling ladder): every bit of the
 // toolbar's own appearance (fill, elevation, corner radius, the buttons'
 // filled/standard variants) comes from `m3e-toolbar`/`m3e-icon-button`'s own
 // attributes, set in the JSX. `position: absolute` resolves against the
 // `m3e-bottom-sheet` host, which the component itself already positions —
-// live-verified, not assumed.
-.sb-search-sheet-modes {
+// live-verified, not assumed. No height/`vh` is involved: the sheet sizes
+// itself through its own `detents` API, and this rule only insets the toolbar
+// from whatever bottom edge that produces.
+.sb-sheet-section-toolbar {
   position: absolute;
   bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 1;
+}
+
+// Bottom padding is room for the last row to scroll clear of the floating
+// `.sb-sheet-section-toolbar` overlaying the sheet's lower edge (toolbar
+// height + its 16px inset) instead of sitting under it.
+.sb-navigation-sheet-body {
+  padding: 0 16px 80px;
 }
 
 // The sheet is now a plain vertical stack of direct children — bar, body,
@@ -250,11 +264,11 @@ m3e-search-view.sb-modal-box {
   background-color: var(--modal-background-color);
 }
 
-// Bottom padding is room for the last row to scroll clear of the floating
-// `.sb-search-sheet-modes` toolbar overlaying the sheet's lower edge
-// (toolbar height + its 16px inset) instead of sitting under it.
+// No floating toolbar overlays this sheet any more (the mode picker moved
+// into the search bar's leading button), so the old 80px bottom reservation
+// for it is gone — results now use the sheet's full height.
 .sb-search-sheet-body {
-  padding: 0 16px 80px;
+  padding: 0 16px 16px;
 
   .sb-search-sheet-empty {
     padding: 12px 4px;
