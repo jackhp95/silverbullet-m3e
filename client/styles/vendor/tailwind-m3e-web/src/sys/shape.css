@@ -1,0 +1,63 @@
+/*
+ * M3 shape system tokens — corner radii.
+ *
+ * 23 tokens: 9 canonical corner-value sizes + 14 directional/role aliases.
+ *
+ * The corner-value-* tokens define the canonical sizes. The corner-* tokens
+ * reference them and add direction-aware variants (top, end, start).
+ *
+ * Source: node_modules/@m3e/web/dist/core.js (ShapeToken)
+ */
+
+:root {
+  /* ── Corner sizes (canonical) ── */
+  --md-sys-shape-corner-value-none: 0;
+  --md-sys-shape-corner-value-extra-small: 0.25rem;
+  --md-sys-shape-corner-value-small: 0.5rem;
+  --md-sys-shape-corner-value-medium: 0.75rem;
+  --md-sys-shape-corner-value-large: 1rem;
+  --md-sys-shape-corner-value-large-increased: 1.25rem;
+  --md-sys-shape-corner-value-extra-large: 1.75rem;
+  --md-sys-shape-corner-value-extra-large-increased: 2rem;
+  --md-sys-shape-corner-value-extra-extra-large: 3rem;
+
+  /* ── Corner roles ── */
+  --md-sys-shape-corner-full: 624.9375rem;
+  --md-sys-shape-corner-none: var(--md-sys-shape-corner-value-none);
+  --md-sys-shape-corner-extra-small: var(--md-sys-shape-corner-value-extra-small);
+  --md-sys-shape-corner-small: var(--md-sys-shape-corner-value-small);
+  --md-sys-shape-corner-medium: var(--md-sys-shape-corner-value-medium);
+  --md-sys-shape-corner-large: var(--md-sys-shape-corner-value-large);
+  --md-sys-shape-corner-large-increased: var(--md-sys-shape-corner-value-large-increased);
+  --md-sys-shape-corner-extra-large: var(--md-sys-shape-corner-value-extra-large);
+  --md-sys-shape-corner-extra-large-increased: var(
+    --md-sys-shape-corner-value-extra-large-increased
+  );
+  --md-sys-shape-corner-extra-extra-large: var(--md-sys-shape-corner-value-extra-extra-large);
+
+  /* ── Directional asymmetric corners ── */
+
+  /* Extra small */
+  --md-sys-shape-corner-extra-small-top: var(--md-sys-shape-corner-value-extra-small)
+    var(--md-sys-shape-corner-value-extra-small) var(--md-sys-shape-corner-value-none)
+    var(--md-sys-shape-corner-value-none);
+
+  /* Small (the m3e source doesn't expose small-top/end/start as separate
+     vars — only the symmetric "small". Listed for parity with M3 spec.) */
+
+  /* Large */
+  --md-sys-shape-corner-large-top: var(--md-sys-shape-corner-value-large)
+    var(--md-sys-shape-corner-value-large) var(--md-sys-shape-corner-value-none)
+    var(--md-sys-shape-corner-value-none);
+  --md-sys-shape-corner-large-end: var(--md-sys-shape-corner-value-none)
+    var(--md-sys-shape-corner-value-large) var(--md-sys-shape-corner-value-large)
+    var(--md-sys-shape-corner-value-none);
+  --md-sys-shape-corner-large-start: var(--md-sys-shape-corner-value-large)
+    var(--md-sys-shape-corner-value-none) var(--md-sys-shape-corner-value-none)
+    var(--md-sys-shape-corner-value-large);
+
+  /* Extra large */
+  --md-sys-shape-corner-extra-large-top: var(--md-sys-shape-corner-value-extra-large)
+    var(--md-sys-shape-corner-value-extra-large) var(--md-sys-shape-corner-value-none)
+    var(--md-sys-shape-corner-value-none);
+}

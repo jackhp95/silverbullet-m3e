@@ -1,0 +1,230 @@
+/*
+ * M3 system color tokens — Layer 2 of the M3 token cake.
+ *
+ * Defines:
+ *   - Surface and background tokens (--surface, --on-surface, etc.),
+ *     derived from --md-ref-palette-neutral-* with light-dark() and oklch()
+ *     calc to fill missing tones per the M3 spec tone assignments.
+ *   - --md-sys-color-* — the canonical M3 system color roles read by m3e
+ *     web components in their shadow DOM. CSS custom properties inherit
+ *     through shadow boundaries, so setting them on html makes them
+ *     available to every m3e component.
+ *
+ *
+ * M3 spec tone assignments for color roles:
+ *   Light: primary=40, on-primary=100, container=90, on-container=30
+ *   Dark:  primary=80, on-primary=20,  container=30, on-container=90
+ *
+ * M3 spec tone assignments for surfaces:
+ *   Light: surface=98, dim=87, bright=98
+ *          lowest=100, low=96, default=94, high=92, highest=90
+ *   Dark:  surface=6,  dim=6,  bright=24
+ *          lowest=4,   low=10, default=12, high=17, highest=22
+ *
+ * Some required tones (96, 94, 92, 87, 6, 12, 17, 22) are absent from
+ * the UX-provided tonal scale (which only ships 10/20/30/…/95/99/100).
+ * These are filled in via oklch(from …) relative color calc.
+ */
+
+/* html (not :root) — <m3e-theme> writes its dynamic color roles to
+   `html { ... }` via document.adoptedStyleSheets. `:root` is a pseudo-class
+   (specificity 0,0,1,0) and strictly outranks `html` (type selector 0,0,0,1),
+   so a `:root` block would permanently win over <m3e-theme>'s adopted-sheet
+   writes. Using `html` equalises specificity; adopted sheets then win by
+   source-order (they apply after regular document stylesheets). */
+html {
+  /* Declare support for both schemes; production apps can override to
+     "light" via inline style on <html> to disable the dark-mode toggle. */
+  color-scheme: light dark;
+
+  /* ════════════════════════════════════════════════════════════
+     Surface & background tokens
+
+     Non-namespaced names (--surface, --on-surface, etc.) are consumed
+     as convenience aliases. They're defined here as M3-derived and
+     bridged to --md-sys-color-* below.
+     ════════════════════════════════════════════════════════════ */
+
+  --surface: light-dark(
+    oklch(from var(--md-ref-palette-neutral-99) calc(l - 0.01) c h),
+    oklch(from var(--md-ref-palette-neutral-10) calc(l - 0.04) c h)
+  );
+  --on-surface: light-dark(var(--md-ref-palette-neutral-10), var(--md-ref-palette-neutral-90));
+
+  --surface-variant: light-dark(var(--md-ref-palette-neutral-variant-90), var(--md-ref-palette-neutral-variant-30));
+  --on-surface-variant: light-dark(
+    var(--md-ref-palette-neutral-variant-30),
+    var(--md-ref-palette-neutral-variant-80)
+  );
+
+  --surface-dim: light-dark(
+    oklch(from var(--md-ref-palette-neutral-90) calc(l - 0.03) c h),
+    oklch(from var(--md-ref-palette-neutral-10) calc(l - 0.04) c h)
+  );
+  --surface-bright: light-dark(
+    oklch(from var(--md-ref-palette-neutral-99) calc(l - 0.01) c h),
+    oklch(from var(--md-ref-palette-neutral-20) calc(l + 0.04) c h)
+  );
+
+  --surface-container-lowest: light-dark(
+    var(--md-ref-palette-neutral-100),
+    oklch(from var(--md-ref-palette-neutral-10) calc(l - 0.06) c h)
+  );
+  --surface-container-low: light-dark(
+    oklch(from var(--md-ref-palette-neutral-95) calc(l + 0.01) c h),
+    var(--md-ref-palette-neutral-10)
+  );
+  --surface-container: light-dark(
+    oklch(from var(--md-ref-palette-neutral-95) calc(l - 0.01) c h),
+    oklch(from var(--md-ref-palette-neutral-10) calc(l + 0.02) c h)
+  );
+  --surface-container-high: light-dark(
+    oklch(from var(--md-ref-palette-neutral-90) calc(l + 0.02) c h),
+    oklch(from var(--md-ref-palette-neutral-20) calc(l - 0.03) c h)
+  );
+  --surface-container-highest: light-dark(
+    var(--md-ref-palette-neutral-90),
+    oklch(from var(--md-ref-palette-neutral-20) calc(l + 0.02) c h)
+  );
+
+  --outline: light-dark(var(--md-ref-palette-neutral-variant-50), var(--md-ref-palette-neutral-variant-60));
+  --outline-variant: light-dark(var(--md-ref-palette-neutral-variant-80), var(--md-ref-palette-neutral-variant-30));
+
+  --inverse-surface: light-dark(var(--md-ref-palette-neutral-20), var(--md-ref-palette-neutral-90));
+  --inverse-on-surface: light-dark(
+    var(--md-ref-palette-neutral-95),
+    var(--md-ref-palette-neutral-20)
+  );
+
+  --background: light-dark(
+    oklch(from var(--md-ref-palette-neutral-99) calc(l - 0.01) c h),
+    oklch(from var(--md-ref-palette-neutral-10) calc(l - 0.04) c h)
+  );
+  --on-background: light-dark(var(--md-ref-palette-neutral-10), var(--md-ref-palette-neutral-90));
+
+  /* M3 spec + @m3e/web define shadow and scrim as opaque black (neutral tone 0)
+     in BOTH schemes; the alpha is applied at the usage site (elevation() mixes
+     the shadow colour with `transparent`; scrims set their own opacity). Keeping
+     these opaque — rather than baking in an alpha here — (a) matches the m3e
+     default this file bridges to (elevation.css falls back to #000000), (b) lets
+     the elevation umbra/penumbra/ambient color-mix ratios resolve correctly
+     instead of being multiplied by a second 0.15/0.32 alpha, and (c) makes the
+     Tailwind colour-opacity modifier (`bg-scrim/50`, `bg-scrim/32`) behave as
+     users expect. */
+  --shadow: #000000;
+  --scrim: #000000;
+
+  /* ════════════════════════════════════════════════════════════
+     M3E BRIDGES — --md-sys-color-* read by m3e web components
+
+     Each role references its same-named spec palette (M3 spec semantics).
+     Roles follow the M3 spec tone ladder: 40/80 for primary, 100/20 for
+     on-primary, 90/30 for container, 30/90 for on-container.
+     ════════════════════════════════════════════════════════════ */
+
+  /* Primary */
+  --md-sys-color-primary: light-dark(
+    var(--md-ref-palette-primary-40),
+    var(--md-ref-palette-primary-80)
+  );
+  --md-sys-color-on-primary: light-dark(
+    var(--md-ref-palette-primary-100),
+    var(--md-ref-palette-primary-20)
+  );
+  --md-sys-color-primary-container: light-dark(
+    var(--md-ref-palette-primary-90),
+    var(--md-ref-palette-primary-30)
+  );
+  --md-sys-color-on-primary-container: light-dark(
+    var(--md-ref-palette-primary-30),
+    var(--md-ref-palette-primary-90)
+  );
+
+  /* Secondary */
+  --md-sys-color-secondary: light-dark(
+    var(--md-ref-palette-secondary-40),
+    var(--md-ref-palette-secondary-80)
+  );
+  --md-sys-color-on-secondary: light-dark(
+    var(--md-ref-palette-secondary-100),
+    var(--md-ref-palette-secondary-20)
+  );
+  --md-sys-color-secondary-container: light-dark(
+    var(--md-ref-palette-secondary-90),
+    var(--md-ref-palette-secondary-30)
+  );
+  --md-sys-color-on-secondary-container: light-dark(
+    var(--md-ref-palette-secondary-30),
+    var(--md-ref-palette-secondary-90)
+  );
+
+  /* Tertiary */
+  --md-sys-color-tertiary: light-dark(
+    var(--md-ref-palette-tertiary-40),
+    var(--md-ref-palette-tertiary-80)
+  );
+  --md-sys-color-on-tertiary: light-dark(
+    var(--md-ref-palette-tertiary-100),
+    var(--md-ref-palette-tertiary-20)
+  );
+  --md-sys-color-tertiary-container: light-dark(
+    var(--md-ref-palette-tertiary-90),
+    var(--md-ref-palette-tertiary-30)
+  );
+  --md-sys-color-on-tertiary-container: light-dark(
+    var(--md-ref-palette-tertiary-30),
+    var(--md-ref-palette-tertiary-90)
+  );
+
+  /* Error — always red, never remapped */
+  --md-sys-color-error: light-dark(var(--md-ref-palette-error-40), var(--md-ref-palette-error-80));
+  --md-sys-color-on-error: light-dark(
+    var(--md-ref-palette-error-100),
+    var(--md-ref-palette-error-20)
+  );
+  --md-sys-color-error-container: light-dark(
+    var(--md-ref-palette-error-90),
+    var(--md-ref-palette-error-30)
+  );
+  --md-sys-color-on-error-container: light-dark(
+    var(--md-ref-palette-error-30),
+    var(--md-ref-palette-error-90)
+  );
+
+  /* Surface */
+  --md-sys-color-surface: var(--surface);
+  --md-sys-color-on-surface: var(--on-surface);
+  --md-sys-color-surface-variant: var(--surface-variant);
+  --md-sys-color-on-surface-variant: var(--on-surface-variant);
+  --md-sys-color-surface-dim: var(--surface-dim);
+  --md-sys-color-surface-bright: var(--surface-bright);
+  --md-sys-color-surface-tint: light-dark(
+    var(--md-ref-palette-primary-40),
+    var(--md-ref-palette-primary-80)
+  );
+  --md-sys-color-surface-container-lowest: var(--surface-container-lowest);
+  --md-sys-color-surface-container-low: var(--surface-container-low);
+  --md-sys-color-surface-container: var(--surface-container);
+  --md-sys-color-surface-container-high: var(--surface-container-high);
+  --md-sys-color-surface-container-highest: var(--surface-container-highest);
+
+  /* Outline */
+  --md-sys-color-outline: var(--outline);
+  --md-sys-color-outline-variant: var(--outline-variant);
+
+  /* Inverse */
+  --md-sys-color-inverse-surface: var(--inverse-surface);
+  --md-sys-color-inverse-on-surface: var(--inverse-on-surface);
+  --md-sys-color-inverse-primary: light-dark(
+    var(--md-ref-palette-primary-80),
+    var(--md-ref-palette-primary-40)
+  );
+
+  /* Background */
+  --md-sys-color-background: var(--background);
+  --md-sys-color-on-background: var(--on-background);
+
+  /* Shadow / Scrim */
+  --md-sys-color-shadow: var(--shadow);
+  --md-sys-color-scrim: var(--scrim);
+}

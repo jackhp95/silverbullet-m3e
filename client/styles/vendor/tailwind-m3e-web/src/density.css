@@ -1,0 +1,46 @@
+/*
+ * M3 density — scope utilities.
+ *
+ * Density is the ONE sys concern that a component reads at runtime rather
+ * than something Tailwind bakes into a utility value, so it is surfaced as a
+ * *scope* utility: set `--md-sys-density-scale` on an element and every
+ * @m3e/web component in its subtree recomputes its own dimensions.
+ *
+ * How @m3e/web consumes it (dist/core.js, DensityToken):
+ *   calc(minScale) → calc(max(minScale, --md-sys-density-scale) * --md-sys-density-size)
+ * i.e. each component adds a signed offset of (scale × 4px) to its base
+ * height, clamped at the densest scale that component supports (minScale).
+ *
+ *   scale  0  → default          (e.g. a 56px control stays 56px)
+ *   scale -1  → −4px per control  (compact)
+ *   scale -2  → −8px per control
+ *   scale -3  → −12px per control (densest most M3 components support)
+ *
+ * The class number is the density LEVEL (magnitude of the negative scale).
+ *
+ * Deliberately NOT wired to Tailwind's `--spacing`: M3 keeps the 4/8dp
+ * layout grid, typography, icon sizes and corner radius fixed under density —
+ * only component chrome shrinks. Rescaling `--spacing` would be a zoom, not
+ * density.
+ *
+ * Accessibility: density below 0 can push controls under the 48dp touch
+ * target, so higher density is opt-in by design — it only applies where you
+ * add the class (matching M3's "users must opt in to high density" guidance).
+ * `density-0` re-establishes default density inside a denser subtree.
+ */
+
+@utility density-0 {
+  --md-sys-density-scale: 0;
+}
+
+@utility density-1 {
+  --md-sys-density-scale: -1;
+}
+
+@utility density-2 {
+  --md-sys-density-scale: -2;
+}
+
+@utility density-3 {
+  --md-sys-density-scale: -3;
+}

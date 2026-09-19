@@ -1,0 +1,141 @@
+/*
+ * M3 elevation system tokens.
+ *
+ * 6 levels (0–5), each a three-layer box-shadow (umbra + penumbra + ambient)
+ * tinted with the shadow color and adjustable via --m3e-elevation-color.
+ *
+ * Spread parameters per level are sourced directly from m3e@2.5.6's
+ * UMBRA/PENUMBRA/AMBIENT lookup tables (dist/core.js). The color-mix
+ * ratios (20% / 14% / 12%) and color indirection chain
+ *   --m3e-elevation-color → --md-sys-color-shadow → #000000
+ * mirror m3e's `elevation(z)` helper, so values resolve identically
+ * to m3e's internal defaults.
+ *
+ * Source: node_modules/@m3e/web/dist/core.js (ElevationToken + elevation())
+ */
+
+:root {
+  --md-sys-elevation-level0:
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 20%,
+        transparent
+      )
+      0px 0px 0px 0px,
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 14%,
+        transparent
+      )
+      0px 0px 0px 0px,
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 12%,
+        transparent
+      )
+      0px 0px 0px 0px;
+
+  --md-sys-elevation-level1:
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 20%,
+        transparent
+      )
+      0px 2px 1px -1px,
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 14%,
+        transparent
+      )
+      0px 1px 1px 0px,
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 12%,
+        transparent
+      )
+      0px 1px 3px 0px;
+
+  /* level2 maps to z=3 in m3e's table — see elevation(2)→UMBRA/PENUMBRA/AMBIENT[3] */
+  --md-sys-elevation-level2:
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 20%,
+        transparent
+      )
+      0px 3px 3px -2px,
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 14%,
+        transparent
+      )
+      0px 3px 4px 0px,
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 12%,
+        transparent
+      )
+      0px 1px 8px 0px;
+
+  /* level3 maps to z=6 */
+  --md-sys-elevation-level3:
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 20%,
+        transparent
+      )
+      0px 3px 5px -1px,
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 14%,
+        transparent
+      )
+      0px 6px 10px 0px,
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 12%,
+        transparent
+      )
+      0px 1px 18px 0px;
+
+  /* level4 maps to z=8 */
+  --md-sys-elevation-level4:
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 20%,
+        transparent
+      )
+      0px 5px 5px -3px,
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 14%,
+        transparent
+      )
+      0px 8px 10px 1px,
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 12%,
+        transparent
+      )
+      0px 3px 14px 2px;
+
+  /* level5 maps to z=12 */
+  --md-sys-elevation-level5:
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 20%,
+        transparent
+      )
+      0px 7px 8px -4px,
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 14%,
+        transparent
+      )
+      0px 12px 17px 2px,
+    color-mix(
+        in srgb,
+        var(--m3e-elevation-color, var(--md-sys-color-shadow, #000000)) 12%,
+        transparent
+      )
+      0px 5px 22px 4px;
+}

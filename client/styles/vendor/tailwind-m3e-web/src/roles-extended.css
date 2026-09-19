@@ -1,0 +1,148 @@
+/*
+ * OPT-IN extension — success / info / warning semantic roles.
+ *
+ * Consumers @import this AFTER the main barrel:
+ *   @import "tailwind-m3e-web";
+ *   @import "tailwind-m3e-web/roles-extended";
+ *
+ * Defaults use fixed OKLCH hues that are widely-recognised as their
+ * respective semantic meaning:
+ *   success = hue 145°  (green)
+ *   info    = hue 240°  (blue)
+ *   warning = hue  60°  (yellow-orange)
+ *
+ * Each ships its own --md-seed-<role> and its own --md-ref-palette-<role>-N
+ * tonal scale, derived the same way as primary. Override the seed to
+ * recolour the role; override individual tones for finer control.
+ */
+
+/* Required so this file works as a standalone entry point
+   (`@import "tailwind-m3e-web/roles-extended"`). NOTE: CSS @import is NOT
+   deduplicated by Tailwind v4 — even an identical path is emitted again — so
+   when the main barrel is ALSO imported (the documented common case) this
+   tone-table `:root` block appears twice in the compiled output. That is
+   harmless (identical static constants, same specificity, so the cascade is
+   unchanged) and only costs a few duplicate bytes; it is not idempotent. */
+@import "./ref/_tone-table.css";
+
+:where(:root) {
+  --md-seed-success: oklch(0.6 0.15 145);
+  --md-seed-info: oklch(0.6 0.15 240);
+  --md-seed-warning: oklch(0.7 0.15 60);
+
+  /* success tones */
+  --md-ref-palette-success-10: oklch(from var(--md-seed-success) var(--_m3e-tone-10-rich) c h);
+  --md-ref-palette-success-20: oklch(from var(--md-seed-success) var(--_m3e-tone-20-rich) c h);
+  --md-ref-palette-success-30: oklch(from var(--md-seed-success) var(--_m3e-tone-30-rich) c h);
+  --md-ref-palette-success-40: oklch(from var(--md-seed-success) var(--_m3e-tone-40-rich) c h);
+  --md-ref-palette-success-50: oklch(from var(--md-seed-success) var(--_m3e-tone-50-rich) c h);
+  --md-ref-palette-success-60: oklch(from var(--md-seed-success) var(--_m3e-tone-60-rich) c h);
+  --md-ref-palette-success-70: oklch(from var(--md-seed-success) var(--_m3e-tone-70-rich) c h);
+  --md-ref-palette-success-80: oklch(from var(--md-seed-success) var(--_m3e-tone-80-rich) c h);
+  --md-ref-palette-success-90: oklch(from var(--md-seed-success) var(--_m3e-tone-90-rich) c h);
+  --md-ref-palette-success-95: oklch(from var(--md-seed-success) var(--_m3e-tone-95-rich) c h);
+  --md-ref-palette-success-99: oklch(from var(--md-seed-success) var(--_m3e-tone-99-rich) c h);
+  --md-ref-palette-success-100: oklch(from var(--md-seed-success) var(--_m3e-tone-100-rich) c h);
+
+  /* info tones — same pattern */
+  --md-ref-palette-info-10: oklch(from var(--md-seed-info) var(--_m3e-tone-10-rich) c h);
+  --md-ref-palette-info-20: oklch(from var(--md-seed-info) var(--_m3e-tone-20-rich) c h);
+  --md-ref-palette-info-30: oklch(from var(--md-seed-info) var(--_m3e-tone-30-rich) c h);
+  --md-ref-palette-info-40: oklch(from var(--md-seed-info) var(--_m3e-tone-40-rich) c h);
+  --md-ref-palette-info-50: oklch(from var(--md-seed-info) var(--_m3e-tone-50-rich) c h);
+  --md-ref-palette-info-60: oklch(from var(--md-seed-info) var(--_m3e-tone-60-rich) c h);
+  --md-ref-palette-info-70: oklch(from var(--md-seed-info) var(--_m3e-tone-70-rich) c h);
+  --md-ref-palette-info-80: oklch(from var(--md-seed-info) var(--_m3e-tone-80-rich) c h);
+  --md-ref-palette-info-90: oklch(from var(--md-seed-info) var(--_m3e-tone-90-rich) c h);
+  --md-ref-palette-info-95: oklch(from var(--md-seed-info) var(--_m3e-tone-95-rich) c h);
+  --md-ref-palette-info-99: oklch(from var(--md-seed-info) var(--_m3e-tone-99-rich) c h);
+  --md-ref-palette-info-100: oklch(from var(--md-seed-info) var(--_m3e-tone-100-rich) c h);
+
+  /* warning tones */
+  --md-ref-palette-warning-10: oklch(from var(--md-seed-warning) var(--_m3e-tone-10-rich) c h);
+  --md-ref-palette-warning-20: oklch(from var(--md-seed-warning) var(--_m3e-tone-20-rich) c h);
+  --md-ref-palette-warning-30: oklch(from var(--md-seed-warning) var(--_m3e-tone-30-rich) c h);
+  --md-ref-palette-warning-40: oklch(from var(--md-seed-warning) var(--_m3e-tone-40-rich) c h);
+  --md-ref-palette-warning-50: oklch(from var(--md-seed-warning) var(--_m3e-tone-50-rich) c h);
+  --md-ref-palette-warning-60: oklch(from var(--md-seed-warning) var(--_m3e-tone-60-rich) c h);
+  --md-ref-palette-warning-70: oklch(from var(--md-seed-warning) var(--_m3e-tone-70-rich) c h);
+  --md-ref-palette-warning-80: oklch(from var(--md-seed-warning) var(--_m3e-tone-80-rich) c h);
+  --md-ref-palette-warning-90: oklch(from var(--md-seed-warning) var(--_m3e-tone-90-rich) c h);
+  --md-ref-palette-warning-95: oklch(from var(--md-seed-warning) var(--_m3e-tone-95-rich) c h);
+  --md-ref-palette-warning-99: oklch(from var(--md-seed-warning) var(--_m3e-tone-99-rich) c h);
+  --md-ref-palette-warning-100: oklch(from var(--md-seed-warning) var(--_m3e-tone-100-rich) c h);
+
+  /* sys-color extensions for success/info/warning, mirroring M3's light-dark
+     tone assignments for primary (40/100/90/10 light, 80/20/30/90 dark). */
+  --md-sys-color-success: light-dark(var(--md-ref-palette-success-40), var(--md-ref-palette-success-80));
+  --md-sys-color-on-success: light-dark(var(--md-ref-palette-success-100), var(--md-ref-palette-success-20));
+  --md-sys-color-success-container: light-dark(var(--md-ref-palette-success-90), var(--md-ref-palette-success-30));
+  --md-sys-color-on-success-container: light-dark(var(--md-ref-palette-success-10), var(--md-ref-palette-success-90));
+
+  --md-sys-color-info: light-dark(var(--md-ref-palette-info-40), var(--md-ref-palette-info-80));
+  --md-sys-color-on-info: light-dark(var(--md-ref-palette-info-100), var(--md-ref-palette-info-20));
+  --md-sys-color-info-container: light-dark(var(--md-ref-palette-info-90), var(--md-ref-palette-info-30));
+  --md-sys-color-on-info-container: light-dark(var(--md-ref-palette-info-10), var(--md-ref-palette-info-90));
+
+  --md-sys-color-warning: light-dark(var(--md-ref-palette-warning-40), var(--md-ref-palette-warning-80));
+  --md-sys-color-on-warning: light-dark(var(--md-ref-palette-warning-100), var(--md-ref-palette-warning-20));
+  --md-sys-color-warning-container: light-dark(var(--md-ref-palette-warning-90), var(--md-ref-palette-warning-30));
+  --md-sys-color-on-warning-container: light-dark(var(--md-ref-palette-warning-10), var(--md-ref-palette-warning-90));
+}
+
+@theme {
+  --color-success: var(--md-sys-color-success);
+  --color-on-success: var(--md-sys-color-on-success);
+  --color-success-container: var(--md-sys-color-success-container);
+  --color-on-success-container: var(--md-sys-color-on-success-container);
+
+  --color-info: var(--md-sys-color-info);
+  --color-on-info: var(--md-sys-color-on-info);
+  --color-info-container: var(--md-sys-color-info-container);
+  --color-on-info-container: var(--md-sys-color-on-info-container);
+
+  --color-warning: var(--md-sys-color-warning);
+  --color-on-warning: var(--md-sys-color-on-warning);
+  --color-warning-container: var(--md-sys-color-warning-container);
+  --color-on-warning-container: var(--md-sys-color-on-warning-container);
+
+  /* tonal namespaces — bg-success-40, bg-info-80, bg-warning-90, etc. */
+  --color-success-10: var(--md-ref-palette-success-10);
+  --color-success-20: var(--md-ref-palette-success-20);
+  --color-success-30: var(--md-ref-palette-success-30);
+  --color-success-40: var(--md-ref-palette-success-40);
+  --color-success-50: var(--md-ref-palette-success-50);
+  --color-success-60: var(--md-ref-palette-success-60);
+  --color-success-70: var(--md-ref-palette-success-70);
+  --color-success-80: var(--md-ref-palette-success-80);
+  --color-success-90: var(--md-ref-palette-success-90);
+  --color-success-95: var(--md-ref-palette-success-95);
+  --color-success-99: var(--md-ref-palette-success-99);
+  --color-success-100: var(--md-ref-palette-success-100);
+
+  --color-info-10: var(--md-ref-palette-info-10);
+  --color-info-20: var(--md-ref-palette-info-20);
+  --color-info-30: var(--md-ref-palette-info-30);
+  --color-info-40: var(--md-ref-palette-info-40);
+  --color-info-50: var(--md-ref-palette-info-50);
+  --color-info-60: var(--md-ref-palette-info-60);
+  --color-info-70: var(--md-ref-palette-info-70);
+  --color-info-80: var(--md-ref-palette-info-80);
+  --color-info-90: var(--md-ref-palette-info-90);
+  --color-info-95: var(--md-ref-palette-info-95);
+  --color-info-99: var(--md-ref-palette-info-99);
+  --color-info-100: var(--md-ref-palette-info-100);
+
+  --color-warning-10: var(--md-ref-palette-warning-10);
+  --color-warning-20: var(--md-ref-palette-warning-20);
+  --color-warning-30: var(--md-ref-palette-warning-30);
+  --color-warning-40: var(--md-ref-palette-warning-40);
+  --color-warning-50: var(--md-ref-palette-warning-50);
+  --color-warning-60: var(--md-ref-palette-warning-60);
+  --color-warning-70: var(--md-ref-palette-warning-70);
+  --color-warning-80: var(--md-ref-palette-warning-80);
+  --color-warning-90: var(--md-ref-palette-warning-90);
+  --color-warning-95: var(--md-ref-palette-warning-95);
+  --color-warning-99: var(--md-ref-palette-warning-99);
+  --color-warning-100: var(--md-ref-palette-warning-100);
+}
