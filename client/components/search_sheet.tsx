@@ -3,6 +3,7 @@ import { Input } from "@silverbulletmd/silverbullet/ui";
 import "@m3e/web/bottom-sheet"; // registers m3e-bottom-sheet
 import "@m3e/web/search"; // registers m3e-search-view (+ m3e-search-bar)
 import "@m3e/web/list"; // registers m3e-list / m3e-list-item
+import "@m3e/web/divider"; // registers m3e-divider (mode-picker row separators)
 import "@m3e/web/icon-button"; // registers m3e-icon-button
 import "@m3e/web/icon"; // registers m3e-icon
 import "./m3e-jsx.d.ts";
@@ -209,6 +210,16 @@ export function SearchSheet({
   const inputRef = useRef<HTMLInputElement>(null);
   const sheetRef = useRef<HTMLElement>(null);
   const searchViewRef = useRef<HTMLElement>(null);
+  // The mode trigger icon-button renders twice (open-leading/closed-leading,
+  // see modeTrigger's comment below) but only one copy is ever in the DOM at
+  // a time, so a single ref updated by both instances' callback-ref always
+  // points at whichever one is live — used to anchor the relocated mode-
+  // picker popup (below) to the trigger's real screen position.
+  const modeTriggerRef = useRef<HTMLElement | null>(null);
+  const modeListRef = useRef<HTMLElement>(null);
+  const [pickerPos, setPickerPos] = useState<{ top: number; left: number } | null>(
+    null,
+  );
 
   // Same m3e-bottom-sheet `handle` workaround item_capture_sheet.tsx
   // documented + verified: `handle` gates the drag dimple + slot="header" via
@@ -374,6 +385,67 @@ export function SearchSheet({
     setSelectedIndex(0);
   }, [mode, query]);
 
+  // Mode-picker relocation (Jack's live-testing follow-up to feedback #1):
+  // the `m3e-list` mode picker previously rendered INSIDE `m3e-search-view`'s
+  // results slot, which forced it to look like — and occupy the layout space
+  // of — the search-view's own rounded, elevated results card. It's now a
+  // sibling overlay near the sheet root (see the render below), popover-
+  // promoted via the native CSS Popover API (`popover="auto"`) so it opens
+  // in the top layer above the modal bottom sheet and gets free light-
+  // dismiss (outside click / Escape) + focus semantics for free, and
+  // positioned with a plain `getBoundingClientRect()` snapshot rather than
+  // CSS anchor positioning (`anchor()`/`position-anchor`): grepping this
+  // repo turned up zero existing `anchor(`/anchor-positioning usage to
+  // extend, and this file already has a documented, proven precedent for
+  // exactly this kind of ref-effect measurement workaround (the `detents`
+  // fix above) — reusing that pattern is more consistent with the codebase
+  // than introducing a second, still Safari-recent (26+) positioning
+  // mechanism for one popup. Recomputed on every open (not persisted) since
+  // the trigger's screen position can change (e.g. viewport resize) between
+  // opens.
+  useEffect(() => {
+    const listEl = modeListRef.current;
+    if (!listEl) {
+      return;
+    }
+    if (modePickerOpen) {
+      const trigger = modeTriggerRef.current;
+      if (trigger) {
+        const rect = trigger.getBoundingClientRect();
+        setPickerPos({ top: rect.bottom + 4, left: rect.left });
+      }
+      if (!listEl.hasAttribute("popover")) {
+        // Popover API not supported — the picker still renders (as a plain
+        // fixed-position sibling), just without top-layer promotion.
+        return;
+      }
+      (listEl as unknown as { showPopover: () => void }).showPopover();
+    } else if (listEl.hasAttribute("popover")) {
+      (listEl as unknown as { hidePopover: () => void }).hidePopover();
+    }
+  }, [modePickerOpen]);
+
+  // The popover's own light-dismiss (outside click, Escape) fires a native
+  // `toggle` event rather than going through our click handlers — sync
+  // `modePickerOpen` off that so the trigger icon and keyboard handling
+  // (the Escape branch in the input's onKeyDown below) stay in agreement
+  // with the popover's actual open state. Same rationale as the sheet's own
+  // `cancel`-event sync above.
+  useEffect(() => {
+    const listEl = modeListRef.current;
+    if (!listEl) {
+      return;
+    }
+    const handler = (e: Event) => {
+      const state = (e as ToggleEvent).newState;
+      if (state === "closed") {
+        setModePickerOpen(false);
+      }
+    };
+    listEl.addEventListener("toggle", handler);
+    return () => listEl.removeEventListener("toggle", handler);
+  }, []);
+
   const trimmedQuery = query.trim();
   const isEmpty = trimmedQuery === "";
 
@@ -467,6 +539,9 @@ export function SearchSheet({
   // #1), not an `m3e-menu` popup.
   const modeTrigger = () => (
     <m3e-icon-button
+      ref={(el: HTMLElement | null) => {
+        modeTriggerRef.current = el;
+      }}
       title="Change search mode"
       aria-label="Change search mode"
       onClick={() => setModePickerOpen((v) => !v)}
@@ -476,6 +551,7 @@ export function SearchSheet({
   );
 
   return (
+    <>
     <m3e-bottom-sheet
       id="sb-search-sheet"
       ref={sheetRef}
@@ -541,38 +617,7 @@ export function SearchSheet({
             }
           }}
         />
-        {/* Mode picker (feedback #1): an `m3e-list` of `m3e-list-item`s, not
-            a floating `m3e-menu`/dropdown. Rendered in the same results slot
-            the history/results list uses below — toggled by `modeTrigger`'s
-            click, closed again by picking a mode. This sidesteps the
-            InertController hit-test hazard V12 found for a floating popup
-            menu nested here (see that fix's git history): it's normal
-            slotted content, not a top-layer popover, so it was never at
-            risk of being inerted by `m3e-search-view`'s own docked-open
-            lock in the first place. */}
-        {modePickerOpen
-          ? (
-            <m3e-list class="sb-search-sheet-mode-list" tabIndex={-1}>
-              {MODE_ORDER.map((m) => (
-                <m3e-list-item
-                  key={m}
-                  class={m === mode ? "sb-option sb-selected-option" : "sb-option"}
-                  onClick={() => {
-                    setMode(m);
-                    setModePickerOpen(false);
-                    refocus();
-                  }}
-                >
-                  <m3e-icon slot="leading" name={MODE_ICON[m]}></m3e-icon>
-                  {MODE_LABEL[m]}
-                  {m === mode && (
-                    <m3e-icon slot="trailing" name="check"></m3e-icon>
-                  )}
-                </m3e-list-item>
-              ))}
-            </m3e-list>
-          )
-          : visible.length === 0
+        {visible.length === 0
           ? (
             <div class="sb-search-sheet-empty">
               {isEmpty ? MODE_EMPTY_MESSAGE[mode] : "No results"}
@@ -597,5 +642,46 @@ export function SearchSheet({
           )}
       </m3e-search-view>
     </m3e-bottom-sheet>
+    {/* Mode picker (feedback #1, relocated): an `m3e-list` of
+        `m3e-list-item`s, not a floating `m3e-menu`/dropdown. Rendered here
+        as a SIBLING of the sheet — not nested under `m3e-search-view` — so
+        it isn't captured by that element's InertController docked-open
+        lock and doesn't consume the results slot's layout space (that was
+        the bug: it used to render inside the results slot and inherit the
+        search-view's own rounded, elevated results-card look). Popover-
+        promoted + positioned by the ref effect above; toggled by
+        `modeTrigger`'s click, closed again by picking a mode or by the
+        popover's own light-dismiss. */}
+    <m3e-list
+      ref={modeListRef}
+      popover="auto"
+      class="sb-search-sheet-mode-list"
+      tabIndex={-1}
+      style={pickerPos
+        ? `position: fixed; top: ${pickerPos.top}px; left: ${pickerPos.left}px; margin: 0;`
+        : "position: fixed; margin: 0;"}
+    >
+      {MODE_ORDER.map((m, i) => (
+        <>
+          {i > 0 && <m3e-divider key={`div-${m}`}></m3e-divider>}
+          <m3e-list-item
+            key={m}
+            class={m === mode ? "sb-option sb-selected-option" : "sb-option"}
+            onClick={() => {
+              setMode(m);
+              setModePickerOpen(false);
+              refocus();
+            }}
+          >
+            <m3e-icon slot="leading" name={MODE_ICON[m]}></m3e-icon>
+            {MODE_LABEL[m]}
+            {m === mode && (
+              <m3e-icon slot="trailing" name="check"></m3e-icon>
+            )}
+          </m3e-list-item>
+        </>
+      ))}
+    </m3e-list>
+    </>
   );
 }

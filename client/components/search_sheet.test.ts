@@ -161,11 +161,24 @@ test("renders a modal m3e-bottom-sheet with the search-view inside", () => {
   expect(html).toContain("m3e-search-view");
 });
 
-test("the mode picker is NOT rendered by default (m3e-list toggled by the mode icon, not an open m3e-menu)", () => {
+test("the mode picker is a closed popover by default (m3e-list toggled by the mode icon, not an open m3e-menu)", () => {
   const html = renderSheet();
-  // Mode picker only appears once toggled open (interactive — see
-  // e2e/search-sheet.test.ts); the default render shows history/results.
-  expect(html).not.toContain("sb-search-sheet-mode-list");
+  // Mode-picker relocation fix: the picker is now a sibling `m3e-list`
+  // outside `m3e-search-view`, always mounted (so the popover-positioning
+  // ref effect has a stable element to anchor), but closed by default via
+  // the native Popover API (`popover="auto"`, not shown until
+  // `showPopover()` is called by the mode-icon click) rather than being
+  // conditionally absent from the render tree — see
+  // e2e/search-sheet.test.ts for the live open/close interaction and the
+  // author-CSS `:not(:popover-open) { display: none }` override this
+  // relies on (search_sheet.test.ts can't assert the runtime popover-open
+  // state itself; there's no static/SSR marker for it).
+  expect(html).toContain("sb-search-sheet-mode-list");
+  expect(html).toContain('popover="auto"');
+  // Still not nested under the search-view's results slot.
+  const searchViewEnd = html.indexOf("</m3e-search-view>");
+  const modeListStart = html.indexOf("sb-search-sheet-mode-list");
+  expect(modeListStart).toBeGreaterThan(searchViewEnd);
 });
 
 test("NO m3e-menu / m3e-menu-item-radio anywhere in the composition (feedback #1: m3e-list, not a dropdown menu)", () => {

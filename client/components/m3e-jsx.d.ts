@@ -22,9 +22,24 @@ type M3eSearchViewAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
 
 type M3eListAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   variant?: "standard" | "segmented";
+  // Native global `popover` attribute (not an @m3e/web-specific prop) — used
+  // by search_sheet.tsx's relocated mode-picker popup (mode-picker
+  // relocation fix) to promote the list to the top layer via the CSS
+  // Popover API. Preact's HTMLAttributes doesn't type this global attribute
+  // yet, so it's added here rather than reaching for an `any` escape hatch.
+  popover?: "auto" | "manual" | "";
 };
 
 type M3eListItemAttributes = PreactJSX.HTMLAttributes<HTMLElement>;
+
+// m3e-divider: used as a row separator inside search_sheet.tsx's relocated
+// mode-picker popup. See @m3e/web/divider card / DividerElement.ts.
+type M3eDividerAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  inset?: boolean;
+  "inset-start"?: boolean;
+  "inset-end"?: boolean;
+  vertical?: boolean;
+};
 
 // m3e-search-bar: search_sheet.tsx's (client/components/search_sheet.tsx,
 // L10) query input chrome. See @m3e/web/search card / SearchBarElement.ts —
@@ -537,6 +552,7 @@ interface M3eIntrinsicElements {
   "m3e-search-view": M3eSearchViewAttributes;
   "m3e-list": M3eListAttributes;
   "m3e-list-item": M3eListItemAttributes;
+  "m3e-divider": M3eDividerAttributes;
   "m3e-switch": M3eSwitchAttributes;
   "m3e-search-bar": M3eSearchBarAttributes;
   "m3e-autocomplete": M3eAutocompleteAttributes;

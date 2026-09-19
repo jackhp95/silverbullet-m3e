@@ -46,17 +46,20 @@ function modeTrigger(sbPage: Page) {
 }
 
 /**
- * The mode picker (live-testing feedback #1) is a plain `m3e-list` rendered
- * in place of the results list, not a floating `m3e-menu` popup — so
- * switching mode is just: click the trigger to swap the results slot for
- * the picker, click the target row.
+ * The mode picker (live-testing feedback #1, relocated by the mode-picker
+ * relocation fix) is a plain `m3e-list`, not a floating `m3e-menu` popup —
+ * but it is now a SIBLING of `#sb-search-sheet` (popover-promoted, anchored
+ * to the trigger's live position), not nested inside it, so it isn't
+ * captured by `m3e-search-view`'s InertController docked-open lock (the
+ * exact hazard the skip note below used to document). Switching mode is:
+ * click the trigger to open the popover, click the target row.
  */
 async function switchMode(
   sbPage: Page,
   mode: "Search" | "Open" | "Run",
 ): Promise<void> {
   await modeTrigger(sbPage).click();
-  const list = sbPage.locator("#sb-search-sheet .sb-search-sheet-mode-list");
+  const list = sbPage.locator("m3e-list.sb-search-sheet-mode-list");
   await expect(list).toBeVisible();
   await list.locator("m3e-list-item", { hasText: mode }).click();
 }
@@ -85,22 +88,27 @@ test.describe("Search sheet (client/components/search_sheet.tsx, V6)", () => {
   // Feedback #1: the mode picker is an `m3e-list` of `m3e-list-item`s, not a
   // dropdown/menu — supersedes the old `m3e-menu`/`m3e-menu-item-radio`
   // picker V6/V12 shipped (see git history for that prior approach).
-  // TODO(flaky): the `modeTrigger(sbPage).click()` step intermittently times
-  // out under Playwright with "element is outside of the viewport" /
-  // "#sb-search-sheet intercepts pointer events", not reproduced via a
-  // one-off manual Playwright script driving the same live server (that
-  // script observed the trigger fully in-viewport and clickable, mode list
-  // rendering correctly with 3 items). Root cause not yet isolated — do not
-  // re-investigate inline; needs a dedicated pass (possibly viewport-size or
-  // fixture-timing dependent). Manually verified live via screenshots
-  // instead (see task report) pending this test's fix.
+  // Re-tried after the mode-picker relocation fix (moving the picker to a
+  // popover-promoted sibling of `#sb-search-sheet`, out from under
+  // `m3e-search-view`'s InertController): still times out on
+  // `modeTrigger(sbPage).click()`, but the live page snapshot captured on
+  // failure shows a DIFFERENT, previously-unsuspected cause — the
+  // `client/components/navigation_sheet.tsx` Navigation bottom sheet is
+  // simultaneously present in the DOM (a second `dialog` alongside the
+  // search sheet's own) in this fixture, and is very likely what's
+  // intercepting the click, not the InertController hazard this skip
+  // originally documented. Left skipped rather than shipped flaky/red —
+  // fixing navigation_sheet.tsx's own stacking is outside this fix's scope
+  // (mode-picker relocation + divider insertion + gray-input override +
+  // detents verification); flagged for a dedicated follow-up pass instead
+  // of a speculative inline fix.
   test.skip("the mode picker is an m3e-list with exactly 3 items (Search / Open / Run), no m3e-menu anywhere", async ({
     sbPage,
   }) => {
     await openSearchSheet(sbPage);
     await modeTrigger(sbPage).click();
 
-    const list = sbPage.locator("#sb-search-sheet .sb-search-sheet-mode-list");
+    const list = sbPage.locator("m3e-list.sb-search-sheet-mode-list");
     await expect(list).toBeVisible();
     expect(await list.evaluate((el) => el.tagName.toLowerCase())).toBe(
       "m3e-list",
@@ -195,8 +203,9 @@ test.describe("Search sheet (client/components/search_sheet.tsx, V6)", () => {
     expect(["fixed", "sticky"]).not.toContain(await readPosition());
   });
 
-  // TODO(flaky): depends on switchMode()'s modeTrigger click — see the
-  // skip note above on "the mode picker is an m3e-list...".
+  // Still skipped — see the skip note above on "the mode picker is an
+  // m3e-list..."; switchMode()'s modeTrigger click times out for the same
+  // (now better-understood, still out-of-scope) reason.
   test.skip("selecting Search switches the placeholder and results source live", async ({
     sbPage,
   }) => {
@@ -223,8 +232,9 @@ test.describe("Search sheet (client/components/search_sheet.tsx, V6)", () => {
     await expect(sbPage.locator("m3e-autocomplete")).toHaveCount(0);
   });
 
-  // TODO(flaky): depends on switchMode()'s modeTrigger click — see the
-  // skip note above on "the mode picker is an m3e-list...".
+  // Still skipped — see the skip note above on "the mode picker is an
+  // m3e-list..."; switchMode()'s modeTrigger click times out for the same
+  // (now better-understood, still out-of-scope) reason.
   test.skip("submitting a Search-mode term calls recordSearchTerm and it resurfaces as history on reopen", async ({
     sbPage,
   }) => {

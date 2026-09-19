@@ -199,6 +199,44 @@ m3e-search-view.sb-modal-box {
 // (live-testing feedback #4). `.sb-search-sheet-mode-list` (the feedback #1
 // mode-picker list) reuses the same `.sb-option`/`.sb-selected-option` row
 // treatment via nav_list_row.tsx's shared class names.
+// The relocated mode-picker popup (search_sheet.tsx, mode-picker relocation
+// fix): a plain `m3e-list` promoted to the top layer via the native
+// `popover="auto"` attribute so it escapes the modal bottom sheet's own
+// stacking context and gets free light-dismiss. The UA popover stylesheet
+// (`[popover]:popover-open`) imposes its own `border`/`padding`/
+// `background-color: canvas`/centering `margin: auto` — reset those so the
+// element reads as an m3e surface, not a plain browser popup box; position
+// itself (`position: fixed; top/left`) is set inline per-open by the ref
+// effect in search_sheet.tsx since it depends on the trigger's live
+// bounding rect.
+.sb-search-sheet-mode-list {
+  border: none;
+  padding: 0;
+  min-width: 200px;
+  max-width: 280px;
+  background-color: var(--modal-background-color);
+  border-radius: 8px;
+  box-shadow: var(--modal-elevation-shadow, 0 2px 8px rgba(0, 0, 0, 0.3));
+  overflow: hidden;
+
+  // `m3e-list`'s own shadow-DOM `:host { display: flex; }` is author-origin
+  // CSS, which outranks the UA popover stylesheet's `[popover]:not(
+  // :popover-open) { display: none }` (a UA-origin rule, lowest cascade
+  // tier) — live-verified: without this, the closed popover was still
+  // visible (unpositioned, top-of-flow) on first sheet-open, before ever
+  // being toggled. Reassert the hide ourselves at author level so `display:
+  // none` actually wins while closed.
+  &:not(:popover-open) {
+    display: none;
+  }
+
+  &::backdrop {
+    // popover="auto" backdrops are transparent by default anyway; explicit
+    // for clarity — this is a small anchored menu, not a scrimmed modal.
+    background-color: transparent;
+  }
+}
+
 .sb-search-sheet-view {
   display: flex;
   flex-direction: column;
