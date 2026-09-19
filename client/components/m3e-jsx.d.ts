@@ -177,6 +177,18 @@ type M3eMenuItemAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   target?: "_self" | "_blank" | "_parent" | "_top" | (string & {});
 };
 
+// A menu item carrying mutually exclusive checkable state — the search
+// sheet's Search/Open/Run mode picker (client/components/search_sheet.tsx).
+// Same attribute surface as m3e-menu-item minus the link attributes (the CEM
+// gives MenuItemRadioElement only `disabled` + `checked`), so it is declared
+// separately rather than aliased to M3eMenuItemAttributes.
+type M3eMenuItemRadioAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  /** @default false */
+  disabled?: boolean;
+  /** @default false */
+  checked?: boolean;
+};
+
 type M3eMenuTriggerAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   for?: string | null;
 };
@@ -563,6 +575,7 @@ interface M3eIntrinsicElements {
   "m3e-icon": M3eIconAttributes;
   "m3e-menu": M3eMenuAttributes;
   "m3e-menu-item": M3eMenuItemAttributes;
+  "m3e-menu-item-radio": M3eMenuItemRadioAttributes;
   "m3e-menu-trigger": M3eMenuTriggerAttributes;
   "m3e-toolbar": M3eToolbarAttributes;
   "m3e-bottom-sheet": M3eBottomSheetAttributes;

@@ -3,7 +3,7 @@ import { Input } from "@silverbulletmd/silverbullet/ui";
 import "@m3e/web/bottom-sheet"; // registers m3e-bottom-sheet
 import "@m3e/web/search"; // registers m3e-search-bar (+ m3e-search-view)
 import "@m3e/web/list"; // registers m3e-list / m3e-list-item
-import "@m3e/web/toolbar"; // registers m3e-toolbar (mode switcher)
+import "@m3e/web/menu"; // registers m3e-menu / m3e-menu-item-radio / m3e-menu-trigger
 import "@m3e/web/icon-button"; // registers m3e-icon-button
 import "@m3e/web/icon"; // registers m3e-icon
 import "./m3e-jsx.d.ts";
@@ -35,14 +35,17 @@ import {
 // Search bottom sheet (spec docs/plans/2026-09-17-vertical-toolbar-search-nav-
 // redesign-spec.md §2.4, leaf V6; mode-picker superseded post-spec by Jack's
 // live-testing feedback — see the mode-model comment below). A modal
-// `m3e-bottom-sheet` hosting, as three direct children: a title in
-// `slot="header"` naming the active mode, an `m3e-search-bar` (with an
-// `Input` in its `slot="input"`), an `m3e-list` of `NavListRow`s, and a
-// floating icon-only `m3e-toolbar` mode switcher pinned to its bottom edge:
+// `m3e-bottom-sheet` hosting, as direct children: a title in `slot="header"`
+// naming the active mode, an `m3e-search-bar` (with an `Input` in its
+// `slot="input"` and the mode-picker icon button in its `slot="leading"`), an
+// `m3e-list` of `NavListRow`s, and the `m3e-menu` that picker opens:
 // query-empty renders per-mode history, a typed query renders per-mode live
-// results. THE WHOLE POINT of the redesign is that results live inside the
-// sheet — there is NO `m3e-autocomplete`/dropdown anywhere in this
+// results. THE WHOLE POINT of the redesign is that RESULTS live inside the
+// sheet — there is NO `m3e-autocomplete`/result-dropdown anywhere in this
 // composition (that was the exact defect class prior attempts shipped, §1.4).
+// The mode MENU is not that defect and not an exception to it: it is a
+// three-item mode picker that the user opens deliberately, never an
+// auto-opening list of search results.
 //
 // Mode logic is NOT reimplemented here — it is imported from
 // client/components/search_modes.ts (leaf V2, already merged), the single
@@ -61,21 +64,43 @@ import {
 
 // --- mode model (spec §2.4) ----------------------------------------------
 //
-// There is NO mode *picker* any more. Three successive attempts at one — an
-// `m3e-menu`/`m3e-menu-item-radio` popup (V6/V12), an inline `m3e-list` in
-// the results slot (feedback #1), and a `popover="auto"` anchored
-// `m3e-list` with dividers — all failed the same live-testing bar: each
-// still read as a dropdown/menu rather than a plain divided list, and each
-// needed a leading trigger icon in the search bar that left dead space
-// beside the search-view's own built-in magnifier.
+// The mode picker is the search bar's LEADING ICON BUTTON, which opens a real
+// `m3e-menu` of the three modes (Jack's round-3 direction, reversing round 2's
+// floating bottom toolbar — that toolbar idiom moved to `navigation_sheet.tsx`,
+// where it replaced tabs, which is what it was actually wanted for).
 //
-// Replaced (Jack's round-2 direction) by a mode SWITCHER with no popup at
-// all: a floating icon-only `m3e-toolbar` pinned to the bottom of the
-// sheet, one icon-button per mode, with the ACTIVE mode named in the
-// sheet's own `slot="header"` title rather than by a check-mark row. All
-// three modes are therefore always one click away and always visible —
-// strictly fewer interaction steps than any of the pickers, and no
-// anchored-popup positioning machinery to get wrong. See the render below.
+// Why the real `m3e-menu` works now, where V6/V12's attempt did not: back then
+// the bar was `m3e-search-view mode="docked"`, whose InertController marks its
+// whole subtree inert while docked-open, so a nested menu was unclickable and
+// prior rounds reached for a `popover="auto"` `m3e-list` hack instead. The
+// search-view is gone (replaced by `m3e-search-bar`, which has no state machine
+// and no inerting), so the semantically-correct component is available again
+// and the hack is deleted rather than carried.
+//
+// Composition, verified against the decompiled
+// node_modules/@m3e/web/dist/menu.js rather than assumed:
+//   * `M3eMenuTriggerElement` extends `ActionElementBase`, whose
+//     `connectedCallback` binds its click handler to `this.parentElement` — NOT
+//     to itself. An EMPTY `<m3e-menu-trigger>` nested in the icon-button
+//     therefore makes the whole button the trigger, and `_onClick` calls
+//     `menu.toggle(this.parentElement)`, anchoring the menu to the button.
+//   * That empty-trigger form matters: the trigger renders `<slot>`, so an
+//     `<m3e-icon>` placed INSIDE it would be a grandchild of the icon-button
+//     and would never be assigned to the button's own default slot. The icon is
+//     a separate direct child of the button for that reason.
+//   * `attach()` sets `aria-haspopup="menu"` / `aria-expanded` / `aria-controls`
+//     on the parent button for us — no hand-rolled ARIA here.
+//   * The menu promotes itself to the top layer via the native popover API
+//     (`showPopover`, dist/menu.js:608), so it is nested inside the sheet —
+//     a sibling would be inerted by the modal sheet's own scrim/inert handling,
+//     while a top-layer popover is unaffected by being nested.
+//
+// The ACTIVE mode is shown two ways, neither of them a check-mark-only
+// affordance: the sheet's own `slot="header"` title (Search/Open/Run) and the
+// leading button's icon, which is the active mode's icon. Inside the menu,
+// `m3e-menu-item-radio checked` carries the selection semantically — these are
+// mutually exclusive modes, which is exactly what the radio item variant is
+// for.
 
 export type SearchMode = "search" | "open" | "run";
 
@@ -420,11 +445,12 @@ export function SearchSheet({
       // of a hardcoded `50vh` that would drift from the component's own
       // metrics.
     >
-      {/* The sheet's own `slot="header"` title IS the active-mode indicator
-          (replacing the removed mode-picker list's check-mark row): picking a
-          mode in the bottom toolbar below retitles the sheet Search/Open/Run.
-          The header region is gated behind the sheet's `[handle]` CSS
-          attribute selector, which the ref effect above already forces on. */}
+      {/* The sheet's own `slot="header"` title is the always-visible
+          active-mode indicator: picking a mode in the leading button's menu
+          retitles the sheet Search/Open/Run, so the current mode is legible
+          without reopening the menu. The header region is gated behind the
+          sheet's `[handle]` CSS attribute selector, which the ref effect above
+          already forces on. */}
       <span slot="header">{MODE_LABEL[mode]}</span>
       {/* `m3e-search-bar`, NOT `m3e-search-view mode="docked" contained`.
           The search-view was the wrong primitive here and was silently
@@ -450,14 +476,26 @@ export function SearchSheet({
           icon while open. No docked mode, no popover promotion, no drift,
           no back-arrow — so no shadow patching. */}
       <m3e-search-bar class="sb-search-sheet-bar">
-        {/* The bar has no built-in leading icon of its own (that was the
-            search-VIEW's), so the magnifier is ours now, slotted explicitly.
-            Nothing else is in this slot: the mode switcher is the bottom
-            toolbar below, not a leading trigger. The old trigger's wrapping
-            `<span slot="closed-leading">`/`slot="open-leading"` boxes were
-            themselves the "strange empty space before the leading icon
-            button" (feedback #4) — both are gone. */}
-        <m3e-icon slot="leading" name="search"></m3e-icon>
+        {/* Mode picker. The bar has no built-in leading icon of its own (that
+            was the search-VIEW's), so this slot is entirely ours — there is no
+            second, built-in magnifier to sit beside and no dead space (the old
+            `slot="closed-leading"`/`slot="open-leading"` wrapper spans that
+            caused feedback #4 are gone with the search-view).
+
+            The empty `m3e-menu-trigger` is deliberate, not a stub: it binds to
+            its PARENT for clicks and anchoring — see the mode-model comment at
+            the top of this file for the decompiled-source justification of this
+            exact shape. The icon is a sibling of the trigger so that it lands
+            in the icon-button's default slot. */}
+        <m3e-icon-button
+          slot="leading"
+          title="Change search mode"
+          aria-label="Change search mode"
+        >
+          <m3e-menu-trigger for="sb-search-sheet-mode-menu">
+          </m3e-menu-trigger>
+          <m3e-icon name={MODE_ICON[mode]}></m3e-icon>
+        </m3e-icon-button>
         <Input
           bare
           slot="input"
@@ -475,9 +513,12 @@ export function SearchSheet({
               activate(visible[selectedIndex]);
             } else if (e.key === "Escape") {
               e.preventDefault();
-              // Nothing to back out of any more (the mode picker was a
-              // popover that swallowed the first Escape) — Escape now always
-              // closes the sheet, matching the sheet's own `cancel` event.
+              // Escape here always closes the sheet, matching the sheet's own
+              // `cancel` event. This does NOT race the mode menu: the menu
+              // moves focus into itself when it opens, so while it is open
+              // this input is not the key target at all — Escape is handled by
+              // the popover's own light-dismiss, and only reaches here once
+              // the menu is already closed.
               onClose();
             } else if (e.key === "ArrowDown") {
               e.preventDefault();
@@ -518,46 +559,32 @@ export function SearchSheet({
             </m3e-list>
           )}
       </div>
-      {/* Mode switcher: a floating, icon-only `m3e-toolbar` pinned to the
-          bottom of the sheet, REPLACING the mode-picker popover entirely
-          (Jack's live-testing round 2 — the popover still read as a
-          dropdown/menu rather than a plain divided list, and its trigger
-          left dead space in the search bar's leading slot). Same
-          `m3e-toolbar shape="rounded" elevated` + bare `m3e-icon-button`
-          idiom `floating_toolbar.tsx` already uses for the app's vertical
-          toolbar, so the two floating toolbars are visually consistent.
+      {/* The mode menu itself, opened by the search bar's leading icon button
+          above. Nested inside the sheet on purpose (the modal sheet inerts
+          content outside itself; a top-layer popover is unaffected by being
+          nested) — see the mode-model comment at the top of this file.
 
-          `m3e-toolbar` has no selection-manager concept (verified in
-          floating_toolbar.tsx against custom-elements.json: no `selected`
-          attribute, no `change` event), so the active mode is driven by us.
-          Active mode is communicated two ways: the sheet's `slot="header"`
-          title above (the primary indicator — Search/Open/Run) and the
-          active button's `variant="filled"` (m3e-icon-button's own
-          documented appearance variant — NOT custom CSS, and not
-          `selected`, which the card scopes to `toggle` buttons; these are
-          mutually exclusive radio-like modes, not independent toggles). */}
-      <m3e-toolbar
-        shape="rounded"
-        elevated
-        class="sb-search-sheet-modes"
-        aria-label="Search mode"
-      >
+          `m3e-menu-item-radio` rather than plain `m3e-menu-item`: the three
+          modes are mutually exclusive, so the radio variant is the component
+          that carries that meaning (and the matching `role="menuitemradio"` +
+          `aria-checked`) instead of us painting a check column by hand.
+          `checked` is driven off our own `mode` state, which is the single
+          source of truth — the menu is a view of it, never the owner. */}
+      <m3e-menu id="sb-search-sheet-mode-menu">
         {MODE_ORDER.map((m) => (
-          <m3e-icon-button
+          <m3e-menu-item-radio
             key={m}
-            variant={m === mode ? "filled" : "standard"}
-            title={MODE_LABEL[m]}
-            aria-label={MODE_LABEL[m]}
-            aria-pressed={m === mode ? "true" : "false"}
+            checked={m === mode}
             onClick={() => {
               setMode(m);
               refocus();
             }}
           >
-            <m3e-icon name={MODE_ICON[m]}></m3e-icon>
-          </m3e-icon-button>
+            <m3e-icon slot="icon" name={MODE_ICON[m]}></m3e-icon>
+            {MODE_LABEL[m]}
+          </m3e-menu-item-radio>
         ))}
-      </m3e-toolbar>
+      </m3e-menu>
     </m3e-bottom-sheet>
     </>
   );

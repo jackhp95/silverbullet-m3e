@@ -172,64 +172,77 @@ test("renders a modal m3e-bottom-sheet with an m3e-search-bar inside", () => {
   expect(html.indexOf("sb-search-sheet-body")).toBeGreaterThan(
     html.indexOf("sb-search-sheet-bar"),
   );
-  // The bar carries its own leading magnifier (the search-VIEW used to
-  // supply one from its shadow tree; the bar does not).
-  expect(html).toContain('<m3e-icon slot="leading" name="search"></m3e-icon>');
+  // The bar's leading slot holds the MODE PICKER button (the search-VIEW
+  // used to supply a magnifier from its shadow tree; the bar does not, so
+  // this slot is entirely ours and there is no dead space beside a built-in
+  // icon — feedback #4's actual cause).
+  expect(html).toContain('<m3e-icon-button slot="leading"');
 });
 
-test("mode switching is a floating bottom toolbar, NOT a picker popup", () => {
+test("mode switching is a real m3e-menu opened by the bar's leading icon button", () => {
   const html = renderSheet();
-  // Round-2 replacement of every prior mode-picker attempt (m3e-menu popup,
-  // inline m3e-list, anchored popover m3e-list): one always-visible
-  // icon-only `m3e-toolbar` with a button per mode. No popup of any kind.
-  expect(html).toContain('class="sb-search-sheet-modes"');
-  expect(html).toContain("m3e-toolbar");
-  expect(html).not.toContain("sb-search-sheet-mode-list");
-  expect(html).not.toContain("popover");
-  // One icon-only button per mode, in MODE_ORDER, each labelled but with no
-  // text label in the button body (icon-only is the stated design).
+  // Jack's round-3 direction, reversing round 2: the floating bottom toolbar
+  // is GONE from the search sheet (it moved to navigation_sheet.tsx, where it
+  // replaced tabs), and the picker is the semantically-correct component for
+  // "click an icon, get a list of options" — a real anchored m3e-menu.
+  expect(html).not.toContain("m3e-toolbar");
+  expect(html).not.toContain("sb-search-sheet-modes");
+
+  // The trigger is an EMPTY m3e-menu-trigger nested in the icon button: it
+  // binds its click handler to its PARENT element (verified against the
+  // decompiled dist/menu.js — see search_sheet.tsx's mode-model comment), so
+  // the whole button is the trigger and the icon stays a direct child of the
+  // button where the button's default slot can claim it.
+  expect(html).toContain('title="Change search mode"');
+  expect(html).toContain(
+    '<m3e-menu-trigger for="sb-search-sheet-mode-menu"></m3e-menu-trigger>',
+  );
+  expect(html).toContain('<m3e-menu id="sb-search-sheet-mode-menu">');
+
+  // Exactly one radio item per mode, in MODE_ORDER, each with its icon.
+  const items = [...html.matchAll(/<m3e-menu-item-radio\b[^>]*>/g)];
+  expect(items).toHaveLength(3);
   for (const label of ["Search", "Open", "Run"]) {
-    expect(html).toContain(`aria-label="${label}"`);
+    expect(html).toContain(`${label}</m3e-menu-item-radio>`);
   }
   for (const icon of ["search", "description", "terminal"]) {
-    expect(html).toContain(`<m3e-icon name="${icon}"></m3e-icon>`);
+    expect(html).toContain(`<m3e-icon slot="icon" name="${icon}"></m3e-icon>`);
   }
-  // The toolbar is a direct child of the sheet (so it can be pinned to the
-  // sheet's bottom edge), NOT nested inside the search-view's results slot.
-  expect(html.indexOf("sb-search-sheet-modes")).toBeGreaterThan(
-    html.indexOf("</m3e-search-view>"),
+
+  // The menu is nested INSIDE the sheet, not a sibling: the modal sheet
+  // inerts content outside itself, while the menu's native-popover top-layer
+  // promotion makes nesting harmless.
+  expect(html.indexOf("<m3e-menu ")).toBeLessThan(
+    html.indexOf("</m3e-bottom-sheet>"),
   );
 });
 
-test("the ACTIVE mode is named in the sheet's header title, not by a check row", () => {
-  // Jack's round-2 direction: the sheet/drawer title IS the active-mode
-  // indicator. Default mode is Open, and the active button is the only one
-  // rendered as `variant="filled"`.
+test("the ACTIVE mode is shown by the header title and the leading button's icon", () => {
   const html = renderSheet();
+  // The sheet title IS the always-visible active-mode indicator (it survives
+  // round 2 unchanged — only the switcher below it changed). Default is Open.
   expect(html).toContain('<span slot="header">Open</span>');
-  expect(html).toContain('variant="filled" title="Open"');
-  expect(html).toContain('variant="standard" title="Search"');
-  expect(html).toContain('variant="standard" title="Run"');
-  // No check-mark affordance survived from the old picker list.
+  // The leading button shows the ACTIVE mode's icon, so the picker announces
+  // what it is currently set to without being opened.
+  expect(html).toMatch(
+    /<m3e-icon-button slot="leading"[\s\S]*?<m3e-icon name="description">/,
+  );
+  // Inside the menu, selection is carried by the radio item's own `checked`
+  // — not a hand-painted check column.
+  expect(html).toMatch(
+    /<m3e-menu-item-radio checked><m3e-icon slot="icon" name="description">/,
+  );
   expect(html).not.toContain('name="check"');
 });
 
-test("the search bar's leading slots are empty (no mode trigger, no spacer span)", () => {
-  // Feedback #4 ("strange empty space before the leading icon button"): the
-  // two `<span slot="closed-leading">`/`slot="open-leading"` wrappers around
-  // the old mode trigger were themselves the dead space. Both are gone, so
-  // the only leading content is the search-view's own built-in magnifier.
+test("no leftover spacer spans in the bar's leading slots (feedback #4)", () => {
+  // The two `<span slot="closed-leading">`/`slot="open-leading"` wrappers the
+  // old search-VIEW-era trigger needed were themselves the "strange empty
+  // space". The bar has no open/closed states, so the picker sits in the one
+  // plain `slot="leading"` with no wrapper at all.
   const html = renderSheet();
   expect(html).not.toContain("closed-leading");
   expect(html).not.toContain("open-leading");
-  expect(html).not.toContain("Change search mode");
-});
-
-test("NO m3e-menu / m3e-menu-item-radio anywhere in the composition (feedback #1: m3e-list, not a dropdown menu)", () => {
-  const html = renderSheet();
-  expect(html).not.toContain("m3e-menu");
-  expect(html).not.toContain("m3e-menu-item-radio");
-  expect(html).not.toContain("m3e-menu-trigger");
 });
 
 test("NO m3e-autocomplete / dropdown anywhere in the composition (spec §2.4)", () => {

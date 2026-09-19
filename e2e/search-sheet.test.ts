@@ -35,33 +35,37 @@ async function openSearchSheet(sbPage: Page): Promise<void> {
   await expect(sbPage.locator("#sb-search-sheet")).toHaveAttribute("open", "");
 }
 
-/** Exactly one of the two duplicated (open/closed-leading) mode triggers is
- * visible at a time — the sheet auto-focuses its input on open, which drives
- * m3e-search-view into its "open" internal state (search_sheet.tsx's own
- * comment on the closed/open-leading slot split). */
+/**
+ * The mode picker is the search bar's single leading icon button. There is
+ * exactly one of them now — the open/closed-leading slot split existed only
+ * for `m3e-search-view`'s internal open/closed states, and the search-view is
+ * gone (replaced by the stateless `m3e-search-bar`), so no `:visible`
+ * disambiguation is needed.
+ */
 function modeTrigger(sbPage: Page) {
   return sbPage.locator(
-    '#sb-search-sheet m3e-icon-button[title="Change search mode"]:visible',
+    '#sb-search-sheet m3e-icon-button[title="Change search mode"]',
   );
 }
 
 /**
- * The mode picker (live-testing feedback #1, relocated by the mode-picker
- * relocation fix) is a plain `m3e-list`, not a floating `m3e-menu` popup —
- * but it is now a SIBLING of `#sb-search-sheet` (popover-promoted, anchored
- * to the trigger's live position), not nested inside it, so it isn't
- * captured by `m3e-search-view`'s InertController docked-open lock (the
- * exact hazard the skip note below used to document). Switching mode is:
- * click the trigger to open the popover, click the target row.
+ * The mode picker is a real `m3e-menu` again (Jack's round-3 direction).
+ * It works nested inside the sheet now for two reasons that previously did
+ * not hold: the search-view's InertController — which used to inert the whole
+ * subtree while docked-open — no longer exists, and the menu promotes itself
+ * to the top layer via the native popover API, so the modal sheet's own
+ * scrim/inert handling does not reach it.
+ *
+ * Switching mode is: click the leading button, click the target radio item.
  */
 async function switchMode(
   sbPage: Page,
   mode: "Search" | "Open" | "Run",
 ): Promise<void> {
   await modeTrigger(sbPage).click();
-  const list = sbPage.locator("m3e-list.sb-search-sheet-mode-list");
-  await expect(list).toBeVisible();
-  await list.locator("m3e-list-item", { hasText: mode }).click();
+  const menu = sbPage.locator("#sb-search-sheet-mode-menu");
+  await expect(menu).toBeVisible();
+  await menu.locator("m3e-menu-item-radio", { hasText: mode }).click();
 }
 
 test.describe("Search sheet (client/components/search_sheet.tsx, V6)", () => {
@@ -85,57 +89,55 @@ test.describe("Search sheet (client/components/search_sheet.tsx, V6)", () => {
     ).toContainText(["Alpha"]);
   });
 
-  // Feedback #1: the mode picker is an `m3e-list` of `m3e-list-item`s, not a
-  // dropdown/menu — supersedes the old `m3e-menu`/`m3e-menu-item-radio`
-  // picker V6/V12 shipped (see git history for that prior approach).
-  // Re-tried after the mode-picker relocation fix (moving the picker to a
-  // popover-promoted sibling of `#sb-search-sheet`, out from under
-  // `m3e-search-view`'s InertController): still times out on
-  // `modeTrigger(sbPage).click()`, but the live page snapshot captured on
-  // failure shows a DIFFERENT, previously-unsuspected cause — the
-  // `client/components/navigation_sheet.tsx` Navigation bottom sheet is
-  // simultaneously present in the DOM (a second `dialog` alongside the
-  // search sheet's own) in this fixture, and is very likely what's
-  // intercepting the click, not the InertController hazard this skip
-  // originally documented. Left skipped rather than shipped flaky/red —
-  // fixing navigation_sheet.tsx's own stacking is outside this fix's scope
-  // (mode-picker relocation + divider insertion + gray-input override +
-  // detents verification); flagged for a dedicated follow-up pass instead
-  // of a speculative inline fix.
-  test.skip("the mode picker is an m3e-list with exactly 3 items (Search / Open / Run), no m3e-menu anywhere", async ({
+  // Jack's round-3 direction: the leading icon button opens a REAL
+  // `m3e-menu` of the three modes, and the floating bottom toolbar that
+  // round 2 put here is gone (it moved to the navigation sheet, where it
+  // replaced tabs — see e2e/navigation-sheet.test.ts).
+  //
+  // This test is no longer skipped. The two reasons it used to be are both
+  // resolved, not worked around: the `m3e-search-view` InertController that
+  // locked the picker's subtree is gone with the search-view itself, and the
+  // second-sheet click interception the old skip note suspected does not
+  // occur because the menu is top-layer promoted (native popover), which
+  // puts it above any other sheet in the DOM regardless of stacking.
+  test("the mode picker is an m3e-menu with exactly 3 radio items (Search / Open / Run)", async ({
     sbPage,
   }) => {
     await openSearchSheet(sbPage);
+
+    // The button advertises its popup before being clicked — m3e-menu-trigger
+    // sets this on its PARENT element, which is how we know the empty-trigger
+    // composition actually bound to the icon button.
+    await expect(modeTrigger(sbPage)).toHaveAttribute("aria-haspopup", "menu");
+    await expect(modeTrigger(sbPage)).toHaveAttribute("aria-expanded", "false");
+
     await modeTrigger(sbPage).click();
 
-    const list = sbPage.locator("m3e-list.sb-search-sheet-mode-list");
-    await expect(list).toBeVisible();
-    expect(await list.evaluate((el) => el.tagName.toLowerCase())).toBe(
-      "m3e-list",
-    );
+    const menu = sbPage.locator("#sb-search-sheet-mode-menu");
+    await expect(menu).toBeVisible();
+    await expect(modeTrigger(sbPage)).toHaveAttribute("aria-expanded", "true");
 
-    const items = list.locator("m3e-list-item");
+    const items = menu.locator("m3e-menu-item-radio");
     await expect(items).toHaveCount(3);
     await expect(items).toContainText(["Search", "Open", "Run"]);
 
-    await expect(sbPage.locator("m3e-menu")).toHaveCount(0);
-    await expect(sbPage.locator("m3e-menu-item-radio")).toHaveCount(0);
+    // Selection is carried by the radio role, not a painted check column.
+    await expect(items.nth(1)).toHaveAttribute("role", "menuitemradio");
+    await expect(items.nth(1)).toHaveAttribute("aria-checked", "true");
+    await expect(items.nth(0)).toHaveAttribute("aria-checked", "false");
+    await expect(items.nth(2)).toHaveAttribute("aria-checked", "false");
   });
 
-  // Feedback #2: the search bar's leading back-arrow (m3e-search-view's own
-  // built-in `_renderIconOrBackButton`, shown whenever its internal `open`
-  // state is true) is suppressed — the mode icon alone is sufficient.
-  test("no back-arrow renders in the search bar while the sheet is open", async ({
+  // The floating bottom toolbar belongs to the navigation sheet now. This is
+  // the load-bearing negative assertion for that reversal.
+  test("NO floating mode toolbar remains in the search sheet", async ({
     sbPage,
   }) => {
     await openSearchSheet(sbPage);
-
-    const searchView = sbPage.locator(".sb-search-sheet-view");
-    const backButtonDisplay = await searchView.evaluate((el) => {
-      const btn = el.shadowRoot?.querySelector<HTMLElement>(".icon .close");
-      return btn ? getComputedStyle(btn).display : "absent";
-    });
-    expect(["none", "absent"]).toContain(backButtonDisplay);
+    await expect(sbPage.locator("#sb-search-sheet m3e-toolbar")).toHaveCount(0);
+    await expect(
+      sbPage.locator("#sb-search-sheet .sb-search-sheet-modes"),
+    ).toHaveCount(0);
   });
 
   // Feedback #3: the sheet caps at ~50vh (the `detents="half"` lever) rather
@@ -156,57 +158,19 @@ test.describe("Search sheet (client/components/search_sheet.tsx, V6)", () => {
     expect(sheetHeight).toBeLessThanOrEqual(viewportHeight * 0.6);
   });
 
-  // Feedback #5: the search bar stays in normal document flow — no
-  // fixed/sticky positioning racing the sheet's own open/close animation —
-  // both before opening and DURING the sheet's opening transform.
-  //
-  // Note on "after the animation settles": once the sheet's transform
-  // transition genuinely ends, search_sheet.tsx focuses the input, which
-  // drives `m3e-search-view` into its docked-open state. At that point the
-  // CSS Popover/top-layer spec (verified live, not just from source) forces
-  // the computed `position` of a `:popover-open` element AWAY from `static`
-  // to `absolute` — this is mandatory UA behavior for top-layer content,
-  // not something an inline style or app CSS can override, and `absolute`
-  // (not `fixed`/`sticky`) is exactly the non-drifting, non-viewport-locked
-  // behavior feedback #5 asked for. So the meaningful, achievable
-  // assertions are: (1) genuinely static before any interaction, (2) still
-  // static throughout the sheet's own opening transform (the actual
-  // "moves inconsistently as the sheet animates" defect — fixed by
-  // deferring autofocus past that transform, see search_sheet.tsx), and
-  // (3) never `fixed`/`sticky` at any point, including after settling.
-  test("the search bar's computed position is static before opening and throughout the sheet's opening transform, never fixed/sticky", async ({
-    sbPage,
-  }) => {
-    function readPosition() {
-      return sbPage.locator(".sb-search-sheet-view").evaluate((el) => {
-        const view = el.shadowRoot?.querySelector<HTMLElement>(".view");
-        return view ? getComputedStyle(view).position : "absent";
-      });
-    }
+  // Feedback #2 ("no back-arrow in the search bar") and feedback #5 ("the
+  // search bar drifts as the sheet animates") were both artifacts of
+  // `m3e-search-view`'s docked-open state machine: the back-arrow was its
+  // built-in `_renderIconOrBackButton`, and the drift came from its
+  // mid-animation promotion of the bar into the top layer. The two e2e tests
+  // that guarded them poked at `.sb-search-sheet-view`'s shadow root and are
+  // DELETED rather than rewritten — that element no longer exists in the
+  // composition, so there is no shadow root left to assert against, and both
+  // defects are now structurally impossible rather than merely fixed. The
+  // plain `m3e-search-bar` that replaced it has no open/closed states, no
+  // back-arrow, and no top-layer promotion at all.
 
-    expect(["static", "absent"]).toContain(await readPosition());
-
-    await sbPage
-      .locator('.sb-floating-toolbar m3e-icon-button[aria-label="Search"]')
-      .click();
-    await expect(sbPage.locator("#sb-search-sheet")).toHaveAttribute(
-      "open",
-      "",
-    );
-    // Mid-transform: autofocus (and the docked-open promotion it triggers)
-    // is deferred past this point, so the search bar must still be static.
-    await sbPage.waitForTimeout(50);
-    expect(["static", "absent"]).toContain(await readPosition());
-
-    // Once fully settled, whatever it becomes must never be fixed/sticky.
-    await sbPage.waitForTimeout(500);
-    expect(["fixed", "sticky"]).not.toContain(await readPosition());
-  });
-
-  // Still skipped — see the skip note above on "the mode picker is an
-  // m3e-list..."; switchMode()'s modeTrigger click times out for the same
-  // (now better-understood, still out-of-scope) reason.
-  test.skip("selecting Search switches the placeholder and results source live", async ({
+  test("selecting Search switches the placeholder and the header title live", async ({
     sbPage,
   }) => {
     await openSearchSheet(sbPage);
@@ -215,6 +179,11 @@ test.describe("Search sheet (client/components/search_sheet.tsx, V6)", () => {
     await expect(sbPage.locator("#sb-search-sheet-input")).toHaveAttribute(
       "placeholder",
       "Find in space",
+    );
+    // The active mode is reflected in the sheet's own header title, which is
+    // what makes the icon-only leading button legible.
+    await expect(sbPage.locator('#sb-search-sheet [slot="header"]')).toHaveText(
+      "Search",
     );
   });
 
@@ -232,10 +201,10 @@ test.describe("Search sheet (client/components/search_sheet.tsx, V6)", () => {
     await expect(sbPage.locator("m3e-autocomplete")).toHaveCount(0);
   });
 
-  // Still skipped — see the skip note above on "the mode picker is an
-  // m3e-list..."; switchMode()'s modeTrigger click times out for the same
-  // (now better-understood, still out-of-scope) reason.
-  test.skip("submitting a Search-mode term calls recordSearchTerm and it resurfaces as history on reopen", async ({
+  // No longer skipped: switchMode() drives the real m3e-menu now, and the
+  // click interception the old skip note blamed does not occur (the menu is
+  // top-layer promoted via the native popover API).
+  test("submitting a Search-mode term calls recordSearchTerm and it resurfaces as history on reopen", async ({
     sbPage,
   }) => {
     await openSearchSheet(sbPage);
