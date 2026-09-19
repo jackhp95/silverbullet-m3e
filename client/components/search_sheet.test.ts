@@ -153,32 +153,76 @@ function renderSheet(overrides: Partial<SearchSheetData> = {}) {
   );
 }
 
-test("renders a modal m3e-bottom-sheet with the search-view inside", () => {
+test("renders a modal m3e-bottom-sheet with an m3e-search-bar inside", () => {
   const html = renderSheet();
   expect(html).toContain('id="sb-search-sheet"');
   expect(html).toContain("m3e-bottom-sheet");
-  expect(html).toContain('mode="docked"');
-  expect(html).toContain("m3e-search-view");
+  // `m3e-search-bar`, NOT `m3e-search-view mode="docked"`. The search-view
+  // owns an internal focus-driven open/closed state machine and only reveals
+  // its results region while open — live-measured against the running app,
+  // it never opened here, so its shadow `.results` stayed 0x0 and NO result
+  // row was ever visible even with rows correctly slotted into it. The bar
+  // has no such state machine, and the results list is a sibling in the
+  // sheet (the container the spec actually describes) instead.
+  expect(html).toContain("m3e-search-bar");
+  expect(html).not.toContain("m3e-search-view");
+  expect(html).not.toContain('mode="docked"');
+  // The list is a direct child of the sheet, after the bar.
+  expect(html).toContain('class="sb-search-sheet-body"');
+  expect(html.indexOf("sb-search-sheet-body")).toBeGreaterThan(
+    html.indexOf("sb-search-sheet-bar"),
+  );
+  // The bar carries its own leading magnifier (the search-VIEW used to
+  // supply one from its shadow tree; the bar does not).
+  expect(html).toContain('<m3e-icon slot="leading" name="search"></m3e-icon>');
 });
 
-test("the mode picker is a closed popover by default (m3e-list toggled by the mode icon, not an open m3e-menu)", () => {
+test("mode switching is a floating bottom toolbar, NOT a picker popup", () => {
   const html = renderSheet();
-  // Mode-picker relocation fix: the picker is now a sibling `m3e-list`
-  // outside `m3e-search-view`, always mounted (so the popover-positioning
-  // ref effect has a stable element to anchor), but closed by default via
-  // the native Popover API (`popover="auto"`, not shown until
-  // `showPopover()` is called by the mode-icon click) rather than being
-  // conditionally absent from the render tree — see
-  // e2e/search-sheet.test.ts for the live open/close interaction and the
-  // author-CSS `:not(:popover-open) { display: none }` override this
-  // relies on (search_sheet.test.ts can't assert the runtime popover-open
-  // state itself; there's no static/SSR marker for it).
-  expect(html).toContain("sb-search-sheet-mode-list");
-  expect(html).toContain('popover="auto"');
-  // Still not nested under the search-view's results slot.
-  const searchViewEnd = html.indexOf("</m3e-search-view>");
-  const modeListStart = html.indexOf("sb-search-sheet-mode-list");
-  expect(modeListStart).toBeGreaterThan(searchViewEnd);
+  // Round-2 replacement of every prior mode-picker attempt (m3e-menu popup,
+  // inline m3e-list, anchored popover m3e-list): one always-visible
+  // icon-only `m3e-toolbar` with a button per mode. No popup of any kind.
+  expect(html).toContain('class="sb-search-sheet-modes"');
+  expect(html).toContain("m3e-toolbar");
+  expect(html).not.toContain("sb-search-sheet-mode-list");
+  expect(html).not.toContain("popover");
+  // One icon-only button per mode, in MODE_ORDER, each labelled but with no
+  // text label in the button body (icon-only is the stated design).
+  for (const label of ["Search", "Open", "Run"]) {
+    expect(html).toContain(`aria-label="${label}"`);
+  }
+  for (const icon of ["search", "description", "terminal"]) {
+    expect(html).toContain(`<m3e-icon name="${icon}"></m3e-icon>`);
+  }
+  // The toolbar is a direct child of the sheet (so it can be pinned to the
+  // sheet's bottom edge), NOT nested inside the search-view's results slot.
+  expect(html.indexOf("sb-search-sheet-modes")).toBeGreaterThan(
+    html.indexOf("</m3e-search-view>"),
+  );
+});
+
+test("the ACTIVE mode is named in the sheet's header title, not by a check row", () => {
+  // Jack's round-2 direction: the sheet/drawer title IS the active-mode
+  // indicator. Default mode is Open, and the active button is the only one
+  // rendered as `variant="filled"`.
+  const html = renderSheet();
+  expect(html).toContain('<span slot="header">Open</span>');
+  expect(html).toContain('variant="filled" title="Open"');
+  expect(html).toContain('variant="standard" title="Search"');
+  expect(html).toContain('variant="standard" title="Run"');
+  // No check-mark affordance survived from the old picker list.
+  expect(html).not.toContain('name="check"');
+});
+
+test("the search bar's leading slots are empty (no mode trigger, no spacer span)", () => {
+  // Feedback #4 ("strange empty space before the leading icon button"): the
+  // two `<span slot="closed-leading">`/`slot="open-leading"` wrappers around
+  // the old mode trigger were themselves the dead space. Both are gone, so
+  // the only leading content is the search-view's own built-in magnifier.
+  const html = renderSheet();
+  expect(html).not.toContain("closed-leading");
+  expect(html).not.toContain("open-leading");
+  expect(html).not.toContain("Change search mode");
 });
 
 test("NO m3e-menu / m3e-menu-item-radio anywhere in the composition (feedback #1: m3e-list, not a dropdown menu)", () => {
