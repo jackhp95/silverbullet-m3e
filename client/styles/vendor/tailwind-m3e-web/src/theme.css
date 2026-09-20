@@ -1,0 +1,398 @@
+/*
+ * Layer 3 — Tailwind v4 @theme block.
+ *
+ * Each --<namespace>-<key> generates Tailwind utilities in that namespace.
+ *   --color-primary     →  bg-primary, text-primary, border-primary, ring-primary
+ *   --color-primary-40  →  bg-primary-40, text-primary-40, border-primary-40, …
+ *   --text-body-lg      →  text-body-lg (bundles font-size + line-height +
+ *                            letter-spacing + font-weight via the v4 modifier syntax)
+ *   --radius-md-corner-medium  →  rounded-md-corner-medium
+ *   --ease-standard     →  ease-standard
+ *   --transition-duration-short-2  →  duration-short-2
+ *   --shadow-md-level1  →  shadow-md-level1
+ *
+ * Strict M3 spec only. The success/info/warning roles ship in
+ * roles-extended.css as an opt-in import.
+ */
+
+@theme {
+  /* ──────────────────────────────────────────────────────────────────
+     COLOUR — semantic roles
+     ────────────────────────────────────────────────────────────────── */
+  --color-primary: var(--md-sys-color-primary);
+  --color-on-primary: var(--md-sys-color-on-primary);
+  --color-primary-container: var(--md-sys-color-primary-container);
+  --color-on-primary-container: var(--md-sys-color-on-primary-container);
+
+  --color-secondary: var(--md-sys-color-secondary);
+  --color-on-secondary: var(--md-sys-color-on-secondary);
+  --color-secondary-container: var(--md-sys-color-secondary-container);
+  --color-on-secondary-container: var(--md-sys-color-on-secondary-container);
+
+  --color-tertiary: var(--md-sys-color-tertiary);
+  --color-on-tertiary: var(--md-sys-color-on-tertiary);
+  --color-tertiary-container: var(--md-sys-color-tertiary-container);
+  --color-on-tertiary-container: var(--md-sys-color-on-tertiary-container);
+
+  --color-error: var(--md-sys-color-error);
+  --color-on-error: var(--md-sys-color-on-error);
+  --color-error-container: var(--md-sys-color-error-container);
+  --color-on-error-container: var(--md-sys-color-on-error-container);
+
+  --color-surface: var(--md-sys-color-surface);
+  --color-on-surface: var(--md-sys-color-on-surface);
+  --color-surface-variant: var(--md-sys-color-surface-variant);
+  --color-on-surface-variant: var(--md-sys-color-on-surface-variant);
+  --color-surface-dim: var(--md-sys-color-surface-dim);
+  --color-surface-bright: var(--md-sys-color-surface-bright);
+  --color-surface-tint: var(--md-sys-color-surface-tint);
+  --color-surface-container-lowest: var(--md-sys-color-surface-container-lowest);
+  --color-surface-container-low: var(--md-sys-color-surface-container-low);
+  --color-surface-container: var(--md-sys-color-surface-container);
+  --color-surface-container-high: var(--md-sys-color-surface-container-high);
+  --color-surface-container-highest: var(--md-sys-color-surface-container-highest);
+
+  --color-outline: var(--md-sys-color-outline);
+  --color-outline-variant: var(--md-sys-color-outline-variant);
+
+  --color-inverse-surface: var(--md-sys-color-inverse-surface);
+  --color-inverse-on-surface: var(--md-sys-color-inverse-on-surface);
+  --color-inverse-primary: var(--md-sys-color-inverse-primary);
+
+  --color-background: var(--md-sys-color-background);
+  --color-on-background: var(--md-sys-color-on-background);
+
+  --color-shadow: var(--md-sys-color-shadow);
+  --color-scrim: var(--md-sys-color-scrim);
+
+  /* ──────────────────────────────────────────────────────────────────
+     COLOUR — tonal namespaces (M3 spec ref palettes only)
+     ────────────────────────────────────────────────────────────────── */
+  /* primary tones */
+  --color-primary-10: var(--md-ref-palette-primary-10);
+  --color-primary-20: var(--md-ref-palette-primary-20);
+  --color-primary-30: var(--md-ref-palette-primary-30);
+  --color-primary-40: var(--md-ref-palette-primary-40);
+  --color-primary-50: var(--md-ref-palette-primary-50);
+  --color-primary-60: var(--md-ref-palette-primary-60);
+  --color-primary-70: var(--md-ref-palette-primary-70);
+  --color-primary-80: var(--md-ref-palette-primary-80);
+  --color-primary-90: var(--md-ref-palette-primary-90);
+  --color-primary-95: var(--md-ref-palette-primary-95);
+  --color-primary-99: var(--md-ref-palette-primary-99);
+  --color-primary-100: var(--md-ref-palette-primary-100);
+
+  /* secondary tones */
+  --color-secondary-10: var(--md-ref-palette-secondary-10);
+  --color-secondary-20: var(--md-ref-palette-secondary-20);
+  --color-secondary-30: var(--md-ref-palette-secondary-30);
+  --color-secondary-40: var(--md-ref-palette-secondary-40);
+  --color-secondary-50: var(--md-ref-palette-secondary-50);
+  --color-secondary-60: var(--md-ref-palette-secondary-60);
+  --color-secondary-70: var(--md-ref-palette-secondary-70);
+  --color-secondary-80: var(--md-ref-palette-secondary-80);
+  --color-secondary-90: var(--md-ref-palette-secondary-90);
+  --color-secondary-95: var(--md-ref-palette-secondary-95);
+  --color-secondary-99: var(--md-ref-palette-secondary-99);
+  --color-secondary-100: var(--md-ref-palette-secondary-100);
+
+  /* tertiary tones */
+  --color-tertiary-10: var(--md-ref-palette-tertiary-10);
+  --color-tertiary-20: var(--md-ref-palette-tertiary-20);
+  --color-tertiary-30: var(--md-ref-palette-tertiary-30);
+  --color-tertiary-40: var(--md-ref-palette-tertiary-40);
+  --color-tertiary-50: var(--md-ref-palette-tertiary-50);
+  --color-tertiary-60: var(--md-ref-palette-tertiary-60);
+  --color-tertiary-70: var(--md-ref-palette-tertiary-70);
+  --color-tertiary-80: var(--md-ref-palette-tertiary-80);
+  --color-tertiary-90: var(--md-ref-palette-tertiary-90);
+  --color-tertiary-95: var(--md-ref-palette-tertiary-95);
+  --color-tertiary-99: var(--md-ref-palette-tertiary-99);
+  --color-tertiary-100: var(--md-ref-palette-tertiary-100);
+
+  /* error tones */
+  --color-error-10: var(--md-ref-palette-error-10);
+  --color-error-20: var(--md-ref-palette-error-20);
+  --color-error-30: var(--md-ref-palette-error-30);
+  --color-error-40: var(--md-ref-palette-error-40);
+  --color-error-50: var(--md-ref-palette-error-50);
+  --color-error-60: var(--md-ref-palette-error-60);
+  --color-error-70: var(--md-ref-palette-error-70);
+  --color-error-80: var(--md-ref-palette-error-80);
+  --color-error-90: var(--md-ref-palette-error-90);
+  --color-error-95: var(--md-ref-palette-error-95);
+  --color-error-99: var(--md-ref-palette-error-99);
+  --color-error-100: var(--md-ref-palette-error-100);
+
+  /* neutral tones (M3 spec — distinct from Tailwind's --color-neutral-50/.../950) */
+  --color-neutral-10: var(--md-ref-palette-neutral-10);
+  --color-neutral-20: var(--md-ref-palette-neutral-20);
+  --color-neutral-30: var(--md-ref-palette-neutral-30);
+  --color-neutral-40: var(--md-ref-palette-neutral-40);
+  --color-neutral-50: var(--md-ref-palette-neutral-50);
+  --color-neutral-60: var(--md-ref-palette-neutral-60);
+  --color-neutral-70: var(--md-ref-palette-neutral-70);
+  --color-neutral-80: var(--md-ref-palette-neutral-80);
+  --color-neutral-90: var(--md-ref-palette-neutral-90);
+  --color-neutral-95: var(--md-ref-palette-neutral-95);
+  --color-neutral-99: var(--md-ref-palette-neutral-99);
+  --color-neutral-100: var(--md-ref-palette-neutral-100);
+
+  /* neutral-variant tones */
+  --color-neutral-variant-10: var(--md-ref-palette-neutral-variant-10);
+  --color-neutral-variant-20: var(--md-ref-palette-neutral-variant-20);
+  --color-neutral-variant-30: var(--md-ref-palette-neutral-variant-30);
+  --color-neutral-variant-40: var(--md-ref-palette-neutral-variant-40);
+  --color-neutral-variant-50: var(--md-ref-palette-neutral-variant-50);
+  --color-neutral-variant-60: var(--md-ref-palette-neutral-variant-60);
+  --color-neutral-variant-70: var(--md-ref-palette-neutral-variant-70);
+  --color-neutral-variant-80: var(--md-ref-palette-neutral-variant-80);
+  --color-neutral-variant-90: var(--md-ref-palette-neutral-variant-90);
+  --color-neutral-variant-95: var(--md-ref-palette-neutral-variant-95);
+  --color-neutral-variant-99: var(--md-ref-palette-neutral-variant-99);
+  --color-neutral-variant-100: var(--md-ref-palette-neutral-variant-100);
+
+  /* ──────────────────────────────────────────────────────────────────
+     TYPOGRAPHY — bundled via v4 modifier syntax
+     ────────────────────────────────────────────────────────────────── */
+  /* Each --text-X bundles font-size + line-height + letter-spacing +
+     font-weight via the modifier syntax (--text-X--line-height, etc.).
+     Source vars: --md-sys-typescale-* from src/sys/typescale.css.
+     Size short forms: large → lg, medium → md, small → sm. */
+
+  /* DISPLAY — standard */
+  --text-display-lg: var(--md-sys-typescale-display-large-font-size);
+  --text-display-lg--line-height: var(--md-sys-typescale-display-large-line-height);
+  --text-display-lg--letter-spacing: var(--md-sys-typescale-display-large-tracking);
+  --text-display-lg--font-weight: var(--md-sys-typescale-display-large-font-weight);
+
+  --text-display-md: var(--md-sys-typescale-display-medium-font-size);
+  --text-display-md--line-height: var(--md-sys-typescale-display-medium-line-height);
+  --text-display-md--letter-spacing: var(--md-sys-typescale-display-medium-tracking);
+  --text-display-md--font-weight: var(--md-sys-typescale-display-medium-font-weight);
+
+  --text-display-sm: var(--md-sys-typescale-display-small-font-size);
+  --text-display-sm--line-height: var(--md-sys-typescale-display-small-line-height);
+  --text-display-sm--letter-spacing: var(--md-sys-typescale-display-small-tracking);
+  --text-display-sm--font-weight: var(--md-sys-typescale-display-small-font-weight);
+
+  /* HEADLINE — standard */
+  --text-headline-lg: var(--md-sys-typescale-headline-large-font-size);
+  --text-headline-lg--line-height: var(--md-sys-typescale-headline-large-line-height);
+  --text-headline-lg--letter-spacing: var(--md-sys-typescale-headline-large-tracking);
+  --text-headline-lg--font-weight: var(--md-sys-typescale-headline-large-font-weight);
+
+  --text-headline-md: var(--md-sys-typescale-headline-medium-font-size);
+  --text-headline-md--line-height: var(--md-sys-typescale-headline-medium-line-height);
+  --text-headline-md--letter-spacing: var(--md-sys-typescale-headline-medium-tracking);
+  --text-headline-md--font-weight: var(--md-sys-typescale-headline-medium-font-weight);
+
+  --text-headline-sm: var(--md-sys-typescale-headline-small-font-size);
+  --text-headline-sm--line-height: var(--md-sys-typescale-headline-small-line-height);
+  --text-headline-sm--letter-spacing: var(--md-sys-typescale-headline-small-tracking);
+  --text-headline-sm--font-weight: var(--md-sys-typescale-headline-small-font-weight);
+
+  /* TITLE — standard */
+  --text-title-lg: var(--md-sys-typescale-title-large-font-size);
+  --text-title-lg--line-height: var(--md-sys-typescale-title-large-line-height);
+  --text-title-lg--letter-spacing: var(--md-sys-typescale-title-large-tracking);
+  --text-title-lg--font-weight: var(--md-sys-typescale-title-large-font-weight);
+
+  --text-title-md: var(--md-sys-typescale-title-medium-font-size);
+  --text-title-md--line-height: var(--md-sys-typescale-title-medium-line-height);
+  --text-title-md--letter-spacing: var(--md-sys-typescale-title-medium-tracking);
+  --text-title-md--font-weight: var(--md-sys-typescale-title-medium-font-weight);
+
+  --text-title-sm: var(--md-sys-typescale-title-small-font-size);
+  --text-title-sm--line-height: var(--md-sys-typescale-title-small-line-height);
+  --text-title-sm--letter-spacing: var(--md-sys-typescale-title-small-tracking);
+  --text-title-sm--font-weight: var(--md-sys-typescale-title-small-font-weight);
+
+  /* BODY — standard */
+  --text-body-lg: var(--md-sys-typescale-body-large-font-size);
+  --text-body-lg--line-height: var(--md-sys-typescale-body-large-line-height);
+  --text-body-lg--letter-spacing: var(--md-sys-typescale-body-large-tracking);
+  --text-body-lg--font-weight: var(--md-sys-typescale-body-large-font-weight);
+
+  --text-body-md: var(--md-sys-typescale-body-medium-font-size);
+  --text-body-md--line-height: var(--md-sys-typescale-body-medium-line-height);
+  --text-body-md--letter-spacing: var(--md-sys-typescale-body-medium-tracking);
+  --text-body-md--font-weight: var(--md-sys-typescale-body-medium-font-weight);
+
+  --text-body-sm: var(--md-sys-typescale-body-small-font-size);
+  --text-body-sm--line-height: var(--md-sys-typescale-body-small-line-height);
+  --text-body-sm--letter-spacing: var(--md-sys-typescale-body-small-tracking);
+  --text-body-sm--font-weight: var(--md-sys-typescale-body-small-font-weight);
+
+  /* LABEL — standard */
+  --text-label-lg: var(--md-sys-typescale-label-large-font-size);
+  --text-label-lg--line-height: var(--md-sys-typescale-label-large-line-height);
+  --text-label-lg--letter-spacing: var(--md-sys-typescale-label-large-tracking);
+  --text-label-lg--font-weight: var(--md-sys-typescale-label-large-font-weight);
+
+  --text-label-md: var(--md-sys-typescale-label-medium-font-size);
+  --text-label-md--line-height: var(--md-sys-typescale-label-medium-line-height);
+  --text-label-md--letter-spacing: var(--md-sys-typescale-label-medium-tracking);
+  --text-label-md--font-weight: var(--md-sys-typescale-label-medium-font-weight);
+
+  --text-label-sm: var(--md-sys-typescale-label-small-font-size);
+  --text-label-sm--line-height: var(--md-sys-typescale-label-small-line-height);
+  --text-label-sm--letter-spacing: var(--md-sys-typescale-label-small-tracking);
+  --text-label-sm--font-weight: var(--md-sys-typescale-label-small-font-weight);
+
+  /* DISPLAY — emphasized */
+  --text-display-emphasized-lg: var(--md-sys-typescale-emphasized-display-large-font-size);
+  --text-display-emphasized-lg--line-height: var(--md-sys-typescale-emphasized-display-large-line-height);
+  --text-display-emphasized-lg--letter-spacing: var(--md-sys-typescale-emphasized-display-large-tracking);
+  --text-display-emphasized-lg--font-weight: var(--md-sys-typescale-emphasized-display-large-font-weight);
+
+  --text-display-emphasized-md: var(--md-sys-typescale-emphasized-display-medium-font-size);
+  --text-display-emphasized-md--line-height: var(--md-sys-typescale-emphasized-display-medium-line-height);
+  --text-display-emphasized-md--letter-spacing: var(--md-sys-typescale-emphasized-display-medium-tracking);
+  --text-display-emphasized-md--font-weight: var(--md-sys-typescale-emphasized-display-medium-font-weight);
+
+  --text-display-emphasized-sm: var(--md-sys-typescale-emphasized-display-small-font-size);
+  --text-display-emphasized-sm--line-height: var(--md-sys-typescale-emphasized-display-small-line-height);
+  --text-display-emphasized-sm--letter-spacing: var(--md-sys-typescale-emphasized-display-small-tracking);
+  --text-display-emphasized-sm--font-weight: var(--md-sys-typescale-emphasized-display-small-font-weight);
+
+  /* HEADLINE — emphasized */
+  --text-headline-emphasized-lg: var(--md-sys-typescale-emphasized-headline-large-font-size);
+  --text-headline-emphasized-lg--line-height: var(--md-sys-typescale-emphasized-headline-large-line-height);
+  --text-headline-emphasized-lg--letter-spacing: var(--md-sys-typescale-emphasized-headline-large-tracking);
+  --text-headline-emphasized-lg--font-weight: var(--md-sys-typescale-emphasized-headline-large-font-weight);
+
+  --text-headline-emphasized-md: var(--md-sys-typescale-emphasized-headline-medium-font-size);
+  --text-headline-emphasized-md--line-height: var(--md-sys-typescale-emphasized-headline-medium-line-height);
+  --text-headline-emphasized-md--letter-spacing: var(--md-sys-typescale-emphasized-headline-medium-tracking);
+  --text-headline-emphasized-md--font-weight: var(--md-sys-typescale-emphasized-headline-medium-font-weight);
+
+  --text-headline-emphasized-sm: var(--md-sys-typescale-emphasized-headline-small-font-size);
+  --text-headline-emphasized-sm--line-height: var(--md-sys-typescale-emphasized-headline-small-line-height);
+  --text-headline-emphasized-sm--letter-spacing: var(--md-sys-typescale-emphasized-headline-small-tracking);
+  --text-headline-emphasized-sm--font-weight: var(--md-sys-typescale-emphasized-headline-small-font-weight);
+
+  /* TITLE — emphasized */
+  --text-title-emphasized-lg: var(--md-sys-typescale-emphasized-title-large-font-size);
+  --text-title-emphasized-lg--line-height: var(--md-sys-typescale-emphasized-title-large-line-height);
+  --text-title-emphasized-lg--letter-spacing: var(--md-sys-typescale-emphasized-title-large-tracking);
+  --text-title-emphasized-lg--font-weight: var(--md-sys-typescale-emphasized-title-large-font-weight);
+
+  --text-title-emphasized-md: var(--md-sys-typescale-emphasized-title-medium-font-size);
+  --text-title-emphasized-md--line-height: var(--md-sys-typescale-emphasized-title-medium-line-height);
+  --text-title-emphasized-md--letter-spacing: var(--md-sys-typescale-emphasized-title-medium-tracking);
+  --text-title-emphasized-md--font-weight: var(--md-sys-typescale-emphasized-title-medium-font-weight);
+
+  --text-title-emphasized-sm: var(--md-sys-typescale-emphasized-title-small-font-size);
+  --text-title-emphasized-sm--line-height: var(--md-sys-typescale-emphasized-title-small-line-height);
+  --text-title-emphasized-sm--letter-spacing: var(--md-sys-typescale-emphasized-title-small-tracking);
+  --text-title-emphasized-sm--font-weight: var(--md-sys-typescale-emphasized-title-small-font-weight);
+
+  /* BODY — emphasized */
+  --text-body-emphasized-lg: var(--md-sys-typescale-emphasized-body-large-font-size);
+  --text-body-emphasized-lg--line-height: var(--md-sys-typescale-emphasized-body-large-line-height);
+  --text-body-emphasized-lg--letter-spacing: var(--md-sys-typescale-emphasized-body-large-tracking);
+  --text-body-emphasized-lg--font-weight: var(--md-sys-typescale-emphasized-body-large-font-weight);
+
+  --text-body-emphasized-md: var(--md-sys-typescale-emphasized-body-medium-font-size);
+  --text-body-emphasized-md--line-height: var(--md-sys-typescale-emphasized-body-medium-line-height);
+  --text-body-emphasized-md--letter-spacing: var(--md-sys-typescale-emphasized-body-medium-tracking);
+  --text-body-emphasized-md--font-weight: var(--md-sys-typescale-emphasized-body-medium-font-weight);
+
+  --text-body-emphasized-sm: var(--md-sys-typescale-emphasized-body-small-font-size);
+  --text-body-emphasized-sm--line-height: var(--md-sys-typescale-emphasized-body-small-line-height);
+  --text-body-emphasized-sm--letter-spacing: var(--md-sys-typescale-emphasized-body-small-tracking);
+  --text-body-emphasized-sm--font-weight: var(--md-sys-typescale-emphasized-body-small-font-weight);
+
+  /* LABEL — emphasized */
+  --text-label-emphasized-lg: var(--md-sys-typescale-emphasized-label-large-font-size);
+  --text-label-emphasized-lg--line-height: var(--md-sys-typescale-emphasized-label-large-line-height);
+  --text-label-emphasized-lg--letter-spacing: var(--md-sys-typescale-emphasized-label-large-tracking);
+  --text-label-emphasized-lg--font-weight: var(--md-sys-typescale-emphasized-label-large-font-weight);
+
+  --text-label-emphasized-md: var(--md-sys-typescale-emphasized-label-medium-font-size);
+  --text-label-emphasized-md--line-height: var(--md-sys-typescale-emphasized-label-medium-line-height);
+  --text-label-emphasized-md--letter-spacing: var(--md-sys-typescale-emphasized-label-medium-tracking);
+  --text-label-emphasized-md--font-weight: var(--md-sys-typescale-emphasized-label-medium-font-weight);
+
+  --text-label-emphasized-sm: var(--md-sys-typescale-emphasized-label-small-font-size);
+  --text-label-emphasized-sm--line-height: var(--md-sys-typescale-emphasized-label-small-line-height);
+  --text-label-emphasized-sm--letter-spacing: var(--md-sys-typescale-emphasized-label-small-tracking);
+  --text-label-emphasized-sm--font-weight: var(--md-sys-typescale-emphasized-label-small-font-weight);
+
+  /* ──────────────────────────────────────────────────────────────────
+     SHAPE / RADIUS — corner sizes
+     ────────────────────────────────────────────────────────────────── */
+  --radius-md-corner-none: var(--md-sys-shape-corner-none);
+  --radius-md-corner-extra-small: var(--md-sys-shape-corner-extra-small);
+  --radius-md-corner-small: var(--md-sys-shape-corner-small);
+  --radius-md-corner-medium: var(--md-sys-shape-corner-medium);
+  --radius-md-corner-large: var(--md-sys-shape-corner-large);
+  --radius-md-corner-extra-large: var(--md-sys-shape-corner-extra-large);
+  --radius-md-corner-full: var(--md-sys-shape-corner-full);
+  --radius-md-corner-large-increased: var(--md-sys-shape-corner-large-increased);
+  --radius-md-corner-extra-large-increased: var(--md-sys-shape-corner-extra-large-increased);
+  --radius-md-corner-extra-extra-large: var(--md-sys-shape-corner-extra-extra-large);
+  --radius-md-corner-extra-small-top: var(--md-sys-shape-corner-extra-small-top);
+  --radius-md-corner-large-top: var(--md-sys-shape-corner-large-top);
+  --radius-md-corner-large-end: var(--md-sys-shape-corner-large-end);
+  --radius-md-corner-large-start: var(--md-sys-shape-corner-large-start);
+  --radius-md-corner-extra-large-top: var(--md-sys-shape-corner-extra-large-top);
+
+  /* ──────────────────────────────────────────────────────────────────
+     MOTION — easing + duration
+     ────────────────────────────────────────────────────────────────── */
+  --ease-standard: var(--md-sys-motion-easing-standard);
+  --ease-standard-accelerate: var(--md-sys-motion-easing-standard-accelerate);
+  --ease-standard-decelerate: var(--md-sys-motion-easing-standard-decelerate);
+  --ease-emphasized: var(--md-sys-motion-easing-emphasized);
+  --ease-emphasized-accelerate: var(--md-sys-motion-easing-emphasized-accelerate);
+  --ease-emphasized-decelerate: var(--md-sys-motion-easing-emphasized-decelerate);
+
+  --transition-duration-short-1: var(--md-sys-motion-duration-short-1);
+  --transition-duration-short-2: var(--md-sys-motion-duration-short-2);
+  --transition-duration-short-3: var(--md-sys-motion-duration-short-3);
+  --transition-duration-short-4: var(--md-sys-motion-duration-short-4);
+  --transition-duration-medium-1: var(--md-sys-motion-duration-medium-1);
+  --transition-duration-medium-2: var(--md-sys-motion-duration-medium-2);
+  --transition-duration-medium-3: var(--md-sys-motion-duration-medium-3);
+  --transition-duration-medium-4: var(--md-sys-motion-duration-medium-4);
+  --transition-duration-long-1: var(--md-sys-motion-duration-long-1);
+  --transition-duration-long-2: var(--md-sys-motion-duration-long-2);
+  --transition-duration-long-3: var(--md-sys-motion-duration-long-3);
+  --transition-duration-long-4: var(--md-sys-motion-duration-long-4);
+  --transition-duration-extra-long-1: var(--md-sys-motion-duration-extra-long-1);
+  --transition-duration-extra-long-2: var(--md-sys-motion-duration-extra-long-2);
+  --transition-duration-extra-long-3: var(--md-sys-motion-duration-extra-long-3);
+  --transition-duration-extra-long-4: var(--md-sys-motion-duration-extra-long-4);
+
+  /* SPRING — animation springs */
+  --spring-md-fast-spatial: var(--md-sys-motion-spring-fast-spatial);
+  --spring-md-default-spatial: var(--md-sys-motion-spring-default-spatial);
+  --spring-md-slow-spatial: var(--md-sys-motion-spring-slow-spatial);
+  --spring-md-fast-effects: var(--md-sys-motion-spring-fast-effects);
+  --spring-md-default-effects: var(--md-sys-motion-spring-default-effects);
+  --spring-md-slow-effects: var(--md-sys-motion-spring-slow-effects);
+
+  /*
+   * NOTE: --md-sys-state-* tokens are intentionally not mapped to @theme
+   * keys — they are consumed internally by @m3e/web's state-layer calc()
+   * expressions, not surfaced as user-facing utilities. Override the source
+   * vars (--md-sys-state-hover-state-layer-opacity, etc.) directly if needed.
+   *
+   * Density is likewise not a @theme key (its value is read by components at
+   * runtime, not baked into a utility), but it IS surfaced — as scope
+   * utilities in ./density.css (density-0…density-3, which set
+   * --md-sys-density-scale on a subtree).
+   */
+
+  /* ──────────────────────────────────────────────────────────────────
+     ELEVATION — shadow tokens
+     ────────────────────────────────────────────────────────────────── */
+  --shadow-md-level0: var(--md-sys-elevation-level0);
+  --shadow-md-level1: var(--md-sys-elevation-level1);
+  --shadow-md-level2: var(--md-sys-elevation-level2);
+  --shadow-md-level3: var(--md-sys-elevation-level3);
+  --shadow-md-level4: var(--md-sys-elevation-level4);
+  --shadow-md-level5: var(--md-sys-elevation-level5);
+}

@@ -1,0 +1,102 @@
+/*
+ * Tailwind v4 entry point.
+ *
+ * This is plain CSS, NOT Sass — it is deliberately `.css` and deliberately
+ * NOT `@use`d from any of the three `.scss` bundles. Tailwind's `@theme`,
+ * `@utility` and `@source` at-rules are not Sass syntax; `sass.compileString`
+ * would mangle or silently drop them. The file is compiled by a separate
+ * `@tailwindcss/cli` pass in `build/build_client.ts`, and its output is
+ * concatenated onto the Sass output. See the comment on that build step for
+ * the CLI-vs-PostCSS rationale.
+ *
+ * ── Preflight is deliberately OMITTED ───────────────────────────────────
+ * The usual `@import "tailwindcss"` pulls in three layers: theme, *base*
+ * (preflight) and utilities. Preflight is a greenfield reset — it zeroes
+ * margins on every bare element, forces `font-family` onto `html`, and
+ * rewrites the default `border-style`. This app is not greenfield: it ships
+ * ~3,800 lines of established SCSS, a CodeMirror 6 editing surface whose
+ * typography is tuned in `editor.scss`, and `theme.scss`'s legacy
+ * SilverBullet typography contract. Letting preflight run would be a
+ * guaranteed, wide-blast-radius visual regression for zero benefit, since
+ * nothing here depends on a normalized baseline.
+ *
+ * So we import the theme and utilities layers only, using Tailwind v4's
+ * documented layer-by-layer entry form. `base` is still declared in the
+ * layer order so the cascade positions match a stock Tailwind build (and so
+ * any future decision to opt preflight back in is a one-line change).
+ */
+
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/*
+ * ── M3E design-token bridge ─────────────────────────────────────────────
+ * `tailwind-m3e-web` (jackhp95/tailwind-m3e-web, private + unpublished),
+ * vendored under ./vendor/tailwind-m3e-web — see that directory's
+ * VENDORED_FROM.txt.
+ *
+ * The package ships a four-layer cascade:
+ *   Layer 0 seed  → Layer 1 ref palette → Layer 2 sys roles → Layer 3 @theme
+ *
+ * We import ONLY Layer 3 (`src/theme.css`).
+ *
+ * Why: Layers 0–2 *declare* static `--md-sys-*` values on `html`. This app
+ * already generates those tokens at runtime — `<m3e-theme>` in
+ * `client/editor_ui.tsx:814` writes the live, seed-derived color roles to
+ * `html { … }` via `document.adoptedStyleSheets`. Layer 3 is the only layer
+ * we actually need: it maps those existing `--md-sys-*` tokens onto Tailwind
+ * v4 `@theme` keys (`--color-primary: var(--md-sys-color-primary)`, etc.),
+ * which is precisely what turns them into `bg-primary` / `text-body-lg` /
+ * `rounded-md-corner-medium` utilities.
+ *
+ * Importing Layers 0–2 as well would add a second, static source of
+ * `--md-sys-*` truth alongside the runtime one. That is a legitimate future
+ * option (it is what would let one `--md-seed-primary` retint the app and
+ * retire `theme.scss`'s 289 hand-maintained hex values — "Phase D" in
+ * docs/plans/2026-09-19-tailwind-m3e-bridge-and-custom-css-audit.md), but it
+ * is a change to the theming contract, not infrastructure, and it cannot be
+ * done without visual review. Phase 1 is required to be visually inert, so
+ * the seed cascade stays vendored-but-unimported.
+ *
+ * KNOWN GAP (documented, intentional): because the runtime `<m3e-theme>`
+ * wrapper only exists on the editor surface, `--md-sys-*` — and therefore
+ * the *color* and *typescale* utilities — are only reliable in `main.css`.
+ * The standalone pages (`app.css`: login, setup wizard, Space Manager) have
+ * no `<m3e-theme>`. Layout utilities (flex/grid/gap/padding/margin), which
+ * are what Phase 2 migrates, derive from nothing and work on both.
+ */
+@import "./vendor/tailwind-m3e-web/src/theme.css";
+
+/*
+ * The `@m3e/web` component-setter surface: one `@utility` rule per public
+ * `--m3e-*` custom property, regenerated in-repo against the installed
+ * @m3e/web 2.7.12 (2,362 rules). Must load AFTER the token layer above —
+ * these rules reference the `@theme` keys it defines.
+ *
+ * Tailwind only emits what it finds in scanned source, so the cost of an
+ * unused 2,362-rule surface is zero bytes.
+ */
+@import "./vendor/tailwind-m3e-web/generated/utilities.css";
+
+/*
+ * ── Content scanning ────────────────────────────────────────────────────
+ * Explicit rather than relying on v4 automatic content detection, for two
+ * reasons: the build's working directory is the repo root (so auto-detection
+ * would sweep the whole tree, including `dist/`, `target/` and the Rust
+ * server), and auto-detection would treat the vendored `utilities.css`
+ * itself as a content file and emit thousands of phantom classes matched out
+ * of its own rule names.
+ *
+ * `client/` covers both bundles' authored markup: the editor UI and
+ * components (`main.css`) and the standalone pages under `client/spaces_ui/`
+ * (`app.css`).
+ *
+ * Deliberately NOT scanned: `plugs/`. Plug-panel iframe CSS is the third
+ * bundle (`components.css`), which this Tailwind pass does not feed at all —
+ * plug HTML is authored outside this repo, so any utility class used there
+ * could never be scanned and would silently not emit. That sheet stays
+ * Tailwind-free until there is a reason and a safelist strategy.
+ */
+@source "../../client/**/*.{ts,tsx,html}";

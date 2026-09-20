@@ -81,7 +81,7 @@ export function Prompt({
       </m3e-form-field>
       <div
         slot="actions"
-        class="sb-dialog-actions"
+        class="flex justify-end gap-2"
         // Buttons don't stop propagation individually (see the comment on
         // AlwaysShownModal's onClosed above — an extra per-button listener
         // is what raced m3e-dialog-action's own click handling last time);
@@ -141,7 +141,7 @@ export function Confirm({
       <span slot="header">{message}</span>
       <div
         slot="actions"
-        class="sb-dialog-actions"
+        class="flex justify-end gap-2"
         onClick={(e: MouseEvent) => e.stopPropagation()}
       >
         <m3e-button variant="text">

@@ -1,0 +1,21 @@
+/*
+ * M3 density system tokens.
+ *
+ * Density controls how compact components appear.
+ *   --md-sys-density-scale: 0   → default density. Negative values increase
+ *                                  density (e.g. -1 = compact). Positive
+ *                                  values are not part of M3 spec.
+ *   --md-sys-density-size:  0.25rem → base spatial unit that scales with
+ *                                       density via calc(size × scale).
+ *
+ * Source: node_modules/@m3e/web/dist/core.js (DensityToken)
+ *
+ * These are the raw tokens (Layer 2). App authors flip density through the
+ * scope utilities in ../density.css (density-0…density-3), or by overriding
+ * --md-sys-density-scale directly.
+ */
+
+:root {
+  --md-sys-density-scale: 0;
+  --md-sys-density-size: 0.25rem;
+}

@@ -1,0 +1,15 @@
+/*
+ * M3 state-layer opacity system tokens.
+ *
+ * Opacities applied to the state layer overlay for focus / hover / pressed.
+ * Used by every interactive m3e component (button, list-item, etc.) and by
+ * plugin utility classes that simulate state layering.
+ *
+ * Source: node_modules/@m3e/web/dist/core.js (StateToken)
+ */
+
+:root {
+  --md-sys-state-focus-state-layer-opacity: 10%;
+  --md-sys-state-hover-state-layer-opacity: 8%;
+  --md-sys-state-pressed-state-layer-opacity: 10%;
+}

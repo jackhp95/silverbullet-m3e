@@ -66,7 +66,7 @@ export function Confirm({
       <span slot="header">{message}</span>
       <div
         slot="actions"
-        class="sb-dialog-actions"
+        class="flex justify-end gap-2"
         // A single listener at the row level, not per-button — an
         // m3e-dialog-action already drives hide(returnValue) on its own
         // click; a second listener on the button would race it (see

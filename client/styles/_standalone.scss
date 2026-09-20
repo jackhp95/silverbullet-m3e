@@ -127,17 +127,17 @@ body.sb-standalone {
     color: #9a6700;
   }
 
-  // ConfirmDialog.tsx's actions row, slotted into m3e-dialog's `actions`
-  // slot — same layout rule as modals.scss's `.sb-dialog-actions` for the
-  // main editor's Confirm(), duplicated here rather than shared because
-  // app.scss (this partial's entry point) never @uses modals.scss — the two
-  // standalone/editor stylesheets are deliberately separate bundles (see
-  // build/build_client.ts).
-  .sb-dialog-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-  }
+  // No `.sb-dialog-actions` rule here either: ConfirmDialog.tsx's actions
+  // row now carries `class="flex justify-end gap-2"`, the same utilities as
+  // the editor's Confirm() in basic_modals.tsx.
+  //
+  // This rule used to be an acknowledged copy of modals.scss's, duplicated
+  // rather than shared because app.scss (this partial's entry point) never
+  // @uses modals.scss — the standalone and editor stylesheets are
+  // deliberately separate bundles. Tailwind scans all of client/ once and
+  // its output is appended to both main.css and app.css
+  // (build/build_client.ts), so one authored class string now serves both
+  // and the copies cannot drift apart again.
 
   // ConfirmDialog.tsx's destructive Ok action: recolor a `filled` m3e-button
   // to the Material error role, mirroring modals.scss's `.sb-button-error`.
