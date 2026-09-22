@@ -129,6 +129,15 @@
   font-style: normal;
 }
 
+// Audit note (m3e/tailwind sweep): most of this file no longer matches the
+// "pure layout glue" candidates listed in docs/plans/2026-09-19-tailwind-m3e-
+// bridge-and-custom-css-audit.md §D.5 — #sb-page-scroll in particular picked
+// up load-bearing scroll-tracking-correctness rationale since that doc was
+// written (see its own comment below) and must NOT be touched. The remaining
+// single-property rules (.sb-panel{flex:1}, .sb-panel-drawer-close) are real
+// but low-value/high-blast-radius (each class name is shared across many
+// plug-panel call sites outside this repo's own .tsx scan), so left as (a)
+// must-stay rather than guess-migrated without visual verification.
 html,
 body {
   margin: 0;
