@@ -16,6 +16,7 @@ import {
   TopBar,
 } from "./components/top_bar.tsx";
 import { FloatingToolbar } from "./components/floating_toolbar.tsx";
+import { FrontMatterPanel } from "./components/front_matter_panel.tsx";
 import { SearchSheet } from "./components/search_sheet.tsx";
 import { NavigationSheet } from "./components/navigation_sheet.tsx";
 import { notificationsIconFor } from "./lib/push_ui.ts";
@@ -79,6 +80,16 @@ import {
 // (scroll events don't bubble, so it must be the actual scrolling element,
 // not an ancestor).
 export const EDITOR_SCROLL_CONTAINER_ID = "sb-editor-scroller";
+
+// Stable id of the new light-DOM scroll+snap container introduced by the
+// 2026-09-22 large-app-bar/inline-frontmatter plan (§2/L5) — the sole child
+// of `m3e-drawer-container`'s default slot, holding the front-matter panel,
+// `<TopBar>`, and `#sb-editor` in document order. CodeMirror's own
+// `.cm-scroller` no longer owns scroll once L6 configures it for
+// auto-height ("page scrolls") mode — every consumer that used to read
+// `editorView.scrollDOM.scrollTop` must read this element's `scrollTop`
+// instead (L7).
+export const PAGE_SCROLL_CONTAINER_ID = "sb-page-scroll";
 
 // m3e-snackbar (node_modules/@m3e/web/dist/src/snackbar/SnackbarElement.d.ts,
 // v2.7.12, verified against the installed CEM — not the older v2.7.3 pinned
@@ -500,36 +511,6 @@ export class MainUI {
       if (computed) setAccentColor(computed);
     }, [viewState.uiOptions.customStyles]);
 
-    // Wires the real editor scroll container up for two consumers in
-    // top_bar.tsx: `m3e-app-bar`'s own `for`-driven elevation-on-scroll
-    // (AppBarElement.d.ts), and the breadcrumb-row collapse this fork adds
-    // on top of it (`#sb-top[data-scrolled]`, top.scss) — see that file's
-    // comment for why the breadcrumb can't just live inside a `position:
-    // sticky` ancestor here.
-    //
-    // `client.editorView.scrollDOM` (view/index.d.ts) is CodeMirror's own
-    // public handle to the actual scrolling element — already used
-    // elsewhere in client.ts (`editorView.scrollDOM.scrollTop`) — and gets
-    // its stable id assigned exactly once, at construction, in client.ts
-    // right after `new EditorView(...)`. That replaced a MutationObserver
-    // that polled `#sb-editor` for a `.cm-scroller` child to appear and
-    // stamped an id on it at runtime: it worked, but it depended on
-    // CodeMirror's internal DOM shape (a class name with no public
-    // contract) rather than CodeMirror's own documented API, so it would
-    // have broken silently on a future upstream rebase that changed that
-    // internal markup. `client.editorView` is constructed synchronously,
-    // in the same tick as `MainUI`'s own initial render (client.ts:264-270,
-    // no `await` between them), so it already exists by the time this
-    // effect runs — no polling or "wait for it" needed.
-    const [headerScrolled, setHeaderScrolled] = useState(false);
-    useEffect(() => {
-      const scroller = client.editorView.scrollDOM;
-      const onScroll = () => setHeaderScrolled(scroller.scrollTop > 0);
-      onScroll();
-      scroller.addEventListener("scroll", onScroll, { passive: true });
-      return () => scroller.removeEventListener("scroll", onScroll);
-    }, []);
-
     useEffect(() => {
       if (viewState.current) {
         document.title =
@@ -883,88 +864,6 @@ export class MainUI {
             }}
           />
         )}
-        <TopBar
-          pageName={
-            !viewState.current ? "" : getNameFromPath(viewState.current.path)
-          }
-          isOnline={viewState.isOnline}
-          unsavedChanges={viewState.unsavedChanges}
-          isLoading={viewState.isLoading}
-          progressPercentage={viewState.progressPercentage}
-          progressType={viewState.progressType}
-          onRename={async (newName) => {
-            if (client.contentManager.isDocumentEditor()) {
-              if (!newName) return;
-
-              console.log("Now renaming document to...", newName);
-              await client.clientSystem.system.invokeFunction(
-                "index.renameDocumentCommand",
-                [{ document: newName }],
-              );
-            } else {
-              if (!newName) {
-                // Always move cursor to the start of the page
-                client.editorView.dispatch({
-                  selection: { anchor: 0 },
-                });
-                client.focus();
-                return;
-              }
-              console.log("Now renaming page to...", newName);
-              await client.clientSystem.system.invokeFunction(
-                "index.renamePageCommand",
-                [{ page: newName }],
-              );
-              client.focus();
-            }
-          }}
-          rhs={
-            !!viewState.panels.rhs.mode && (
-              <div
-                className="panel"
-                style={{ flex: viewState.panels.rhs.mode }}
-              />
-            )
-          }
-          lhs={
-            !!viewState.panels.lhs.mode && (
-              <div
-                className="panel"
-                style={{ flex: viewState.panels.lhs.mode }}
-              />
-            )
-          }
-          pageNamePrefix={
-            client.currentPageMeta()?.pageDecoration?.prefix ?? ""
-          }
-          cssClass={(client.currentPageMeta()?.pageDecoration?.cssClasses ?? [])
-            .join(" ")
-            .replaceAll(/[^a-zA-Z0-9-_ ]/g, "")}
-          mobileMenuStyle={
-            viewState.isMobile
-              ? client.config.get<string>("mobileMenuStyle", "hamburger")
-              : undefined
-          }
-          readOnly={isReadOnly}
-          breadcrumbItems={breadcrumbItems}
-          scrollContainerId={EDITOR_SCROLL_CONTAINER_ID}
-          headerScrolled={headerScrolled}
-          menuItems={menuItems}
-          // Read-only toggle in the app-bar trailing slot (spec §2.2 / R2) —
-          // a 1:1 port of the old floating-toolbar lock button's logic. Guarded
-          // on command availability the same way breadcrumb's "Navigate: Home"
-          // is above; `undefined` hides the button entirely. `isReadOnly` is
-          // the same single-source expression driving CodeMirror's editable
-          // config and the editor-font swap.
-          readOnlyToggle={viewState.commands.has("Editor: Toggle Read Only Mode")
-            ? {
-              active: isReadOnly,
-              label: isReadOnly ? "Disable read-only" : "Enable read-only",
-              onClick: () =>
-                client.runCommandByName("Editor: Toggle Read Only Mode"),
-            }
-            : undefined}
-        />
         <m3e-drawer-container
           id="sb-main"
           start={viewState.panels.lhs.mode !== undefined}
@@ -985,7 +884,101 @@ export class MainUI {
               <Panel config={viewState.panels.lhs} editor={client} />
             </div>
           )}
-          <div id="sb-editor" />
+          {/* §2/L5: sole child of the default slot — the new light-DOM
+              scroll+snap container. CodeMirror shares this one scroll flow
+              (L6) instead of owning its own; front matter renders above the
+              (now non-sticky, per L8/L9) app bar, above the editor host, in
+              document order. */}
+          <div id={PAGE_SCROLL_CONTAINER_ID}>
+            <FrontMatterPanel client={client} />
+            <TopBar
+              pageName={
+                !viewState.current
+                  ? ""
+                  : getNameFromPath(viewState.current.path)
+              }
+              isOnline={viewState.isOnline}
+              unsavedChanges={viewState.unsavedChanges}
+              isLoading={viewState.isLoading}
+              progressPercentage={viewState.progressPercentage}
+              progressType={viewState.progressType}
+              onRename={async (newName) => {
+                if (client.contentManager.isDocumentEditor()) {
+                  if (!newName) return;
+
+                  console.log("Now renaming document to...", newName);
+                  await client.clientSystem.system.invokeFunction(
+                    "index.renameDocumentCommand",
+                    [{ document: newName }],
+                  );
+                } else {
+                  if (!newName) {
+                    // Always move cursor to the start of the page
+                    client.editorView.dispatch({
+                      selection: { anchor: 0 },
+                    });
+                    client.focus();
+                    return;
+                  }
+                  console.log("Now renaming page to...", newName);
+                  await client.clientSystem.system.invokeFunction(
+                    "index.renamePageCommand",
+                    [{ page: newName }],
+                  );
+                  client.focus();
+                }
+              }}
+              rhs={
+                !!viewState.panels.rhs.mode && (
+                  <div
+                    className="panel"
+                    style={{ flex: viewState.panels.rhs.mode }}
+                  />
+                )
+              }
+              lhs={
+                !!viewState.panels.lhs.mode && (
+                  <div
+                    className="panel"
+                    style={{ flex: viewState.panels.lhs.mode }}
+                  />
+                )
+              }
+              pageNamePrefix={
+                client.currentPageMeta()?.pageDecoration?.prefix ?? ""
+              }
+              cssClass={(client.currentPageMeta()?.pageDecoration?.cssClasses ??
+                [])
+                .join(" ")
+                .replaceAll(/[^a-zA-Z0-9-_ ]/g, "")}
+              mobileMenuStyle={
+                viewState.isMobile
+                  ? client.config.get<string>("mobileMenuStyle", "hamburger")
+                  : undefined
+              }
+              readOnly={isReadOnly}
+              breadcrumbItems={breadcrumbItems}
+              scrollContainerId={EDITOR_SCROLL_CONTAINER_ID}
+              menuItems={menuItems}
+              // Read-only toggle in the app-bar trailing slot (spec §2.2 / R2) —
+              // a 1:1 port of the old floating-toolbar lock button's logic. Guarded
+              // on command availability the same way breadcrumb's "Navigate: Home"
+              // is above; `undefined` hides the button entirely. `isReadOnly` is
+              // the same single-source expression driving CodeMirror's editable
+              // config and the editor-font swap.
+              readOnlyToggle={viewState.commands.has(
+                  "Editor: Toggle Read Only Mode",
+                )
+                ? {
+                  active: isReadOnly,
+                  label: isReadOnly ? "Disable read-only" : "Enable read-only",
+                  onClick: () =>
+                    client.runCommandByName("Editor: Toggle Read Only Mode"),
+                }
+                : undefined}
+            />
+            <div id="sb-editor" />
+          </div>
           {viewState.panels.rhs.mode !== undefined && (
             <div slot="end" id="sb-panel-rhs" className="sb-panel-drawer">
               <m3e-icon-button
