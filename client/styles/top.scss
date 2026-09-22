@@ -359,31 +359,46 @@
 // .ts) — so the fix has to work entirely through the one thing the light DOM
 // owns: the slotted label element.
 //
-// `max-width: 0` is what does the real work. It clamps the label's *intrinsic*
-// (min-content) contribution to zero, which removes the floor that pinned
-// `.wrapper`. `min-width: 100%` then beats `max-width` for the *used* width
-// (per CSS box sizing, min-width is resolved last), so the label still fills
-// whatever width the now-unfloored flex chain hands it, and ellipsizes there.
-// Measured after: wrapper overhang 0px at 320/390/1280, long label
-// `ellipsized: true`, short labels untouched (`ellipsized: false`).
+// `max-width: 0` was the ORIGINAL fix here, and it did stop the clip — but it
+// came with a real cost (flagged live 2026-09-21): with no item contributing
+// *any* intrinsic width, the menu's own shrink-to-fit had nothing to shrink
+// to, so it collapsed to the 112px `--m3e-menu-container-min-width` default,
+// and pinning min-width to the same fixed value as max-width was the
+// original fix for that — at the price of every kebab menu rendering at a
+// flat 280px, no matter how short its items were.
 //
-// Zeroing the intrinsic contribution has one consequence that must be paid
-// for: with no item contributing intrinsic width, the menu's shrink-to-fit
-// collapsed to the 112px `--m3e-menu-container-min-width` default (measured:
-// 120px incl. padding). Pinning min-width to the same value as max-width
-// gives the surface a fixed width again — both are the component's own
-// documented custom properties, no shadow-piercing and no magic geometry.
-// `min(280px, 100vw - 32px)` keeps that surface inside the viewport on narrow
-// screens, so the menu also constrains itself against the viewport edge
-// rather than relying solely on the anchoring middleware's shift.
+// The actual fix: cap the label at a fixed ceiling instead of zeroing it.
+// `.wrapper`'s floor is the label's own min-content size — for `white-space:
+// nowrap` text that's its full, unclamped width — but capping the label's
+// `max-width` to a fixed value also caps what it contributes to that floor
+// (per the flexbox spec, an item's automatic minimum is clamped by its own
+// specified max-width). A short label (e.g. "Reload") never reaches the cap,
+// so its true, small width keeps flowing through and the item —  and the
+// menu's own shrink-to-fit around it — hugs it. A long label (e.g. "Push
+// notifications are not configured for this server") gets floored at the
+// cap instead of its full width, which is exactly what un-floors `.wrapper`
+// and lets `.content`'s own ellipsis apply once real width pressure remains.
+// `--m3e-menu-container-min-width` is no longer set at all — the container's
+// shrink-to-fit is genuinely driven by its items again — and only
+// `--m3e-menu-container-max-width` stays, as the ceiling that keeps a long
+// label wrapping into an ellipsis instead of overflowing the viewport;
+// `min(280px, 100vw - 32px)` keeps that ceiling inside the viewport on
+// narrow screens.
+//
+// Measured after: wrapper overhang 0px at 320/390/1280, long label
+// `ellipsized: true`, short labels untouched (`ellipsized: false`), and the
+// menu surface now hugs its shortest/widest item instead of always
+// rendering at a fixed 280px.
 #sb-app-bar-menu {
-  --m3e-menu-container-min-width: min(280px, calc(100vw - 32px));
   --m3e-menu-container-max-width: min(280px, calc(100vw - 32px));
 
   .sb-app-bar-menu-label {
     display: block;
     min-width: 100%;
-    max-width: 0;
+    // The cap: shorter than the container's own max-width so a genuinely
+    // long label still has room to hit `text-overflow: ellipsis` before
+    // running into the container ceiling above.
+    max-width: 220px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
