@@ -1,5 +1,5 @@
 // X-Ray lens: suppresses CM lint's wavy underline; styles hover tooltip cards.
-
+// MUST STAY (a): targets CodeMirror's own .cm-lint* class contract — no tailwind-m3e-web equivalent.
 .cm-lintRange.sb-xray-range {
   background-image: none;
   text-decoration: underline dotted;
@@ -8,6 +8,7 @@
   padding-bottom: 0;
 }
 
+// MUST STAY (a): CM tooltip class + ::-webkit-scrollbar piercing selectors, no utility equivalent.
 .cm-tooltip-lint {
   max-width: 480px;
   max-height: 260px;
