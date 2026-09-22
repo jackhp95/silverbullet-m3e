@@ -209,9 +209,10 @@
 // scroll the body freely." `proximity` only engages when the browser's own
 // heuristic finds the resting position already close to a snap point (i.e.
 // right at the front-matter/app-bar boundary).
+// NOTE: `height: 100%; overflow-y: auto;` for `#sb-page-scroll` already live
+// in main.scss (§2/L5, pulled forward early as commit bbbc6515) — this rule
+// adds only scroll-snap + cosmetics on top of that, not a duplicate box.
 #sb-page-scroll {
-  height: 100%;
-  overflow-y: auto;
   // Moved from `.cm-scroller` (client/styles/editor.scss) — L6 configured
   // CodeMirror for auto-height/"page scrolls" mode, so `.cm-scroller` no
   // longer scrolls at all; `#sb-page-scroll` is the one real scrolling
