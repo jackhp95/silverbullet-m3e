@@ -178,6 +178,47 @@ export function NavigationSheet({
     }
   }, [open]);
 
+  // Sync our controlled `open` state off the component's `closed` event via a
+  // real listener, NOT the JSX `onCancel`/`onClosed` props this sheet used to
+  // carry. Two bugs, found live (reopen-after-detent-close, 2026-09-21):
+  //
+  // 1. `onClosed` (camelCase) is dead on arrival — m3e-jsx.d.ts's
+  //    M3eBottomSheetAttributes comment already documents (and search_sheet.tsx
+  //    live-verified) that a plain custom element has no native `onclosed` IDL
+  //    property, so Preact's props.js takes the branch that does
+  //    `addEventListener("Closed", ...)` (capital C), which never matches the
+  //    component's real `dispatchEvent(new Event("closed"))`.
+  //
+  // 2. `onCancel` alone (the fix search_sheet.tsx applied for ITS dismiss
+  //    paths) is not enough here, because this sheet's actual dismiss gesture
+  //    — tapping the drag handle to cycle detents, landing on `hide()` once
+  //    past the last detent — never dispatches `cancel` at all. Decompiled
+  //    dist/bottom-sheet.js: `cycle()`'s hideable branch calls `this.hide()`
+  //    directly (`_handleDragHandleClick` -> `cycle()` -> last detent + not
+  //    `< detents.length - 1` -> `hide()`), skipping the cancelable `cancel`
+  //    event entirely. `cancel` is only dispatched by the Escape/scrim-click/
+  //    fast-swipe paths (`_handleDocumentKeyDown`/`_handleDocumentClick`/
+  //    `_handleHeaderPointerUp`), not by drag-handle-driven detent cycling.
+  //
+  // `closed`, by contrast, is dispatched unconditionally by `updated()`
+  // whenever the `open` property flips to false — via `cancel`-triggered
+  // `hide()`, `cycle()`-triggered `hide()`, or a direct `hide()` call alike —
+  // so it's the one event that can't miss a dismiss path. Without this fix,
+  // `hide-navigation-sheet` never dispatched after a detent-close, so
+  // `navigationSheetOpen` stayed stuck `true`; clicking the nav icon again
+  // re-dispatched `show-navigation-sheet` to an already-`true` value, Preact
+  // never re-touched the `open` property, and the sheet (whose own `open` was
+  // genuinely `false`) never reopened until a full page refresh.
+  useEffect(() => {
+    const el = sheetRef.current;
+    if (!el) {
+      return;
+    }
+    const handler = () => onClose();
+    el.addEventListener("closed", handler);
+    return () => el.removeEventListener("closed", handler);
+  }, [onClose]);
+
   return (
     <m3e-bottom-sheet
       id="sb-navigation-sheet"
@@ -186,8 +227,6 @@ export function NavigationSheet({
       handle
       hideable
       open={open}
-      onCancel={() => onClose()}
-      onClosed={() => onClose()}
     >
       {/* The title IS the active-section indicator, replacing the tab labels
           the icon-only switcher no longer carries. */}

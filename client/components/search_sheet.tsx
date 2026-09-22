@@ -370,6 +370,22 @@ export function SearchSheet({
   // notes camelCase custom-element handlers can silently fail to bind, and a
   // ref listener is unconditionally correct. This is what closes the sheet on
   // Escape (spec §5 V6 accept).
+  //
+  // ALSO listen for `closed` (found live, 2026-09-21, chasing the identical
+  // defect that broke navigation_sheet.tsx's reopen-after-detent-close — see
+  // that file's matching comment). `cancel` alone misses one real dismiss
+  // path: tapping the drag handle to cycle detents. Decompiled
+  // dist/bottom-sheet.js: `_handleDragHandleClick` -> `cycle()`, and once
+  // `cycle()` is past the last detent its `hideable` branch calls
+  // `this.hide()` DIRECTLY — no `cancel` event, cancelable or otherwise, is
+  // ever dispatched on that path. `closed`, by contrast, is dispatched
+  // unconditionally by `updated()` whenever `open` flips to false, whether
+  // that came from `cancel`-triggered `hide()`, `cycle()`-triggered `hide()`,
+  // or a direct `hide()` call — so it's the one event that can't miss a
+  // dismiss path. Without it, closing via the drag handle left
+  // `searchSheetOpen` stuck `true` (this sheet's `cancel`-only listener never
+  // fired), so the search icon couldn't reopen it until a full page refresh —
+  // same symptom, same fix shape, as navigation_sheet.tsx.
   useEffect(() => {
     const el = sheetRef.current;
     if (!el) {
@@ -377,7 +393,11 @@ export function SearchSheet({
     }
     const handler = () => onClose();
     el.addEventListener("cancel", handler);
-    return () => el.removeEventListener("cancel", handler);
+    el.addEventListener("closed", handler);
+    return () => {
+      el.removeEventListener("cancel", handler);
+      el.removeEventListener("closed", handler);
+    };
   }, [onClose]);
 
   // Reset to the default mode + empty query each time the sheet opens.
