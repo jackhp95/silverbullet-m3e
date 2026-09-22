@@ -198,16 +198,16 @@ export function serializeYamlValue(
     flowLevel: isBlock ? -1 : 1,
     lineWidth: isBlockScalar ? blockScalarLineWidth(shape) : undefined,
   });
-  // `valueFrom` (the splice point every shape shares) sits immediately
-  // after the literal `key:` — NOT after `key: ` — for every block shape,
-  // since a block scalar's own indicator (` |-`, ` >-`, ...) is itself part
-  // of the replaceable span, while a block sequence/mapping's value starts
-  // with a bare newline right after the colon. Only `scalar`/`flow` values
-  // sit after `key: ` (the single inline space consumed), so only those
-  // strip a leading space here.
-  const withoutKey = isBlock
-    ? dumped.replace(/^__v:/, "")
-    : dumped.replace(/^__v: ?/, "");
+  // `locateFrontMatterFields` positions `valueFrom` right after `key:` PLUS
+  // one inline space when the doc actually has one there — true whenever
+  // there's inline content right after the colon (a scalar/flow value, or a
+  // block scalar's ` |`/` >` indicator), and a no-op for block
+  // sequence/mapping keys (`key:` with nothing but a newline after it, so
+  // there's no inline space to consume in the first place). Stripping
+  // `^__v: ?` here mirrors that uniformly across every shape, so the
+  // dumped text always lines up with wherever `valueFrom` actually points
+  // for that shape.
+  const withoutKey = dumped.replace(/^__v: ?/, "");
   return withoutKey.trimEnd();
 }
 

@@ -24,7 +24,12 @@ import type { FrontmatterBlock } from "../codemirror/frontmatter_folding.ts";
 import type { FrontMatterFieldSpan } from "../lib/frontmatter_yaml.ts";
 import * as frontmatterYaml from "../lib/frontmatter_yaml.ts";
 import { locateFrontMatterFields } from "../lib/frontmatter_yaml.ts";
-import { commitFieldEdit, FrontMatterRow } from "./front_matter_panel.tsx";
+import {
+  commitBlockMappingEdit,
+  commitFieldEdit,
+  editFieldAsRawYaml,
+  FrontMatterRow,
+} from "./front_matter_panel.tsx";
 
 const domTest = typeof document === "undefined" ? test.skip : test;
 
@@ -42,20 +47,35 @@ function docWithFrontMatter(doc: string) {
 }
 
 function fakeClient(state: EditorState) {
-  const dispatched: unknown[] = [];
+  const dispatched: any[] = [];
   const flashed: { message: string; type?: string }[] = [];
+  let focusCalls = 0;
   const editorView = {
     state,
     dispatch: (tx: any) => {
       dispatched.push(tx);
-      // Apply the transaction so subsequent reads (and multi-step tests)
-      // see the resulting document, mirroring a real EditorView.
-      const newState = state.update(tx).state;
-      (editorView as any).state = newState;
+      // Apply document-changing transactions so subsequent reads (and
+      // multi-step tests) see the resulting document, mirroring a real
+      // EditorView. Effect-only transactions (e.g. the unfold + selection
+      // dispatch from `editFieldAsRawYaml`) are recorded but not replayed
+      // through `state.update` — CM's fold machinery needs its own
+      // registered StateField, which these minimal test fixtures
+      // deliberately don't set up (unit-testing the intent, not CM's own
+      // fold plumbing, which frontmatter_folding.test.ts already covers).
+      if (tx.changes) {
+        const newState = state.update(tx).state;
+        (editorView as any).state = newState;
+      }
+    },
+    focus: () => {
+      focusCalls++;
     },
   };
   const client = {
     editorView,
+    get focusCalls() {
+      return focusCalls;
+    },
     ui: {
       flashNotification: (message: string, type?: string) => {
         flashed.push({ message, type });
@@ -195,7 +215,7 @@ describe("<FrontMatterRow> — static rendering", () => {
     expect(html).toContain("journal, retro");
   });
 
-  test("a block-shaped field renders read-only (structured editors land in L4.3)", () => {
+  test("a block-shaped field renders its own structured editor control, not the scalar input", () => {
     const field: FrontMatterFieldSpan = {
       key: "owner",
       shape: "blockMapping",
@@ -206,7 +226,11 @@ describe("<FrontMatterRow> — static rendering", () => {
       isBlockValue: true,
     };
     const html = renderRow(field, { name: "Jack" });
-    expect(html).toContain("sb-fm-value-readonly");
+    // L4.3 gives every block shape its own control (BlockMappingEditor
+    // here) — confirmed in more detail by the "block-mapping field" /
+    // "block-sequence field" / "block-scalar fields" describe blocks below.
+    expect(html).toContain("sb-fm-block-mapping");
+    expect(html).not.toContain("sb-fm-value-input");
   });
 });
 
@@ -279,4 +303,211 @@ describe("<FrontMatterRow> — interactive editing (requires real DOM)", () => {
       document.body.removeChild(container);
     },
   );
+});
+
+// L4.3 — full editing for every value shape, including block-style YAML.
+describe("block-sequence field", () => {
+  test("renders the list-row editor with one input per item plus an add row", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\ntags:\n  - journal\n  - retro\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "tags"
+    )!;
+
+    const html = render(
+      h(FrontMatterRow, {
+        field,
+        value: ["journal", "retro"],
+        client,
+        block,
+        editingKey: null,
+        onEditingKeyChange: () => {},
+        onCommitted: () => {},
+      }),
+    );
+
+    expect(html).toContain("sb-fm-seq-row");
+    expect(html).toContain('value="journal"');
+    expect(html).toContain('value="retro"');
+    expect(html).toContain("sb-fm-seq-add");
+  });
+
+  test("adding an item via commitFieldEdit produces the expected multi-line doc text", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\ntags:\n  - journal\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "tags"
+    )!;
+
+    const ok = commitFieldEdit(client, block, field, ["journal", "retro"]);
+
+    expect(ok).toBe(true);
+    const resultState = client.editorView.state as EditorState;
+    const doc = resultState.sliceDoc(0, resultState.doc.length);
+    expect(doc).toContain("- journal");
+    expect(doc).toContain("- retro");
+  });
+});
+
+describe("block-mapping field", () => {
+  test("renders a textarea pre-filled with the raw nested YAML", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nowner:\n  name: Jack\n  email: j@x.com\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "owner"
+    )!;
+
+    const html = render(
+      h(FrontMatterRow, {
+        field,
+        value: { name: "Jack", email: "j@x.com" },
+        client,
+        block,
+        editingKey: null,
+        onEditingKeyChange: () => {},
+        onCommitted: () => {},
+      }),
+    );
+
+    expect(html).toContain("sb-fm-block-mapping-textarea");
+    expect(html).toContain("name: Jack");
+    expect(html).toContain("email: j@x.com");
+    expect(html).toContain("m3e-textarea-autosize");
+  });
+
+  test("commitBlockMappingEdit re-indents and splices valid edited YAML", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\ntitle: Doc\nowner:\n  name: Jack\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "owner"
+    )!;
+
+    const ok = commitBlockMappingEdit(
+      client,
+      block,
+      field,
+      "name: Jack\nemail: j@x.com",
+    );
+
+    expect(ok).toBe(true);
+    const resultState = client.editorView.state as EditorState;
+    const doc = resultState.sliceDoc(0, resultState.doc.length);
+    expect(doc).toContain("title: Doc");
+    expect(doc).toContain("  name: Jack");
+    expect(doc).toContain("  email: j@x.com");
+  });
+
+  test("commitBlockMappingEdit rejects inconsistently-indented text without touching the doc", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nowner:\n  name: Jack\n---\nBody",
+    );
+    const { client, dispatched, flashed } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "owner"
+    )!;
+
+    // Inconsistent indentation within a mapping is invalid YAML on its own.
+    const ok = commitBlockMappingEdit(
+      client,
+      block,
+      field,
+      "name: Jack\n  email: j@x.com",
+    );
+
+    expect(ok).toBe(false);
+    expect(dispatched).toHaveLength(0);
+    expect(flashed).toHaveLength(1);
+    expect(flashed[0].type).toBe("error");
+  });
+});
+
+describe("block-scalar fields", () => {
+  test("blockScalarLiteral renders a textarea with DECODED newlines, not the raw `|`-prefixed source", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nnotes: |\n  line one\n  line two\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "notes"
+    )!;
+
+    const html = render(
+      h(FrontMatterRow, {
+        field,
+        value: "line one\nline two",
+        client,
+        block,
+        editingKey: null,
+        onEditingKeyChange: () => {},
+        onCommitted: () => {},
+      }),
+    );
+
+    expect(html).toContain("sb-fm-block-scalar-textarea");
+    expect(html).toContain("line one\nline two");
+    expect(html).not.toContain("|-\n  line one");
+  });
+
+  test("committing a blockScalarLiteral edit keeps the `|` indicator", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nnotes: |\n  line one\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "notes"
+    )!;
+
+    const ok = commitFieldEdit(client, block, field, "line one\nline two");
+
+    expect(ok).toBe(true);
+    const resultState = client.editorView.state as EditorState;
+    const doc = resultState.sliceDoc(0, resultState.doc.length);
+    expect(doc).toContain("notes: |");
+    expect(doc).not.toContain("notes: >");
+  });
+
+  test("committing a blockScalarFolded edit keeps the `>` indicator", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nnotes: >\n  line one\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "notes"
+    )!;
+
+    const ok = commitFieldEdit(client, block, field, "line one\nline two");
+
+    expect(ok).toBe(true);
+    const resultState = client.editorView.state as EditorState;
+    const doc = resultState.sliceDoc(0, resultState.doc.length);
+    expect(doc).toContain("notes: >");
+  });
+});
+
+describe("editFieldAsRawYaml — escape hatch, all shapes", () => {
+  test("unfolds the block and places the cursor at the field's own key line", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\ntitle: Doc\nowner:\n  name: Jack\n---\nBody",
+    );
+    const { client, dispatched } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "owner"
+    )!;
+
+    editFieldAsRawYaml(client, block, field);
+
+    expect(dispatched).toHaveLength(1);
+    const tx = dispatched[0];
+    expect(tx.selection.anchor).toBe(field.lineFrom);
+    expect(tx.effects).toBeDefined();
+    expect(client.focusCalls).toBe(1);
+  });
 });

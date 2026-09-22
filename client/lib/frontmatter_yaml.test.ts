@@ -192,24 +192,30 @@ describe("serializeYamlValue", () => {
     ).toBe("\n  name: Jack\n  email: j@x.com");
   });
 
-  // Splicing convention matched here: `valueFrom` sits immediately after
-  // the literal `key:` (no space) for every block shape — see
-  // `serializeYamlValue`'s own doc comment — so these fixtures concatenate
-  // `key:` + `dumped` directly, exactly as `commitFieldEdit` (L4.2) will.
+  // Splicing convention matched here: `locateFrontMatterFields` positions
+  // `valueFrom` right after `key:` PLUS one inline space whenever the doc
+  // actually has inline content there (a scalar/flow value, a block
+  // scalar's ` |`/` >` indicator, or js-yaml collapsing an empty sequence
+  // to flow `[]`) — so `serializeYamlValue` strips that same leading space
+  // from its own output (see its doc comment), and these fixtures glue
+  // `key: ` (colon + space) back on to reconstruct what the real
+  // pre-`valueFrom` document text would be. A stray space before a bare
+  // newline (the non-empty block-sequence/mapping case) is harmless YAML,
+  // so gluing `key: ` uniformly is safe for every shape here.
 
   test("multi-line string round-trips through blockScalarLiteral, keeping `|`", () => {
     const value = "line one\nline two";
     const dumped = serializeYamlValue(value, "blockScalarLiteral");
-    expect(dumped.trimStart().startsWith("|")).toBe(true);
-    const reparsed = tryParseFrontMatter(`---\nnotes:${dumped}\n---`);
+    expect(dumped.startsWith("|")).toBe(true);
+    const reparsed = tryParseFrontMatter(`---\nnotes: ${dumped}\n---`);
     expect(reparsed?.notes).toBe(value);
   });
 
   test("multi-line string round-trips through blockScalarFolded, keeping `>`", () => {
     const value = "line one\nline two";
     const dumped = serializeYamlValue(value, "blockScalarFolded");
-    expect(dumped.trimStart().startsWith(">")).toBe(true);
-    const reparsed = tryParseFrontMatter(`---\nnotes:${dumped}\n---`);
+    expect(dumped.startsWith(">")).toBe(true);
+    const reparsed = tryParseFrontMatter(`---\nnotes: ${dumped}\n---`);
     expect(reparsed?.notes).toBe(value);
   });
 
@@ -217,19 +223,23 @@ describe("serializeYamlValue", () => {
     const value = ["one", "two", "three"];
     const dumped = serializeYamlValue(value, "blockSequence");
     expect(dumped).toBe("\n  - one\n  - two\n  - three");
-    const reparsed = tryParseFrontMatter(`---\ntags:${dumped}\n---`);
+    const reparsed = tryParseFrontMatter(`---\ntags: ${dumped}\n---`);
     expect(reparsed?.tags).toEqual(value);
   });
 
   test("empty array serializes without erroring and round-trips", () => {
+    // js-yaml collapses an empty sequence to flow `[]` even under
+    // `flowLevel: -1` — the one case where a `blockSequence`-shaped value's
+    // own dump isn't actually block-style. Still round-trips correctly.
     const dumped = serializeYamlValue([], "blockSequence");
-    const reparsed = tryParseFrontMatter(`---\ntags:${dumped}\n---`);
+    expect(dumped).toBe("[]");
+    const reparsed = tryParseFrontMatter(`---\ntags: ${dumped}\n---`);
     expect(reparsed?.tags).toEqual([]);
   });
 
   test("empty string block scalar serializes without erroring", () => {
     const dumped = serializeYamlValue("", "blockScalarLiteral");
-    const reparsed = tryParseFrontMatter(`---\nnotes:${dumped}\n---`);
+    const reparsed = tryParseFrontMatter(`---\nnotes: ${dumped}\n---`);
     expect(reparsed?.notes).toBe("");
   });
 });
