@@ -79,7 +79,7 @@ pub async fn build_multi_stack(config: &Config) -> Result<(axum::Router, String)
             users: store.clone(),
             authenticator: authenticator.clone(),
         },
-        version: crate::VERSION.to_string(),
+        version: crate::embed::current_version(),
         main_port: config.port,
         disable_service_worker: config.disable_service_worker,
         shell_disabled: config.shell_disabled,

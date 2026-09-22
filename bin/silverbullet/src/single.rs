@@ -122,7 +122,7 @@ pub async fn run_single(config: Config) -> Result<(), String> {
         runtime: Box::new(crate::multi::build_space_runtime),
         metrics: metrics.clone(),
         auth: InstanceAuth::Single(auth),
-        version: crate::VERSION.to_string(),
+        version: crate::embed::current_version(),
         main_port: config.port,
         disable_service_worker: config.disable_service_worker,
         // Redundant here — `synthesize_config` already folded the env value

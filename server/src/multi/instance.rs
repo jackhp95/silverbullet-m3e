@@ -53,7 +53,7 @@ pub struct InstanceDeps {
     pub metrics: Option<Arc<crate::metrics::Metrics>>,
     /// Authentication source for every instance built by this manager.
     pub auth: InstanceAuth,
-    pub version: String,
+    pub version: ServerVersion,
     pub main_port: u16,
     pub disable_service_worker: bool,
     /// Process-global shell kill switch from `SB_SHELL_BACKEND` (see
@@ -435,7 +435,7 @@ fn try_build_state(
             disable_service_worker: deps.disable_service_worker,
         },
         space_folder_path: folder_str,
-        version: ServerVersion::Static(deps.version.clone()),
+        version: deps.version.clone(),
         host_url_prefix: prefix.to_string(),
         additional_head_html: config.head_html.clone(),
         theme_color: config.theme_color.clone(),
@@ -471,7 +471,7 @@ mod tests {
                     .unwrap()
                     .unwrap(),
             )),
-            version: "test".into(),
+            version: ServerVersion::Static("test".into()),
             main_port: 3000,
             disable_service_worker: true,
             shell_disabled: false,

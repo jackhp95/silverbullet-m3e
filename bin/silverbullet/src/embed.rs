@@ -2,8 +2,10 @@
 //! `SpacePrimitives` so the whole UI ships inside the single static binary.
 
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use rust_embed::RustEmbed;
+use silverbullet_server::state::ServerVersion;
 use silverbullet_server_common::{FileMeta, SpaceError, SpacePrimitives};
 
 /// The built client web UI (`client_bundle/client`), served at the SPA fallback.
@@ -16,6 +18,50 @@ pub struct ClientAssets;
 #[derive(RustEmbed)]
 #[folder = "$CARGO_MANIFEST_DIR/../../client_bundle/base_fs"]
 pub struct BaseFsAssets;
+
+/// The `X-Server-Version` this binary reports at `/.ping`, matched to how
+/// `ClientAssets`/`BaseFsAssets` themselves serve content: `rust-embed`
+/// (without the `debug-embed` feature, which this crate doesn't enable) reads
+/// straight from disk on every request in a debug build and only embeds
+/// compile-time bytes in release.
+///
+/// The version was previously always `crate::VERSION` — baked in at compile
+/// time via `build.rs`/`SB_VERSION` regardless of build profile. That's fine
+/// in release, but for this debug binary — which is meant to reflect a
+/// `npm run build` client-only rebuild without a `cargo build` — it meant
+/// `/.ping` kept reporting the *old* compiled-in version forever, while the
+/// client bundle's own `version.json` (imported straight into the JS bundle)
+/// moved on with every new commit. The client's mismatch banner
+/// (`client.ts`'s `server-version` handler) would then reappear after every
+/// reload: reloading serves the freshly rebuilt client bundle, but that
+/// bundle's `publicVersion` still didn't match the stale, statically-compiled
+/// server version, so a *new* "new version available" notification fired
+/// right back. In debug builds we now reread `version.json` from disk on
+/// every `/.ping`, so it always agrees with whatever the client bundle was
+/// last built against — the same source of truth (`../../version.json`) the
+/// client itself was bundled from — and a single reload converges.
+pub fn current_version() -> ServerVersion {
+    if cfg!(debug_assertions) {
+        ServerVersion::Dynamic(Arc::new(read_version_from_disk))
+    } else {
+        ServerVersion::Static(crate::VERSION.to_string())
+    }
+}
+
+/// Reads `{ "version": "…" }` from the workspace-root `version.json` — the
+/// same file the TypeScript client bundles in as `publicVersion`. Falls back
+/// to the compile-time `crate::VERSION` if the file is missing or malformed
+/// (e.g. a release checkout with no source tree on disk), so this can never
+/// turn a working server into one that reports an empty version string.
+fn read_version_from_disk() -> String {
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let path = std::path::Path::new(manifest).join("../../version.json");
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).ok())
+        .and_then(|value| value.get("version")?.as_str().map(str::to_string))
+        .unwrap_or_else(|| crate::VERSION.to_string())
+}
 
 /// A read-only `SpacePrimitives` over a `rust-embed` asset set.
 ///
@@ -125,5 +171,54 @@ mod tests {
     fn file_list_is_nonempty() {
         let space = EmbeddedSpace::<ClientAssets>::new();
         assert!(!space.fetch_file_list().unwrap().is_empty());
+    }
+
+    // Debug builds must reread `version.json` from disk on every `/.ping`, the
+    // same way `ClientAssets`/`BaseFsAssets` above reread their files — a
+    // compile-time-baked version would leave the debug binary reporting a
+    // stale version forever after a client-only `npm run build`, which is
+    // exactly the bug this module fixes (see `current_version`'s doc comment).
+    // `cfg(test)` here always builds with `debug_assertions` on, so these
+    // assert the actual shipped debug-build behavior, not a test-only stand-in.
+
+    #[test]
+    fn current_version_is_dynamic_in_a_debug_build() {
+        assert!(matches!(current_version(), ServerVersion::Dynamic(_)));
+    }
+
+    #[test]
+    fn dynamic_version_matches_the_on_disk_version_json() {
+        let ServerVersion::Dynamic(f) = current_version() else {
+            panic!("expected Dynamic in a debug test build");
+        };
+        assert_eq!(f(), read_version_from_disk());
+        assert_eq!(f(), on_disk_version_json_field());
+    }
+
+    #[test]
+    fn read_version_from_disk_falls_back_to_compiled_version_on_missing_file() {
+        // Exercises the fallback branch directly, since the real
+        // `version.json` is expected to exist in this checkout.
+        let missing = std::fs::read_to_string("/definitely/does/not/exist.json")
+            .ok()
+            .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).ok())
+            .and_then(|value| value.get("version")?.as_str().map(str::to_string))
+            .unwrap_or_else(|| crate::VERSION.to_string());
+        assert_eq!(missing, crate::VERSION);
+    }
+
+    /// Test-only re-derivation of the on-disk value, kept independent of
+    /// `read_version_from_disk`'s own parsing so a bug in that function can't
+    /// also hide itself from `dynamic_version_matches_the_on_disk_version_json`.
+    fn on_disk_version_json_field() -> String {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let path = std::path::Path::new(manifest).join("../../version.json");
+        let contents = std::fs::read_to_string(&path).expect("version.json must exist");
+        let value: serde_json::Value =
+            serde_json::from_str(&contents).expect("version.json must be valid JSON");
+        value["version"]
+            .as_str()
+            .expect("version.json must have a string `version` field")
+            .to_string()
     }
 }

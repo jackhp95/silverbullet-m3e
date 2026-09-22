@@ -389,6 +389,7 @@ mod tests {
     use super::*;
     use crate::multi::config::{Binding, SpaceConfig};
     use crate::multi::instance::{AssetFactories, InstanceAuth, InstanceDeps};
+    use crate::state::ServerVersion;
     use silverbullet_server_common::space::MemorySpacePrimitives;
 
     fn deps(root: &std::path::Path) -> InstanceDeps {
@@ -405,7 +406,7 @@ mod tests {
                     .unwrap()
                     .unwrap(),
             )),
-            version: "test".into(),
+            version: ServerVersion::Static("test".into()),
             main_port: 3000,
             disable_service_worker: true,
             shell_disabled: false,
