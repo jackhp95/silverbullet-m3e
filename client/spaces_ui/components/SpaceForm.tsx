@@ -14,7 +14,6 @@ import {
 // belong at each DOM-side consumer, not the kit files themselves.
 import "@m3e/web/button";
 import "@m3e/web/form-field";
-import "@m3e/web/checkbox";
 import { adminApi, listUsers } from "../api.ts";
 import { FolderPicker } from "../FolderPicker.tsx";
 import { FieldErrors, useSlugDefaults } from "../space_fields.tsx";

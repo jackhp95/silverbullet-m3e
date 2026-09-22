@@ -49,21 +49,10 @@ type M3eLinearProgressIndicatorAttributes = PreactJSX.HTMLAttributes<HTMLElement
   "buffer-value"?: number;
 };
 
-type M3eCheckboxAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
-  checked?: boolean;
-  disabled?: boolean;
-  indeterminate?: boolean;
-  name?: string;
-  required?: boolean;
-  /** @default "on" */
-  value?: string;
-};
-
 interface M3eIntrinsicElements {
   "m3e-button": M3eButtonAttributes;
   "m3e-form-field": M3eFormFieldAttributes;
   "m3e-linear-progress-indicator": M3eLinearProgressIndicatorAttributes;
-  "m3e-checkbox": M3eCheckboxAttributes;
 }
 
 declare module "preact" {

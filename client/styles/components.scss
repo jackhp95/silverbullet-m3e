@@ -100,13 +100,6 @@
   padding-right: 1.2em;
 }
 
-// must-stay: styles the raw `<input type=checkbox>` CodeMirror's task-list
-// widget renders inline in editable document content (client/codemirror/
-// task.ts) — explicitly excluded from the m3e sweep per the "don't regress
-// the CodeMirror editor" directive; swapping a live-typing decoration widget
-// to a Shadow-DOM custom element risks breaking its position-tracking click
-// handling. plug-api/ui's own Checkbox component now renders a real
-// <m3e-checkbox> and no longer needs this rule (kept only for the CM widget).
 .sb-checkbox {
   width: 16px;
   height: 16px;
@@ -115,16 +108,6 @@
 }
 
 /* Tabs */
-// deferred (not must-stay, not migrated): App.tsx's admin nav (Spaces/Users)
-// renders real `<a href>` route links styled as tabs, and plug-api/ui's own
-// Tabs component (tabs.tsx, currently unused in-tree) is button-based +
-// onSelect-callback. `<m3e-tab>` has no href/link-navigation attribute at
-// all (CEM: disabled/for/selected only — it's a for=panel-id selector, not
-// an anchor) — swapping either consumer to m3e-tabs means faking real
-// browser-link semantics (ctrl/middle-click open-in-tab, status-bar URL
-// preview, crawlability) with a click handler, which is a UX regression, not
-// a like-for-like swap. Flagged for Jack: either accept that regression, or
-// this is a case where the hand-rolled tab-styled nav-link should stay.
 .sb-tabs {
   display: flex;
   gap: 0;
@@ -153,14 +136,6 @@
 }
 
 /* Alerts / banners */
-// must-stay (no M3E equivalent): @m3e/web ships no banner/alert primitive —
-// closest neighbors are m3e-snackbar (transient, auto-dismissing, appended
-// to document.body — wrong for an inline, persistent, in-form validation/
-// warning message like SpaceForm's "Anyone can read AND EDIT…") and
-// m3e-tooltip (hover-triggered, not always-visible). plug-api/ui's Alert
-// (alert.tsx) is exactly this file's `sb-alert`/`sb-alert-{error,warning,
-// info}` contract, publicly exported and asserted on by class name in
-// ui.test.ts — kept hand-rolled.
 .sb-alert {
   padding: 8px 12px;
   font-size: 0.85em;
@@ -187,19 +162,6 @@
 }
 
 /* Badge */
-// deferred (semantic mismatch, not migrated): m3e-badge is a self-
-// positioning overlay indicator anchored to a control via `for="<id>"`
-// (absolute-positions itself relative to that control's box — see the m3e
-// skill's badge card) — designed for notification-count dots on icons/
-// buttons, not an inline status label sitting in text flow. Current usage
-// (SpaceList's space.state "running"/"error", SpaceForm/UsersView's "admin"/
-// "you") is exactly the latter: a `<Badge>` next to/inside a label, part of
-// the reading order. Forcing `for` + self-positioning here would fight the
-// component (same anti-pattern the badge card itself warns against). A
-// closer M3E fit would be `m3e-chip` (assist/filter chips render inline,
-// no self-positioning) but chips carry interactive/dismissible affordances
-// these plain status labels don't want — flagged for Jack as a product
-// decision, not purely mechanical.
 .sb-badge {
   flex-shrink: 0;
   display: inline-flex;
