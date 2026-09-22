@@ -126,6 +126,24 @@ function PageNameEditor({
   const committing = useRef(false);
   useEffect(() => setName(pageName ?? ""), [pageName]);
 
+  // 2026-09-22 (app-bar title wrap task): a real `<input>` can NEVER wrap
+  // its text onto multiple lines — that's a browser-level rendering
+  // constraint on form controls (MDN: an `<input>`'s value "is always
+  // displayed on a single line"), not something CSS `white-space`/
+  // `text-wrap` can override. A Notion-style display/edit dual-mode (plain
+  // wrapping `<span>` shown until clicked, swapping to this same `<input>`
+  // only while editing) was tried and reverted here — it breaks ~15 existing
+  // e2e specs across page-rename.test.ts, page-picker.test.ts,
+  // navigate-restore.test.ts, wiki-links.test.ts, app-bar-leading-
+  // trailing.test.ts, and others, all of which assert
+  // `#sb-current-page input.sb-input` is present and directly clickable at
+  // all times (`nameInput.click()` immediately followed by typing, with no
+  // "enter edit mode" step) — a real, load-bearing test contract, not
+  // incidental coverage. Flagged to Jack rather than landing that
+  // rearchitecture unasked. Kept as a single always-live `<input>`; the fix
+  // here is containment (ellipsis, no visual overflow past the bar) plus
+  // the responsive size-shrink below, which is what an editable native
+  // form control can actually do.
   const commit = (newName: string) => {
     if (committing.current) {
       return;
@@ -256,6 +274,52 @@ export function TopBar({
     M3eSnackbar.open(isOnline ? "Back online" : "You're offline");
   }, [isOnline]);
 
+  // 2026-09-22 (app-bar title wrap task): drop from `size="large"` to
+  // `size="medium"` (both real values — AppBarSize.d.ts: "small" | "medium"
+  // | "large") whenever the title, at the large-size title font
+  // (Display Small), would be wider than the space actually available —
+  // the case that used to visibly overflow the bar. `size` is a plain
+  // reflected JS/attribute property on `m3e-app-bar` (AppBarElement.d.ts),
+  // not a CSS-stylable token, so a container query alone can't flip it — a
+  // CSS container query can't set an attribute on any element, full stop,
+  // regardless of component. This is the "measured JS fallback" the task
+  // calls for: a hidden same-font mirror span (`titleMirrorRef`, rendered
+  // inside the real title slot so it inherits the exact same
+  // `--m3e-app-bar-*-title-text-font-*` cascade) reports the title's true
+  // natural (unwrapped) width via `scrollWidth`; a `ResizeObserver` on the
+  // title slot itself reports the width actually available. Comparing the
+  // two reacts correctly to viewport width, window resize, AND title text
+  // length alike, without hardcoding a breakpoint. The visible `<input>`
+  // itself can't be measured this way while focused/mid-edit (its own
+  // scrollWidth reflects the caret's scroll position, not the full value),
+  // which is exactly why this uses a separate mirror instead.
+  const titleRef = useRef<HTMLElement>(null);
+  const titleMirrorRef = useRef<HTMLSpanElement>(null);
+  const [barSize, setBarSize] = useState<"large" | "medium">("large");
+  useEffect(() => {
+    const el = titleRef.current;
+    const mirror = titleMirrorRef.current;
+    if (!el || !mirror || typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const evaluate = () => {
+      const available = el.clientWidth;
+      const needed = mirror.scrollWidth;
+      const overflows = available > 0 && needed > available;
+      setBarSize((prev) => {
+        const next = overflows ? "medium" : "large";
+        return prev === next ? prev : next;
+      });
+    };
+
+    const observer = new ResizeObserver(() => evaluate());
+    observer.observe(el);
+    evaluate();
+
+    return () => observer.disconnect();
+  }, [pageName, pageNamePrefix]);
+
   return (
     <div
       id="sb-top"
@@ -264,7 +328,7 @@ export function TopBar({
     >
       {lhs}
       <div className="main">
-        <m3e-app-bar size="large">
+        <m3e-app-bar size={barSize}>
           {/* "asterisk" verified as a real glyph in the bundled font
               subset — client/fonts/MaterialSymbolsOutlined.woff2 decompiled
               (fontTools) and its glyph order literally contains "asterisk"
@@ -304,7 +368,7 @@ export function TopBar({
               </m3e-breadcrumb-item>
             ))}
           </m3e-breadcrumb>
-          <span slot="title" className="sb-page-title">
+          <span slot="title" className="sb-page-title" ref={titleRef}>
             <span className="sb-page-prefix">{pageNamePrefix}</span>
             <span
               id="sb-current-page"
@@ -315,6 +379,12 @@ export function TopBar({
                 readOnly={readOnly}
                 onRename={onRename}
               />
+            </span>
+            {/* Invisible, same-font natural-width probe for the responsive
+                size-shrink effect above — never shown, `aria-hidden` so it's
+                not read out twice alongside the real title. */}
+            <span className="sb-page-title-mirror" aria-hidden="true" ref={titleMirrorRef}>
+              {pageNamePrefix}{pageName}
             </span>
           </span>
           <span slot="subtitle">

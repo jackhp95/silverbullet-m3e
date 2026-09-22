@@ -52,6 +52,25 @@
     // `size="large"` token (--m3e-app-bar-large-title-text-font-size,
     // Material's "Display Small" scale) rather than the old `size="small"`
     // one (2026-09-22 V5b/L8/L9) — still legible, editable, and rename-able.
+    // The `size` itself now also responds to available width — see
+    // top_bar.tsx's `barSize` effect — shrinking to "medium" before a long
+    // title would overflow.
+    position: relative;
+
+    // 2026-09-22 (app-bar title wrap task): natural-width probe used by
+    // top_bar.tsx's ResizeObserver to decide whether the title needs the
+    // smaller bar size. Absolutely positioned (out of flow, doesn't affect
+    // layout/height) but NOT `display:none` — `scrollWidth` of a
+    // non-rendered element is always 0, so it must actually be laid out to
+    // measure real text width at the real cascaded font.
+    .sb-page-title-mirror {
+      position: absolute;
+      top: 0;
+      left: 0;
+      visibility: hidden;
+      white-space: pre;
+      pointer-events: none;
+    }
   }
 
   #sb-current-page {
@@ -65,6 +84,16 @@
 
     -webkit-app-region: drag;
 
+    // A native `<input>` can never wrap its text onto multiple lines
+    // (browser-level constraint — see PageNameEditor's comment in
+    // top_bar.tsx for why a display/edit dual-mode that WOULD wrap was
+    // reverted). The best containment an always-live, always-clickable
+    // input can offer is: never visually escape the bar. `text-overflow:
+    // ellipsis` (the input itself already has `overflow-x: hidden` below)
+    // makes a truncated title read as "here's more, cut off" instead of the
+    // old bare clip, which is the "doesn't overflow" half of the ask; the
+    // responsive size-shrink (top_bar.tsx `barSize`) handles the other half
+    // by making more titles fit in the first place.
     .sb-input {
       // The page-title/name editor — the clearest "am I looking at editable
       // content" cue there is, so it honors --chrome-font (theme.scss)
@@ -87,6 +116,7 @@
       border-radius: 0;
       outline: none;
       overflow-x: hidden;
+      text-overflow: ellipsis;
       caret-color: var(--editor-caret-color);
 
       &:focus {
