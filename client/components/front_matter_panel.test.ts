@@ -347,6 +347,80 @@ describe("<FrontMatterRow> — interactive editing (requires real DOM)", () => {
   );
 });
 
+describe("<FrontMatterRow> — Enter-then-blur commits exactly once (requires real DOM)", () => {
+  domTest(
+    "confirming via Enter, then a blur firing for the SAME edit session, does not double-commit",
+    () => {
+      // Regression test for a real data-corruption bug: Enter (`onConfirm`)
+      // and a subsequent blur both used to run the commit path
+      // unconditionally. In production the second (blur) call is triggered
+      // by the browser's own native "remove a focused element -> fire
+      // blur" behavior, which happens as an in-place side effect of the
+      // SAME re-render that unmounts this `<Input>` once `isEditing` goes
+      // false — i.e. it can land before a test's own manual re-render
+      // would ever run. This test doesn't depend on that unmount timing at
+      // all: it dispatches "blur" directly at the still-mounted input right
+      // after "Enter", which is the worst case (an even earlier blur than
+      // production ever produces) and exercises the exact same code path
+      // (`ScalarOrFlowValue`'s `commit`) the real race hits.
+      const { state, block } = docWithFrontMatter(
+        "---\ntags: [journal]\n---\nBody",
+      );
+      const { client } = fakeClient(state);
+      const field = locateFrontMatterFields(state, block).find((f) =>
+        f.key === "tags"
+      )!;
+
+      let editingKey: string | null = "tags";
+      const onEditingKeyChange = vi.fn((key: string | null) => {
+        editingKey = key;
+      });
+      const onCommitted = vi.fn();
+
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+
+      preactRender(
+        h(FrontMatterRow, {
+          field,
+          value: ["journal"],
+          client,
+          block,
+          editingKey,
+          onEditingKeyChange,
+          onCommitted,
+        }),
+        container,
+      );
+
+      const input = container.querySelector(
+        ".sb-fm-value-input",
+      ) as HTMLInputElement;
+      input.value = "journal, verified";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+
+      // Enter has now committed once. Mirror the production race: fire a
+      // blur on the SAME (not-yet-unmounted, in this hand-rolled test tree)
+      // input, with its DOM value unchanged — exactly what a browser's
+      // unmount-driven native blur delivers.
+      input.dispatchEvent(new Event("blur", { bubbles: true }));
+
+      // Exactly one commit's worth of dispatched transactions...
+      const resultState = client.editorView.state as EditorState;
+      const doc = resultState.sliceDoc(0, resultState.doc.length);
+      // ...and the value itself must NOT be duplicated.
+      expect(doc).toContain("tags: [journal, verified]");
+      expect(doc).not.toContain("verified, verified");
+      expect(onCommitted).toHaveBeenCalledTimes(1);
+
+      document.body.removeChild(container);
+    },
+  );
+});
+
 // L4.3 — full editing for every value shape, including block-style YAML.
 describe("block-sequence field", () => {
   test("renders the list-row editor with one input per item plus an add row", () => {

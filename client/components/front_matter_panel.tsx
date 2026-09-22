@@ -231,8 +231,38 @@ function ScalarOrFlowValue(
 ) {
   const isEditing = editingKey === field.key;
   const escapedRef = useRef(false);
+  // Guards against a second commit for the SAME edit session. Root cause
+  // (2026-09-22 live verification, data-corruption bug): confirming via
+  // Enter (`onConfirm`) calls `commitFieldEdit`, which dispatches a CM
+  // transaction; `frontMatterSyncExtension` (client/codemirror/
+  // frontmatter_folding.ts) runs its update listener SYNCHRONOUSLY inside
+  // that very `dispatch()` call, invoking `client.onFrontMatterChanged` —
+  // i.e. this panel's `refresh()` — before `commit` even reaches its own
+  // `onEditingKeyChange(null)` line. Once `onEditingKeyChange(null)` does
+  // run, Preact's next (same-tick, microtask-scheduled) re-render unmounts
+  // this `<Input>` because `isEditing` has gone false. Removing a FOCUSED
+  // element from the DOM makes the browser fire a native `blur` on it as
+  // part of that same removal — which this component's own `onBlur` handler
+  // (still attached during teardown) receives, re-running `commit` with
+  // `e.currentTarget.value` (unchanged DOM text, e.g. "journal, verified")
+  // against the STALE closed-over `field` span (`field.valueFrom`/
+  // `valueTo`), which the first commit's own dispatch has already shifted.
+  // Splicing the same text in again at now-wrong offsets is what produces
+  // the duplicate ("journal, verified, verified"). Same Enter/blur race
+  // `PageNameEditor` (top_bar.tsx) already solved with its `committing`
+  // ref — mirrored here as a simpler one-shot latch: this component has no
+  // async gap to guard (unlike `PageNameEditor`'s awaited `onRename`), so
+  // once a commit has fired for this edit session, every later call
+  // (blur-after-Enter, or Escape's own guarded path) is a no-op. Reset back
+  // to `false` whenever a fresh edit session starts.
+  const committedRef = useRef(false);
+  useEffect(() => {
+    if (isEditing) committedRef.current = false;
+  }, [isEditing]);
 
   const commit = (text: string) => {
+    if (committedRef.current) return;
+    committedRef.current = true;
     const newValue = field.shape === "flow" ? parseFlowInput(text) : text;
     const ok = commitFieldEdit(client, block, field, newValue);
     onEditingKeyChange(null);
