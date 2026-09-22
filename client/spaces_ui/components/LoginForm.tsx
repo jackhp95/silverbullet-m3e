@@ -10,6 +10,7 @@ import {
 // belong at each DOM-side consumer, not the kit files themselves.
 import "@m3e/web/button";
 import "@m3e/web/form-field";
+import "@m3e/web/checkbox";
 
 export type LoginValues = {
   username: string;
