@@ -12,6 +12,7 @@ import {
 import "@m3e/web/button";
 import "@m3e/web/form-field";
 import "@m3e/web/checkbox";
+import "@m3e/web/chips";
 // The API-token list renders `m3e-list`/`m3e-list-item` directly — see
 // FolderPicker.tsx's identical self-import comment.
 import "@m3e/web/list";
@@ -160,8 +161,9 @@ export function NewUser({ onUnauthorized }: { onUnauthorized: () => void }) {
         value={password}
         onInput={(event) => setPassword(event.currentTarget.value)}
       />
-      <label>
+      <label for="new-user-admin">
         <Checkbox
+          id="new-user-admin"
           checked={admin}
           onChange={(event) => setAdmin(event.currentTarget.checked)}
         />{" "}
@@ -253,8 +255,9 @@ export function UserDetail({
       {error && <Alert variant="error">{error}</Alert>}
       <section>
         <h2>Role</h2>
-        <label>
+        <label for="user-admin-toggle">
           <Checkbox
+            id="user-admin-toggle"
             checked={user.admin}
             onChange={(event) => {
               const admin = event.currentTarget.checked;

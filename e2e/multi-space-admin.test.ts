@@ -91,7 +91,12 @@ test("first run: login, create a space, open it, edit a page", async ({
   // it public so the space opens below without a separate space login. The
   // toggle lives under "Advanced", which is collapsed by default.
   await page.locator("summary", { hasText: "Advanced" }).click();
-  await page.getByLabel("Public (no login required)").check();
+  // Not getByLabel: Chromium's accessible-name computation for
+  // `label[for]` doesn't extend to form-associated custom elements the way
+  // Playwright's getByLabel expects (verified: locator resolves 0 matches
+  // even with an explicit id/for pair) — #id is the working pattern already
+  // used by client-encryption.test.ts's `#clientEncryption`.
+  await page.locator("#space-is-public").check();
   await page.getByRole("button", { name: "Create" }).click();
 
   // Creation lands on the stable detail route. Return to the list to inspect

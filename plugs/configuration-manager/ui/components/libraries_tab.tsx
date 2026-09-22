@@ -29,6 +29,7 @@ import {
 // belong at each DOM-side consumer, not the kit files themselves.
 import "@m3e/web/button";
 import "@m3e/web/form-field";
+import "@m3e/web/chips";
 
 function openPage(name: string) {
   void (async () => {

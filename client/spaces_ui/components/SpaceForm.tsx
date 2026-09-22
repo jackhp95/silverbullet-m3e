@@ -15,6 +15,7 @@ import {
 import "@m3e/web/button";
 import "@m3e/web/form-field";
 import "@m3e/web/checkbox";
+import "@m3e/web/chips";
 import { adminApi, listUsers } from "../api.ts";
 import { FolderPicker } from "../FolderPicker.tsx";
 import { FieldErrors, useSlugDefaults } from "../space_fields.tsx";
@@ -314,8 +315,9 @@ export function SpaceForm({
         {Object.entries(users)
           .sort((a, b) => a[0].localeCompare(b[0]))
           .map(([username, u]) => (
-            <label class="sb-member-row" key={username}>
+            <label class="sb-member-row" key={username} for={`space-member-${username}`}>
               <Checkbox
+                id={`space-member-${username}`}
                 checked={u.admin || members.has(username)}
                 disabled={u.admin}
                 onChange={(e) => {
@@ -335,8 +337,9 @@ export function SpaceForm({
       </fieldset>
       <details>
         <summary>Advanced</summary>
-        <label>
+        <label for="space-is-public">
           <Checkbox
+            id="space-is-public"
             checked={isPublic}
             onChange={(e) => setIsPublic(e.currentTarget.checked)}
           />{" "}
@@ -351,15 +354,17 @@ export function SpaceForm({
             for auth-proxy deployments.
           </Alert>
         )}
-        <label>
+        <label for="space-read-only">
           <Checkbox
+            id="space-read-only"
             checked={readOnly}
             onChange={(e) => setReadOnly(e.currentTarget.checked)}
           />{" "}
           Read-only
         </label>
-        <label>
+        <label for="space-shell-enabled">
           <Checkbox
+            id="space-shell-enabled"
             checked={shellEnabled}
             onChange={(e) => setShellEnabled(e.currentTarget.checked)}
           />{" "}
@@ -383,8 +388,9 @@ export function SpaceForm({
             />
           </Fragment>
         )}
-        <label>
+        <label for="space-runtime-api">
           <Checkbox
+            id="space-runtime-api"
             checked={runtimeApi}
             onChange={(e) => setRuntimeApi(e.currentTarget.checked)}
           />{" "}

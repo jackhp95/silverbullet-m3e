@@ -145,6 +145,12 @@ test("editing a space preserves fields the form does not manage", async ({
 
   // Saving stays on the canonical edit URL, which can be refreshed directly.
   await expect(page).toHaveURL(`${base}/.spaces/${encodeURIComponent(id)}`);
+  // Wait for the PATCH to actually land before reloading: m3e-button's click
+  // -> form submit dispatch is async (FormSubmitterMixin), unlike a native
+  // <button type=submit>'s synchronous submit, so reloading right after the
+  // click can abort the in-flight (or not-yet-issued) save request — same
+  // race the "saving an existing space" test below already guards against.
+  await expect(page.locator("[role=status]")).toHaveText("✓ Saved");
   await page.reload();
   await expect(page.getByLabel("Name")).toHaveValue("Renamed");
 
@@ -194,9 +200,14 @@ test("the shell allow list is editable, and only shown when shell is enabled", a
 
   // The field belongs to the toggle above it: with shell commands off there
   // is nothing for an allow list to restrict.
-  await page.getByLabel("Enable shell commands").uncheck();
+  // Not getByLabel: Chromium's accessible-name computation for `label[for]`
+  // doesn't extend to form-associated custom elements the way Playwright's
+  // getByLabel expects (verified: locator resolves 0 matches even with an
+  // explicit id/for pair) — #id is the working pattern already used by
+  // client-encryption.test.ts's `#clientEncryption`.
+  await page.locator("#space-shell-enabled").uncheck();
   await expect(allowed).toBeHidden();
-  await page.getByLabel("Enable shell commands").check();
+  await page.locator("#space-shell-enabled").check();
   await expect(allowed).toHaveValue("git");
 
   await allowed.fill("git pandoc");

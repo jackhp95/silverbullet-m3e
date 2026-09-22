@@ -175,16 +175,22 @@
   border-color: var(--alert-info-border-color);
 }
 
-/* Badge */
+/* Badge — renders as <m3e-chip>, the base non-interactive chip (no click/
+   remove/selected affordances, unlike assist/filter/input/suggestion chips).
+   m3e-badge was the wrong fit: it's a self-positioning overlay anchored via
+   `for`, meaningless unanchored — see plug-api/ui/badge.tsx. Sized down from
+   default chip scale via its own tokens; state-color variants below reuse
+   the old --badge-* custom props through the chip's label/outline tokens. */
 .sb-badge {
   flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 6px;
-  font-size: 10px;
-  font-weight: 500;
+  --m3e-chip-container-height: 18px;
+  --m3e-chip-padding-start: 6px;
+  --m3e-chip-padding-end: 6px;
+  --m3e-chip-label-text-font-size: 10px;
+  --m3e-chip-label-text-font-weight: 500;
+  --m3e-chip-label-text-color: var(--badge-color);
+  --m3e-outlined-chip-outline-color: transparent;
   background-color: var(--badge-background-color);
-  color: var(--badge-color);
   border-radius: 4px;
 }
 

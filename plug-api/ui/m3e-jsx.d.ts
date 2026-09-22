@@ -59,11 +59,18 @@ type M3eCheckboxAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   value?: string;
 };
 
+type M3eChipAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  value?: string;
+  /** @default "outlined" */
+  variant?: "elevated" | "outlined";
+};
+
 interface M3eIntrinsicElements {
   "m3e-button": M3eButtonAttributes;
   "m3e-form-field": M3eFormFieldAttributes;
   "m3e-linear-progress-indicator": M3eLinearProgressIndicatorAttributes;
   "m3e-checkbox": M3eCheckboxAttributes;
+  "m3e-chip": M3eChipAttributes;
 }
 
 declare module "preact" {
