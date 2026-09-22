@@ -13,7 +13,6 @@ import {
   frontmatterKeyLinePos,
 } from "../codemirror/frontmatter_folding.ts";
 import {
-  type FrontMatterFieldShape,
   type FrontMatterFieldSpan,
   locateFrontMatterFields,
   serializeYamlValue,
@@ -38,35 +37,40 @@ function iconForKey(key: string): string {
   }
 }
 
-/** How a field's current parsed value is shown when not being edited. */
-function displayValue(value: unknown, shape: FrontMatterFieldShape): string {
-  if (value === undefined || value === null) return "";
-  if (shape === "flow" && Array.isArray(value)) {
-    return value.map((item) => String(item)).join(", ");
-  }
-  if (shape === "flow" && typeof value === "object") {
-    return Object.entries(value as Record<string, unknown>)
-      .map(([k, v]) => `${k}: ${v}`)
-      .join(", ");
-  }
-  return String(value);
+/** How a scalar/flow field's value is shown when not being edited — the
+ * RAW source text of `[field.valueFrom, field.valueTo)`, trimmed, NOT
+ * `String(parsedValue)`. Defect fix (2026-09-22 live verification): js-yaml
+ * parses a `date:` value into a JS `Date`, and `String(date)` produces the
+ * full `Date.toString()` form (`Sun Sep 20 2026 19:00:00 GMT-0500 ...`) —
+ * both visually wrong AND, since `Date.toString()` renders in the browser's
+ * local timezone, capable of showing the WRONG CALENDAR DAY relative to
+ * what's actually written in the document. Slicing the document's own text
+ * keeps the panel faithful to whatever the user actually typed for ANY
+ * scalar (not just dates — this also stops lossy re-formatting of numbers,
+ * quoted strings, etc.) and needs no per-type special-casing. Block shapes
+ * (sequence/mapping/scalar) never call this — each has its own structured
+ * editor (`BlockSequenceEditor`/`BlockMappingEditor`/`BlockScalarEditor`
+ * below) that already works from the parsed `value`, which is fine there:
+ * a `date` can only appear as a top-level scalar in practice, and each of
+ * those editors is reconstructing a list/mapping/decoded-string shape, not
+ * stringifying a single scalar. */
+function rawValueText(client: Client, field: FrontMatterFieldSpan): string {
+  return client.editorView.state.sliceDoc(field.valueFrom, field.valueTo)
+    .trim();
 }
 
-/** Turns an edited flow-field's comma-joined display text back into a raw
- * value to hand `commitFieldEdit`. Arrays are the common case (tags); a
- * flow object is re-parsed as YAML flow-mapping syntax so `k: v, k2: v2`
- * keeps working, falling back to the raw text (which `tryParseFrontMatter`
- * will then reject as invalid, surfacing the usual error toast) if that
- * fails outright. */
-function parseFlowInput(text: string, originalValue: unknown): unknown {
-  if (Array.isArray(originalValue)) {
-    return text
-      .split(",")
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0);
-  }
+/** Turns an edited flow-field's raw text (e.g. `[journal, retro]`,
+ * `{name: Jack}` — same bracketed/braced syntax `rawValueText` now displays
+ * it in) back into a JS value to hand `commitFieldEdit`, which re-dumps it
+ * through `serializeYamlValue`. The text is already valid standalone YAML
+ * flow syntax (that's what qualified it as `shape === "flow"` in the first
+ * place, per `classifyShape`), so `YAML.load` parses it directly — no
+ * bracket-stripping/comma-splitting needed. Falls back to the raw text
+ * (which `tryParseFrontMatter` will then reject as invalid, surfacing the
+ * usual error toast) if the user's edit isn't valid YAML on its own. */
+function parseFlowInput(text: string): unknown {
   try {
-    return YAML.load(`{${text}}`);
+    return YAML.load(text);
   } catch {
     return text;
   }
@@ -222,16 +226,14 @@ export type FrontMatterRowProps = {
  * (L4.2) wires up; block shapes render read-only until L4.3 gives them
  * their own per-shape editor controls. */
 function ScalarOrFlowValue(
-  { field, value, client, block, editingKey, onEditingKeyChange, onCommitted }:
+  { field, client, block, editingKey, onEditingKeyChange, onCommitted }:
     FrontMatterRowProps,
 ) {
   const isEditing = editingKey === field.key;
   const escapedRef = useRef(false);
 
   const commit = (text: string) => {
-    const newValue = field.shape === "flow"
-      ? parseFlowInput(text, value)
-      : text;
+    const newValue = field.shape === "flow" ? parseFlowInput(text) : text;
     const ok = commitFieldEdit(client, block, field, newValue);
     onEditingKeyChange(null);
     if (ok) onCommitted();
@@ -244,7 +246,7 @@ function ScalarOrFlowValue(
         tabIndex={0}
         onClick={() => onEditingKeyChange(field.key)}
       >
-        {displayValue(value, field.shape)}
+        {rawValueText(client, field)}
       </span>
     );
   }
@@ -254,7 +256,7 @@ function ScalarOrFlowValue(
       bare
       class="sb-fm-value-input"
       autofocus
-      value={displayValue(value, field.shape)}
+      value={rawValueText(client, field)}
       onConfirm={(text) => commit(text)}
       onExit={() => {
         escapedRef.current = true;

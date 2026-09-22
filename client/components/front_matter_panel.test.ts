@@ -190,10 +190,15 @@ describe("commitFieldEdit", () => {
 });
 
 describe("<FrontMatterRow> — static rendering", () => {
-  function renderRow(field: FrontMatterFieldSpan, value: unknown) {
-    const { state, block } = docWithFrontMatter(
-      "---\nstatus: draft\n---\nBody",
-    );
+  // Renders against a real doc + a real located `field` (rather than a
+  // hand-rolled `{valueFrom: 0, valueTo: 0, ...}` stand-in) whenever the
+  // scalar/flow display path is under test — that display now reads the
+  // RAW SOURCE TEXT at `[field.valueFrom, field.valueTo)` straight off
+  // `client.editorView.state` (see `rawValueText` in front_matter_panel.tsx),
+  // so a fabricated zero/zero span would slice to `""` and silently break
+  // these assertions rather than exercise the real behavior.
+  function renderRow(doc: string, field: FrontMatterFieldSpan, value: unknown) {
+    const { state, block } = docWithFrontMatter(doc);
     const { client } = fakeClient(state);
     return render(
       h(FrontMatterRow, {
@@ -209,37 +214,50 @@ describe("<FrontMatterRow> — static rendering", () => {
   }
 
   test("renders the key, icon, and display value for a scalar field", () => {
-    const field: FrontMatterFieldSpan = {
-      key: "status",
-      shape: "scalar",
-      valueFrom: 0,
-      valueTo: 0,
-      lineFrom: 0,
-      lineTo: 0,
-      isBlockValue: false,
-    };
-    const html = renderRow(field, "draft");
+    const doc = "---\nstatus: draft\n---\nBody";
+    const { state, block } = docWithFrontMatter(doc);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "status"
+    )!;
+    const html = renderRow(doc, field, "draft");
     expect(html).toContain("status");
     expect(html).toContain("draft");
     expect(html).toContain('name="label"'); // default icon for an unmapped key
   });
 
   test("uses the tags icon for a `tags` key", () => {
-    const field: FrontMatterFieldSpan = {
-      key: "tags",
-      shape: "flow",
-      valueFrom: 0,
-      valueTo: 0,
-      lineFrom: 0,
-      lineTo: 0,
-      isBlockValue: false,
-    };
-    const html = renderRow(field, ["journal", "retro"]);
+    const doc = "---\ntags: [journal, retro]\n---\nBody";
+    const { state, block } = docWithFrontMatter(doc);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "tags"
+    )!;
+    const html = renderRow(doc, field, ["journal", "retro"]);
     expect(html).toContain('name="sell"');
     expect(html).toContain("journal, retro");
   });
 
+  test("a `date` value displays as its raw authored text, not a stringified JS Date", () => {
+    // Regression coverage: js-yaml parses a `date:` scalar into a real JS
+    // `Date`, and the OLD display path (`String(parsedValue)`) rendered
+    // that Date's full `.toString()` form — wrong format, and (since
+    // `Date.toString()` renders in the browser's local timezone) capable of
+    // showing the wrong calendar day entirely. The fixed display path
+    // (`rawValueText`) never looks at the parsed `value` for a scalar/flow
+    // row at all — it slices the document's own text — so this asserts
+    // against a real `Date` `value` prop to prove that.
+    const doc = "---\ndate: 2026-09-21\n---\nBody";
+    const { state, block } = docWithFrontMatter(doc);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "date"
+    )!;
+    const html = renderRow(doc, field, new Date("2026-09-21"));
+    expect(html).toContain("2026-09-21");
+    expect(html).not.toContain("GMT");
+    expect(html).not.toContain("00:00:00");
+  });
+
   test("a block-shaped field renders its own structured editor control, not the scalar input", () => {
+    const doc = "---\nstatus: draft\n---\nBody";
     const field: FrontMatterFieldSpan = {
       key: "owner",
       shape: "blockMapping",
@@ -249,7 +267,7 @@ describe("<FrontMatterRow> — static rendering", () => {
       lineTo: 0,
       isBlockValue: true,
     };
-    const html = renderRow(field, { name: "Jack" });
+    const html = renderRow(doc, field, { name: "Jack" });
     // L4.3 gives every block shape its own control (BlockMappingEditor
     // here) — confirmed in more detail by the "block-mapping field" /
     // "block-sequence field" / "block-scalar fields" describe blocks below.
