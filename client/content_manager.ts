@@ -29,6 +29,7 @@ import { parseMarkdown } from "./markdown_parser/parser.ts";
 import type { Client } from "./client.ts";
 import type { LocationState } from "./navigator.ts";
 import { PAGE_SCROLL_CONTAINER_ID } from "./editor_ui.tsx";
+import { snapToAppBar } from "./lib/scroll_snap.ts";
 
 const frontMatterRegex = /^---\n(([^\n]|\n)*?)---\n/;
 
@@ -610,15 +611,31 @@ export class ContentManager {
         // Frontmatter found, put cursor after it
         initialCursorPos = match[0].length;
       }
-      // By default scroll to the top. CodeMirror's own `.cm-scroller` no
-      // longer owns scroll once L6 configures it for auto-height ("page
-      // scrolls") mode — `#sb-page-scroll` (L5) is the real scrolling
-      // ancestor now.
-      document.getElementById(PAGE_SCROLL_CONTAINER_ID)!.scrollTop = 0;
+      // Rest snapped to the app bar (front matter hidden above) rather than
+      // scrolled literally to 0 — decision #3, plan §11. `snapToAppBar`
+      // (client/lib/scroll_snap.ts) owns scroll positioning for this branch
+      // now, so CM's own `scrollIntoView` is dropped from the dispatch below
+      // (the cursor right after the hidden frontmatter is already inside the
+      // viewport once snapped, so CM has nothing useful to add, and letting
+      // it scroll too would just fight the snap).
+      //
+      // Flash-of-wrong-position guard (§5.B risk 7): `snapToAppBar`'s async
+      // gate (custom-element upgrade + fonts + a settle rAF pair) means the
+      // page has already painted mid-transition on every navigation after
+      // the first (unlike cold boot, where nothing has painted yet
+      // regardless) — without hiding, that's a visible flash of the
+      // frontmatter or the previous page's scroll position. Mirrors
+      // `restoreScrollPosition`'s own hide-until-settled pattern above,
+      // scoped to the same `#sb-page-scroll` container.
+      const scrollContainer = document.getElementById(
+        PAGE_SCROLL_CONTAINER_ID,
+      );
+      if (scrollContainer) scrollContainer.style.visibility = "hidden";
       this.client.editorView.dispatch({
         selection: { anchor: initialCursorPos },
-        // And then scroll down if required
-        scrollIntoView: true,
+      });
+      void snapToAppBar().finally(() => {
+        if (scrollContainer) scrollContainer.style.visibility = "";
       });
     }
   }
