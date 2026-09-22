@@ -28,8 +28,13 @@ import {
   commitBlockMappingEdit,
   commitFieldEdit,
   editFieldAsRawYaml,
+  frontMatterSyncExtension,
   FrontMatterRow,
+  insertNewProperty,
+  reconcileEditingRow,
+  removeProperty,
 } from "./front_matter_panel.tsx";
+import { EditorView } from "@codemirror/view";
 
 const domTest = typeof document === "undefined" ? test.skip : test;
 
@@ -46,7 +51,10 @@ function docWithFrontMatter(doc: string) {
   return { state, block };
 }
 
-function fakeClient(state: EditorState) {
+function fakeClient(
+  state: EditorState,
+  options?: { promptValue?: string; confirmValue?: boolean },
+) {
   const dispatched: any[] = [];
   const flashed: { message: string; type?: string }[] = [];
   let focusCalls = 0;
@@ -80,6 +88,9 @@ function fakeClient(state: EditorState) {
       flashNotification: (message: string, type?: string) => {
         flashed.push({ message, type });
       },
+      prompt: async (_message: string) => options?.promptValue,
+      confirm: async (_message: string, _opts?: unknown) =>
+        options?.confirmValue ?? false,
     },
   };
   return { client: client as any, dispatched, flashed };
@@ -510,4 +521,172 @@ describe("editFieldAsRawYaml — escape hatch, all shapes", () => {
     expect(tx.effects).toBeDefined();
     expect(client.focusCalls).toBe(1);
   });
+});
+
+// L4.4 — add/remove properties, and bidirectional doc<->list sync.
+describe("insertNewProperty", () => {
+  test("inserts a new `key: ` line immediately before the closing fence", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nstatus: draft\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+
+    const ok = insertNewProperty(client, block, "author");
+
+    expect(ok).toBe(true);
+    const resultState = client.editorView.state as EditorState;
+    const doc = resultState.sliceDoc(0, resultState.doc.length);
+    expect(doc).toBe("---\nstatus: draft\nauthor: \n---\nBody");
+  });
+
+  test("rejects a key name that collides with an existing one", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nstatus: draft\n---\nBody",
+    );
+    const { client, dispatched, flashed } = fakeClient(state);
+
+    const ok = insertNewProperty(client, block, "status");
+
+    expect(ok).toBe(false);
+    expect(dispatched).toHaveLength(0);
+    expect(flashed).toHaveLength(1);
+    expect(flashed[0].type).toBe("error");
+    expect(flashed[0].message).toContain("status");
+  });
+});
+
+describe("removeProperty", () => {
+  test("removing one of several fields deletes just that field's own line", async () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nstatus: draft\ntitle: Doc\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "status"
+    )!;
+
+    const removed = await removeProperty(client, block, field, 2);
+
+    expect(removed).toBe(true);
+    const resultState = client.editorView.state as EditorState;
+    const doc = resultState.sliceDoc(0, resultState.doc.length);
+    expect(doc).toBe("---\ntitle: Doc\n---\nBody");
+  });
+
+  test("removing the LAST field asks for confirmation and removes the whole block when confirmed", async () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nstatus: draft\n---\nBody",
+    );
+    const { client, dispatched } = fakeClient(state, { confirmValue: true });
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "status"
+    )!;
+
+    const removed = await removeProperty(client, block, field, 1);
+
+    expect(removed).toBe(true);
+    expect(dispatched).toHaveLength(1);
+    const resultState = client.editorView.state as EditorState;
+    expect(resultState.sliceDoc(0, resultState.doc.length)).toBe("Body");
+  });
+
+  test("removing the LAST field does nothing if the confirmation is declined", async () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nstatus: draft\n---\nBody",
+    );
+    const { client, dispatched } = fakeClient(state, { confirmValue: false });
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "status"
+    )!;
+
+    const removed = await removeProperty(client, block, field, 1);
+
+    expect(removed).toBe(false);
+    expect(dispatched).toHaveLength(0);
+    const resultState = client.editorView.state as EditorState;
+    expect(resultState.sliceDoc(0, resultState.doc.length)).toBe(
+      "---\nstatus: draft\n---\nBody",
+    );
+  });
+});
+
+describe("reconcileEditingRow — the focused-row echo guard", () => {
+  type Row = { key: string; value: string };
+
+  test("no row is being edited: every row takes the fresh value", () => {
+    const fresh: Row[] = [{ key: "a", value: "fresh-a" }, {
+      key: "b",
+      value: "fresh-b",
+    }];
+    const previous: Row[] = [{ key: "a", value: "old-a" }, {
+      key: "b",
+      value: "old-b",
+    }];
+
+    expect(reconcileEditingRow(fresh, previous, null)).toEqual(fresh);
+  });
+
+  test("the actively-edited row keeps its previous value; every other row updates live", () => {
+    const fresh: Row[] = [{ key: "a", value: "fresh-a" }, {
+      key: "b",
+      value: "fresh-b",
+    }];
+    const previous: Row[] = [{ key: "a", value: "old-a" }, {
+      key: "b",
+      value: "old-b",
+    }];
+
+    const result = reconcileEditingRow(fresh, previous, "a");
+
+    expect(result).toEqual([{ key: "a", value: "old-a" }, {
+      key: "b",
+      value: "fresh-b",
+    }]);
+  });
+
+  test("this guard is shape-agnostic — same behavior for a block-sequence row's array value, a block-mapping/scalar row's string value", () => {
+    type SeqRow = { key: string; value: string[] };
+    const freshSeq: SeqRow[] = [{ key: "tags", value: ["fresh", "list"] }];
+    const previousSeq: SeqRow[] = [{ key: "tags", value: ["draft", "wip"] }];
+    expect(reconcileEditingRow(freshSeq, previousSeq, "tags")).toEqual(
+      previousSeq,
+    );
+
+    type TextRow = { key: string; value: string };
+    const freshText: TextRow[] = [{ key: "notes", value: "fresh text" }];
+    const previousText: TextRow[] = [{ key: "notes", value: "old text" }];
+    expect(reconcileEditingRow(freshText, previousText, "notes")).toEqual(
+      previousText,
+    );
+  });
+});
+
+describe("frontMatterSyncExtension — bidirectional doc<->list sync (requires a real EditorView)", () => {
+  domTest(
+    "fires the callback when a change intersects the frontmatter block, not when it only touches the body",
+    () => {
+      let callCount = 0;
+      const container = document.createElement("div");
+      const view = new EditorView({
+        doc: "---\nstatus: draft\n---\nBody",
+        extensions: [frontMatterSyncExtension(() => callCount++)],
+        parent: container,
+      });
+
+      // Body-only edit: must NOT fire.
+      view.dispatch({
+        changes: { from: view.state.doc.length, insert: "!" },
+      });
+      expect(callCount).toBe(0);
+
+      // Frontmatter-intersecting edit: must fire.
+      const statusValueFrom = view.state.doc.toString().indexOf("draft");
+      view.dispatch({
+        changes: { from: statusValueFrom, to: statusValueFrom + 5, insert: "final" },
+      });
+      expect(callCount).toBe(1);
+
+      view.destroy();
+    },
+  );
 });

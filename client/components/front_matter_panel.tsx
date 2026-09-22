@@ -1,6 +1,8 @@
 import { useRef, useState } from "preact/hooks";
 import { isolateHistory } from "@codemirror/commands";
 import { unfoldEffect } from "@codemirror/language";
+import type { Extension } from "@codemirror/state";
+import { ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import YAML from "js-yaml";
 import { Input } from "@silverbulletmd/silverbullet/ui";
 import "@m3e/web/icon";
@@ -8,6 +10,7 @@ import "@m3e/web/icon-button";
 import "@m3e/web/textarea-autosize";
 import type { Client } from "../client.ts";
 import {
+  findFrontmatterBlock,
   type FrontmatterBlock,
   frontmatterKeyLinePos,
 } from "../codemirror/frontmatter_folding.ts";
@@ -206,6 +209,14 @@ export type FrontMatterRowProps = {
   /** Called after a successful commit so the parent can re-derive rows
    * from the freshly-dispatched document state. */
   onCommitted: () => void;
+  /** How many fields the frontmatter block currently has — threaded down
+   * so the delete button knows whether removing THIS field would remove
+   * the last one (L4.4's "remove the whole block, with confirmation"
+   * path). Omitted in standalone-row tests/usages that don't need a
+   * delete button at all (no callback below, no button rendered). */
+  remainingFieldCount?: number;
+  /** Called after a successful remove so the parent can re-derive rows. */
+  onRemoved?: () => void;
 };
 
 /** Plain scalar or single-line flow value — the only two shapes this leaf
@@ -418,7 +429,7 @@ function StructuredValue(props: FrontMatterRowProps) {
 }
 
 export function FrontMatterRow(props: FrontMatterRowProps) {
-  const { field, client, block } = props;
+  const { field, client, block, remainingFieldCount, onRemoved } = props;
   const isStructuredShape = field.shape !== "scalar" && field.shape !== "flow";
 
   return (
@@ -429,6 +440,193 @@ export function FrontMatterRow(props: FrontMatterRowProps) {
         ? <StructuredValue {...props} />
         : <ScalarOrFlowValue {...props} />}
       <EditAsYamlButton field={field} client={client} block={block} />
+      {remainingFieldCount !== undefined && (
+        <m3e-icon-button
+          className="sb-fm-remove"
+          title={`Remove "${field.key}"`}
+          aria-label={`Remove "${field.key}"`}
+          onClick={() => {
+            removeProperty(client, block, field, remainingFieldCount).then(
+              (removed) => {
+                if (removed) onRemoved?.();
+              },
+            );
+          }}
+        >
+          <m3e-icon name="delete"></m3e-icon>
+        </m3e-icon-button>
+      )}
     </div>
   );
+}
+
+/**
+ * Inserts a new `key: \n` line immediately before the block's closing
+ * `---` fence. Rejects (with a `flashNotification`) a key name that
+ * case-sensitively collides with an existing one, rather than dispatching a
+ * transaction that would silently shadow the earlier key.
+ */
+export function insertNewProperty(
+  client: Client,
+  block: FrontmatterBlock,
+  key: string,
+): boolean {
+  const state = client.editorView.state;
+  const existing = tryParseFrontMatter(state.sliceDoc(block.from, block.to));
+  if (existing && Object.prototype.hasOwnProperty.call(existing, key)) {
+    client.ui.flashNotification(`"${key}" already exists`, "error");
+    return false;
+  }
+  // NOTE — deviates from this leaf's own illustrative snippet, which
+  // computed this as `doc.lineAt(Math.max(block.from, block.to - 4)).from`
+  // ("---\n" is 4 chars). Verified against this codebase's real
+  // `findFrontmatterBlock`/CM `Line` semantics: `block.to` is the closing
+  // fence LINE's own end offset, NOT one-past-its-trailing-newline — so
+  // `block.to - 4` under-shoots by landing on the newline that terminates
+  // the PRECEDING line instead of inside the closing "---" itself (CM's
+  // `lineAt` attributes a line-terminating newline's own position to the
+  // line it terminates, not the line after it — confirmed empirically:
+  // this produced a real bug, insertNewProperty prepending before the
+  // FIRST key instead of before the closing fence). `block.to - 1` always
+  // lands on the closing fence's own last literal `-` character (or, if
+  // `block.to` ever did include the trailing newline, on that newline
+  // itself — which the same CM convention still attributes to the closing
+  // fence's line) — robust either way, unlike the snippet's fixed offset.
+  const closingLineStart = state.doc.lineAt(
+    Math.max(block.from, block.to - 1),
+  ).from;
+  client.editorView.dispatch({
+    changes: { from: closingLineStart, insert: `${key}: \n` },
+    annotations: [isolateHistory.of("full")],
+  });
+  return true;
+}
+
+/**
+ * Removes a field's own full line span (`field.lineFrom`/`lineTo`, from
+ * L4.1) — deleting a line can't produce invalid YAML on its own. The one
+ * exception: if this is the LAST remaining field, deleting just its line
+ * would leave a technically-empty (`tryParseFrontMatter`-invalid)
+ * frontmatter block rather than no frontmatter at all. That case is
+ * treated as "remove the whole page's frontmatter" instead (the entire
+ * `---`-delimited block, fences included), gated behind
+ * `client.ui.confirm` rather than silently producing the empty-block edge
+ * case. Returns a promise resolving to whether a removal actually
+ * happened (`false` if the confirm was declined) — the caller uses this to
+ * decide whether to re-derive its rows.
+ */
+export async function removeProperty(
+  client: Client,
+  block: FrontmatterBlock,
+  field: FrontMatterFieldSpan,
+  remainingFieldCount: number,
+): Promise<boolean> {
+  if (remainingFieldCount > 1) {
+    client.editorView.dispatch({
+      changes: { from: field.lineFrom, to: field.lineTo, insert: "" },
+      annotations: [isolateHistory.of("full")],
+    });
+    return true;
+  }
+  const confirmed = await client.ui.confirm(
+    `Remove all front matter from this page? "${field.key}" is the last property.`,
+    { destructive: true },
+  );
+  if (!confirmed) return false;
+  const state = client.editorView.state;
+  client.editorView.dispatch({
+    changes: {
+      from: block.from,
+      to: Math.min(block.to + 1, state.doc.length),
+      insert: "",
+    },
+    annotations: [isolateHistory.of("full")],
+  });
+  return true;
+}
+
+/** Trailing "+ Add property" row (L4.4). Prompts for a key name via the
+ * same `client.ui.prompt` mechanism `PageNameEditor`/basic_modals.tsx's
+ * `Prompt` component is already wired to elsewhere in this app. */
+export function AddPropertyRow({ client, block, onAdded }: {
+  client: Client;
+  block: FrontmatterBlock;
+  onAdded: () => void;
+}) {
+  const activate = async () => {
+    const key = await client.ui.prompt("New property name");
+    if (!key) return; // cancelled
+    if (insertNewProperty(client, block, key)) onAdded();
+  };
+  return (
+    <button type="button" className="sb-fm-add-property" onClick={activate}>
+      <m3e-icon name="add"></m3e-icon>
+      Add property
+    </button>
+  );
+}
+
+/**
+ * A CM `ViewPlugin` that calls `onFrontMatterChanged` whenever a document
+ * change intersects the frontmatter block — either where it WAS before the
+ * change, or where it IS after (covers both "edited a value inside it" and
+ * "the block itself just got added/removed/resized"). Built on the exact
+ * same primitive `frontmatterFoldingExtension`
+ * (client/codemirror/frontmatter_folding.ts) already proves works in this
+ * codebase — a plain callback prop, not an `eventHook` API guess. Threaded
+ * into `FrontMatterPanel` via a prop (L4.5), registered alongside the other
+ * `editor_state.ts` extensions once L5 wires the panel into the real editor
+ * (this leaf only builds the extension factory itself).
+ */
+export function frontMatterSyncExtension(
+  onFrontMatterChanged: () => void,
+): Extension {
+  return ViewPlugin.fromClass(
+    class {
+      update(update: ViewUpdate): void {
+        if (!update.docChanged) return;
+        const oldBlock = findFrontmatterBlock(update.startState);
+        const newBlock = findFrontmatterBlock(update.state);
+        let intersects = false;
+        update.changes.iterChangedRanges((fromA, toA, fromB, toB) => {
+          if (
+            oldBlock && fromA < oldBlock.to && toA > oldBlock.from
+          ) {
+            intersects = true;
+          }
+          if (
+            newBlock && fromB < newBlock.to && toB > newBlock.from
+          ) {
+            intersects = true;
+          }
+        });
+        if (intersects) onFrontMatterChanged();
+      }
+    },
+  );
+}
+
+/** The focused-row echo-guard (L4.4), factored out as a small pure
+ * function so it works identically for every L4.3 control type without
+ * needing shape-specific logic: given the freshly re-derived rows (from
+ * re-parsing the live doc after ANY change — the panel's own edit, a
+ * manual hand-edit, a remote sync, or an undo) and whichever row is
+ * currently mid-edit, keeps that ONE row's previous value in place while
+ * every other row updates live. This is what stops an unrelated concurrent
+ * doc change from blowing away a block-sequence's in-progress item edits,
+ * a block-mapping/block-scalar textarea's in-progress text, or a plain
+ * scalar input's in-progress keystrokes alike — the guard only cares about
+ * "which key is active," never how that key's control represents its
+ * value. */
+export function reconcileEditingRow<T extends { key: string }>(
+  freshRows: T[],
+  previousRows: T[],
+  editingKey: string | null,
+): T[] {
+  if (editingKey === null) return freshRows;
+  return freshRows.map((row) => {
+    if (row.key !== editingKey) return row;
+    const previous = previousRows.find((p) => p.key === editingKey);
+    return previous ?? row;
+  });
 }
