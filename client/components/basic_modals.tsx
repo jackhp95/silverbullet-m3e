@@ -60,7 +60,7 @@ export function Prompt({
       }}
     >
       <span slot="header">{message}</span>
-      <m3e-form-field class="sb-prompt-field">
+      <m3e-form-field class="w-full">
         <input
           ref={inputRef}
           aria-label={message}

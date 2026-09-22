@@ -1,3 +1,10 @@
+// Audit note (m3e/tailwind sweep): file is already disciplined — every rule
+// below is either (a) genuine M3E-token/shadow-DOM plumbing with an inline
+// rationale (see .sb-option/.sb-selected-option/.sb-hint comments), a
+// responsive @media breakpoint with no utility equivalent, or (c) already
+// migrated (.sb-dialog-actions, .sb-prompt-field, both noted in place). No
+// further conversion found; only .sb-prompt-field's `width: 100%` this pass
+// (see below) qualified as pure layout glue.
 .sb-modal-box {
   margin-top: 60px;
   padding: 0;
@@ -330,10 +337,9 @@ m3e-search-view.sb-modal-box {
 // content full-width by default (no box-model opinion of its own beyond
 // padding), but m3e-form-field's own host is `inline-flex` (verified against
 // FormFieldElement.d.ts), so it needs an explicit width — same reasoning as
-// .sb-item-capture-sheet-body's m3e-form-field rule above.
-.sb-prompt-field {
-  width: 100%;
-}
+// .sb-item-capture-sheet-body's m3e-form-field rule above. Migrated to the
+// Tailwind utility `w-full` directly on the element (this comment kept in
+// place per Phase 2 convention since the "why" has no home in a className).
 
 // No `.sb-dialog-actions` rule: Prompt()/Confirm()'s actions row is now
 // `class="flex justify-end gap-2"` directly on the slotted div in
