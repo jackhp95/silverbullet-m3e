@@ -204,52 +204,11 @@ m3e-search-view.sb-modal-box {
 // `.sb-option`/`.sb-selected-option`/`.sb-hint` never matched anything, so
 // rows/hints fell back to bare, non-m3e-consistent default styling
 // (live-testing feedback #4).
-// The search sheet's mode picker is an `m3e-list` of `m3e-list-item`s split by
-// `m3e-divider`s, opened by the search bar's leading icon button (Jack's
-// round-4 direction — see search_sheet.tsx's mode-model comment). Because the
-// list is a plain list rather than a self-positioning `m3e-menu`, it needs a
-// small amount of CSS here — but strictly the layout-and-reset kind (the bottom
-// rung of the styling ladder). Everything about how the ROWS look comes from
-// `m3e-list-item`'s own cssprops via the shared `.sb-option`/
-// `.sb-selected-option` tokens in colors.scss, not from here.
 //
-// Notably ABSENT, and deliberately so: the old
-// `&:not(:popover-open) { display: none }` counter-rule. It existed because the
-// list used to be rendered permanently, where `m3e-list`'s author-origin
-// `:host { display: flex }` beat the UA popover stylesheet's closed-state
-// `display: none`. The list is now conditionally rendered — it does not exist
-// while closed — so that cascade fight cannot happen and the rule stays gone
-// instead of being carried forward as cargo.
-.sb-search-sheet-mode-list {
-  // `top`/`left` are set imperatively per-open from the trigger's live
-  // bounding rect (search_sheet.tsx's open effect); only the parts that do not
-  // depend on the trigger live here.
-  position: fixed;
-  // The UA popover stylesheet centers popovers with `margin: auto` and gives
-  // them a `border`/`padding`/`background-color: canvas` box. Reset those so
-  // the element reads as an app surface rather than a native popup frame.
-  margin: 0;
-  border: none;
-  padding: 4px 0;
-  min-width: 180px;
-  background-color: var(--modal-background-color);
-  border-radius: 12px;
-  box-shadow: var(--modal-elevation-shadow, 0 2px 8px rgb(0 0 0 / 30%));
-  overflow: hidden;
-
-  .sb-option {
-    cursor: pointer;
-  }
-
-  // `m3e-list-item` has no `Focusable` mixin and so paints no focus ring of its
-  // own (dist/list.js — only the `m3e-list-option`/`m3e-list-item-button`
-  // subclasses embed `m3e-focus-ring`). The rows are keyboard-reachable via a
-  // roving tabindex, so they need a visible focus indicator from us.
-  m3e-list-item:focus-visible {
-    outline: 2px solid var(--modal-selected-option-background-color);
-    outline-offset: -2px;
-  }
-}
+// 2026-09-22 (Task C): the `.sb-search-sheet-mode-list` mode-picker popup
+// rule that used to live here is deleted along with the mode picker itself
+// (search_sheet.tsx no longer has Open/Run modes to pick between) — not
+// left as dead CSS.
 
 // Floating section-switcher toolbar — pinned to the bottom edge of a bottom
 // sheet. Used by the navigation sheet (`navigation_sheet.tsx`); the search
@@ -294,17 +253,35 @@ m3e-search-view.sb-modal-box {
   // the sticky bar backdrop below can match it exactly from one source
   // rather than hardcoding the component's default.
   --m3e-bottom-sheet-container-color: var(--modal-background-color);
+
+  // 2026-09-22 (Task C): the component's own `.body` (its content
+  // scroller, decompiled node_modules/@m3e/web/dist/bottom-sheet.js) sets
+  // `padding-inline: var(--m3e-bottom-sheet-padding-inline, 16px)` by
+  // default — the real source of the search bar's horizontal inset (NOT
+  // custom CSS on `.sb-search-sheet-bar`, which was already margin-free).
+  // Zeroed via the component's own documented cssprop — the top rung of
+  // the styling ladder — rather than fighting it with a negative margin.
+  // `.sb-search-sheet-body` (below) keeps its OWN explicit `16px` side
+  // padding for the results list, since it's set directly on that element
+  // and doesn't inherit this token, so only the search bar is affected.
+  --m3e-bottom-sheet-padding-inline: 0px;
 }
 
 // Sticky so the bar stays put while results scroll under it inside the
 // sheet's own `.body` scroller. It needs an opaque backdrop for that (the
 // bar's own container color is a translucent tint), hence the same token
 // the sheet surface itself uses above.
+//
+// 2026-09-22 (Task C): horizontal `margin` removed — Jack's ask was for the
+// search field to go edge-to-edge inside the drawer (only vertical spacing
+// stays). The sheet's own content area has no horizontal padding of its own
+// to clear (verified against `.sb-search-sheet-body` below, which DOES have
+// `16px` side padding for the results list — that's the results' own
+// affordance, deliberately left alone since only the search bar was named).
 .sb-search-sheet-bar {
   position: sticky;
   top: 0;
   z-index: 1;
-  margin: 0 16px;
   padding-bottom: 12px;
   background-color: var(--modal-background-color);
 }

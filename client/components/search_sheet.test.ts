@@ -5,8 +5,6 @@ import type { PageMeta } from "@silverbulletmd/silverbullet/type/index";
 import type { Path } from "@silverbulletmd/silverbullet/lib/ref";
 import type { Command } from "../types/command.ts";
 import {
-  DEFAULT_MODE,
-  MODE_PLACEHOLDER,
   type SearchSheetData,
   SearchSheet,
   selectRows,
@@ -18,17 +16,20 @@ import {
 // in a plain node environment (no DOM), so a component's live Preact state
 // transitions / custom-element behavior cannot be exercised here. Two things
 // ARE checkable without a DOM, and this file covers both:
-//   1. `selectRows`, the pure mode→source dispatch this leaf owns (its wiring
-//      over search_modes.ts's already-tested pure functions).
+//   1. `selectRows`, the pure source dispatch this leaf owns (its wiring over
+//      search_modes.ts's already-tested pure Search functions).
 //   2. The static rendered structure via preact-render-to-string — including
 //      the load-bearing NEGATIVE assertion that no `m3e-autocomplete`/dropdown
-//      exists anywhere in the composition (the exact defect class prior
-//      attempts shipped, spec §1.4/§2.4).
-// The interactive acceptance assertions (mode switch live-updates placeholder +
-// results, typing updates the list, submitting a Search term records it and
-// resurfaces on reopen, Escape closes) live as `test.fixme` stubs in
-// e2e/search-sheet.test.ts for leaf V9 to un-skip once V8 wires this component
-// into the live app.
+//      exists anywhere in the composition, AND (Task C, 2026-09-22) that the
+//      Open/Run modes and their mode-picker chrome are gone entirely.
+//
+// 2026-09-22 (Task C): this sheet dropped its Open and Run modes — search
+// should be solely for searching (both destinations are already reachable
+// elsewhere: the always-available page picker + the History tab for Open,
+// the command palette for Run). This file was rewritten to match; the old
+// per-mode/mode-picker assertions (DEFAULT_MODE, MODE_PLACEHOLDER, the
+// picker's ARIA/list/divider structure) are gone along with the code they
+// tested, not left as dead skips.
 
 function page(overrides: Partial<PageMeta>): PageMeta {
   return {
@@ -43,11 +44,9 @@ function page(overrides: Partial<PageMeta>): PageMeta {
 function data(overrides: Partial<SearchSheetData> = {}): SearchSheetData {
   return {
     allPages: [],
-    allDocuments: [],
     extensions: new Set<string>(),
     currentPath: "current.md" as Path,
     commands: new Map<string, Command>(),
-    recentPaths: [],
     recentSearchTerms: [],
     ...overrides,
   };
@@ -60,43 +59,10 @@ const noopProps = {
   onTriggerCommand: () => {},
 };
 
-// --- selectRows: per-mode source wiring (spec §2.4 mode table) -----------
+// --- selectRows: search-only source wiring --------------------------------
 
-test("selectRows: Open mode empty query returns recentPaths history (default on open)", () => {
-  expect(DEFAULT_MODE).toBe("open");
+test("selectRows: empty query returns recentSearchTerms history", () => {
   const rows = selectRows(
-    "open",
-    "",
-    data({
-      recentPaths: [
-        { path: "alpha.md" as Path, ts: 2 },
-        { path: "beta.md" as Path, ts: 1 },
-      ],
-    }),
-    false,
-    null,
-  );
-  expect(rows.map((r) => r.name)).toEqual(["alpha", "beta"]);
-  expect(rows.every((r) => r.hint === "Recent")).toBe(true);
-});
-
-test("selectRows: Open mode typed query returns fuzzy page results, not history", () => {
-  const rows = selectRows(
-    "open",
-    "widget",
-    data({
-      allPages: [page({ name: "widget" }), page({ name: "banana" })],
-      recentPaths: [{ path: "alpha.md" as Path, ts: 1 }],
-    }),
-    false,
-    null,
-  );
-  expect(rows.map((r) => r.name)).toEqual(["widget"]);
-});
-
-test("selectRows: Search mode empty query returns recentSearchTerms history", () => {
-  const rows = selectRows(
-    "search",
     "",
     data({
       recentSearchTerms: [
@@ -104,41 +70,31 @@ test("selectRows: Search mode empty query returns recentSearchTerms history", ()
         { term: "bar", ts: 1 },
       ],
     }),
-    false,
-    null,
   );
   expect(rows.map((r) => r.name)).toEqual(["foo", "bar"]);
   expect(rows.every((r) => r.hint === "Recent search")).toBe(true);
 });
 
-test("selectRows: Search mode typed query returns page fuzzy results", () => {
+test("selectRows: typed query returns page fuzzy results", () => {
   const rows = selectRows(
-    "search",
     "widget",
     data({ allPages: [page({ name: "widget" }), page({ name: "banana" })] }),
-    false,
-    null,
   );
   expect(rows.map((r) => r.name)).toEqual(["widget"]);
 });
 
-test("selectRows: Run mode empty query returns recency-sorted command history", () => {
+test("selectRows: typed query with a real Search command prepends the delegate row", () => {
   const commands = new Map<string, Command>([
-    ["cmd-a", { name: "cmd-a", lastRun: 1 } as Command],
-    ["cmd-b", { name: "cmd-b", lastRun: 5 } as Command],
+    ["Search: Space", { name: "Search: Space" } as Command],
   ]);
-  const rows = selectRows("run", "", data({ commands }), false, null);
-  // Highest lastRun sorts first (orderId = -lastRun).
-  expect(rows.map((r) => r.name)).toEqual(["cmd-b", "cmd-a"]);
-});
-
-test("selectRows: Run mode typed query fuzzy-matches command names", () => {
-  const commands = new Map<string, Command>([
-    ["widget: run", { name: "widget: run" } as Command],
-    ["banana: peel", { name: "banana: peel" } as Command],
-  ]);
-  const rows = selectRows("run", "widget", data({ commands }), false, null);
-  expect(rows.map((r) => r.name)).toEqual(["widget: run"]);
+  const rows = selectRows(
+    "widget",
+    data({
+      commands,
+      allPages: [page({ name: "widget" })],
+    }),
+  );
+  expect(rows[0].name).toBe('Search space for "widget"');
 });
 
 // --- static rendered structure (preact-render-to-string) -----------------
@@ -172,109 +128,49 @@ test("renders a modal m3e-bottom-sheet with an m3e-search-bar inside", () => {
   expect(html.indexOf("sb-search-sheet-body")).toBeGreaterThan(
     html.indexOf("sb-search-sheet-bar"),
   );
-  // The bar's leading slot holds the MODE PICKER button (the search-VIEW
-  // used to supply a magnifier from its shadow tree; the bar does not, so
-  // this slot is entirely ours and there is no dead space beside a built-in
-  // icon — feedback #4's actual cause).
-  expect(html).toContain('<m3e-icon-button slot="leading"');
 });
 
-test("the mode picker is NOT an m3e-menu and NOT a floating toolbar", () => {
+test("Task C: no mode picker — search-only, no Open/Run chrome", () => {
   const html = renderSheet();
-  // Round 2's floating bottom toolbar is gone (it moved to
-  // navigation_sheet.tsx, where it replaced tabs)...
-  expect(html).not.toContain("m3e-toolbar");
-  expect(html).not.toContain("sb-search-sheet-modes");
-  // ...and so is round 3's m3e-menu. Jack's round-4 direction is an m3e-list
-  // of m3e-list-items split by m3e-dividers, citing
-  // https://matraic.github.io/m3e/#/components/list.html. Assert the whole
-  // menu family is absent so a partial revert can't slip back in.
-  expect(html).not.toContain("m3e-menu");
-  expect(html).not.toContain("m3e-menu-item-radio");
-  expect(html).not.toContain("m3e-menu-trigger");
-});
-
-test("the leading icon button is the picker trigger, with listbox ARIA", () => {
-  const html = renderSheet();
-  expect(html).toContain('title="Change search mode"');
-  // Round 3 got these three attributes for free from m3e-menu-trigger's
-  // `attach()`. A hand-driven list popup has no such helper, so they are set
-  // explicitly — and `haspopup="listbox"` must agree with the `role="listbox"`
-  // the popup itself carries.
-  expect(html).toContain('aria-haspopup="listbox"');
-  expect(html).toContain('aria-controls="sb-search-sheet-mode-list"');
-  // Collapsed while closed — the e2e suite asserts this flips to "true" on a
-  // real click, which a static render cannot exercise.
-  expect(html).toContain('aria-expanded="false"');
-});
-
-test("the mode picker popup is NOT rendered while closed", () => {
-  // This is the structural fix for round 1's live-verified defect, where the
-  // permanently-rendered popover was VISIBLE while closed because m3e-list's
-  // author-origin `:host { display: flex }` out-cascaded the UA popover
-  // stylesheet's `display: none`. The element simply does not exist now, so
-  // there is no cascade to lose — asserted here rather than left to a CSS
-  // counter-rule that a future refactor could silently drop.
-  const html = renderSheet();
-  // Match the ELEMENT, not the bare id — the id legitimately still appears in
-  // the trigger's `aria-controls`, which points at the popup it *would* open.
-  expect(html).not.toContain('<m3e-list id="sb-search-sheet-mode-list"');
-  expect(html).not.toContain("m3e-divider");
+  // The mode-picker trigger button, its ARIA, and its popup list/dividers are
+  // all gone — this sheet has exactly one thing to do now.
+  expect(html).not.toContain("Change search mode");
+  expect(html).not.toContain("sb-search-sheet-mode-list");
   expect(html).not.toContain('role="listbox"');
   expect(html).not.toContain('role="option"');
-});
-
-test("the ACTIVE mode is shown by the header title and the leading button's icon", () => {
-  const html = renderSheet();
-  // The sheet title IS the always-visible active-mode indicator (it survives
-  // round 2 unchanged — only the switcher below it changed). Default is Open.
-  expect(html).toContain('<span slot="header">Open</span>');
-  // The leading button shows the ACTIVE mode's icon, so the picker announces
-  // what it is currently set to without being opened.
-  expect(html).toMatch(
-    /<m3e-icon-button slot="leading"[\s\S]*?<m3e-icon name="description">/,
-  );
-  // The picker itself is closed (and therefore unrendered) by default, so the
-  // active-row marking inside it is an e2e concern, not a static one. What IS
-  // statically guaranteed: with the popup closed, the only check-style icon in
-  // the tree would have to come from a row that should not exist yet.
-  expect(html).not.toContain('name="check"');
-});
-
-test("no leftover spacer spans in the bar's leading slots (feedback #4)", () => {
-  // The two `<span slot="closed-leading">`/`slot="open-leading"` wrappers the
-  // old search-VIEW-era trigger needed were themselves the "strange empty
-  // space". The bar has no open/closed states, so the picker sits in the one
-  // plain `slot="leading"` with no wrapper at all.
-  const html = renderSheet();
-  expect(html).not.toContain("closed-leading");
-  expect(html).not.toContain("open-leading");
+  expect(html).not.toContain("m3e-divider");
+  // Nor either of the earlier attempts' chrome (a floating toolbar / an
+  // m3e-menu) — asserted so a partial revert can't slip either back in.
+  expect(html).not.toContain("m3e-toolbar");
+  expect(html).not.toContain("m3e-menu");
+  // The header is a fixed "Search" title, not a mode-driven one.
+  expect(html).toContain('<span slot="header">Search</span>');
+  // The bar's only leading content is a plain search icon now.
+  expect(html).toContain('<m3e-icon slot="leading" name="search">');
 });
 
 test("NO m3e-autocomplete / dropdown anywhere in the composition (spec §2.4)", () => {
   const html = renderSheet({
-    recentPaths: [{ path: "alpha.md" as Path, ts: 1 }],
     allPages: [page({ name: "widget" })],
   });
   expect(html).not.toContain("m3e-autocomplete");
   expect(html).not.toContain("m3e-option");
 });
 
-test("default (Open, empty query) render shows recentPaths history rows", () => {
+test("empty-query render shows recentSearchTerms history rows", () => {
   const html = renderSheet({
-    recentPaths: [
-      { path: "alpha.md" as Path, ts: 2 },
-      { path: "beta.md" as Path, ts: 1 },
+    recentSearchTerms: [
+      { term: "foo", ts: 2 },
+      { term: "bar", ts: 1 },
     ],
   });
-  expect(html).toContain("alpha");
-  expect(html).toContain("beta");
+  expect(html).toContain("foo");
+  expect(html).toContain("bar");
   // Rows live in the sheet's own slotted m3e-list, not a floating overlay.
   expect(html).toContain("m3e-list");
 });
 
-test("default placeholder is the Open-mode placeholder", () => {
+test("placeholder is the honestly-scoped search placeholder", () => {
   const html = renderSheet();
-  expect(html).toContain(MODE_PLACEHOLDER.open);
-  expect(MODE_PLACEHOLDER.open).toBe("Jump to a page, document, tag, or $anchor");
+  expect(html).toContain("Find in space");
 });

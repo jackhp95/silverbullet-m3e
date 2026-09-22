@@ -730,8 +730,9 @@ export class MainUI {
       }),
     ];
 
-    // Shared by AnythingPicker (below) and SearchSheet's "open" mode — same
-    // computation, one call instead of two.
+    // Shared by AnythingPicker (below) and SearchSheet's page-result builder
+    // (`getSearchResults`'s `extensions` param) — same computation, one call
+    // instead of two.
     const documentExtensions = new Set(
       Array.from(
         client.clientSystem.documentEditorHook.documentEditors.values(),
@@ -1082,11 +1083,9 @@ export class MainUI {
           open={viewState.searchSheetOpen}
           onClose={() => dispatch({ type: "hide-search-sheet" })}
           allPages={viewState.allPages}
-          allDocuments={viewState.allDocuments}
           extensions={documentExtensions}
           currentPath={client.currentPath()}
           commands={viewState.commands}
-          recentPaths={client.recentPaths}
           recentSearchTerms={client.recentSearchTerms}
           onNavigate={(name) =>
             navigateToAnythingPickerName(
@@ -1103,8 +1102,10 @@ export class MainUI {
         />
         {/* Navigation bottom sheet (spec §2.6 / R6), toggled by the toolbar's
             Navigation button. History/Changelog/Sitemap tabs; passive browse,
-            no input box (typed jump-to-page lives in the Search sheet's Open
-            mode). Tabs close the sheet on navigate via `onClose`. */}
+            no input box — typed jump-to-page is the always-available page
+            picker (Cmd/Ctrl-K), not this sheet (the Search sheet's Open mode
+            that used to duplicate it was removed, Task C). Tabs close the
+            sheet on navigate via `onClose`. */}
         <NavigationSheet
           open={viewState.navigationSheetOpen}
           onClose={() => dispatch({ type: "hide-navigation-sheet" })}
