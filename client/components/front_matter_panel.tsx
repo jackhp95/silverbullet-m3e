@@ -1,7 +1,7 @@
-import { useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { isolateHistory } from "@codemirror/commands";
 import { unfoldEffect } from "@codemirror/language";
-import type { Extension } from "@codemirror/state";
+import { type Extension, StateEffect } from "@codemirror/state";
 import { ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import YAML from "js-yaml";
 import { Input } from "@silverbulletmd/silverbullet/ui";
@@ -17,6 +17,7 @@ import {
 import {
   type FrontMatterFieldShape,
   type FrontMatterFieldSpan,
+  locateFrontMatterFields,
   serializeYamlValue,
   tryParseFrontMatter,
 } from "../lib/frontmatter_yaml.ts";
@@ -629,4 +630,99 @@ export function reconcileEditingRow<T extends { key: string }>(
     const previous = previousRows.find((p) => p.key === editingKey);
     return previous ?? row;
   });
+}
+
+type FrontMatterRowData = {
+  key: string;
+  field: FrontMatterFieldSpan;
+  value: unknown;
+};
+
+/** Re-derives the current frontmatter block + its rows from the LIVE CM
+ * parse (§1.4 — never `currentPageMeta()`, which lags a save+reindex
+ * round-trip behind whatever's actually been typed). Single source both
+ * the panel's initial render and every `onFrontMatterChanged`-triggered
+ * refresh call through, so "how rows are computed" only has one
+ * implementation. */
+function deriveFrontMatterRows(
+  client: Client,
+): { block: FrontmatterBlock | undefined; rows: FrontMatterRowData[] } {
+  const state = client.editorView.state;
+  const block = findFrontmatterBlock(state);
+  if (!block) return { block: undefined, rows: [] };
+  const parsed = tryParseFrontMatter(state.sliceDoc(block.from, block.to));
+  const fields = locateFrontMatterFields(state, block);
+  return {
+    block,
+    rows: fields.map((field) => ({
+      key: field.key,
+      field,
+      value: parsed?.[field.key],
+    })),
+  };
+}
+
+/**
+ * The inline, editable frontmatter property list (§3/§4 of
+ * docs/plans/2026-09-22-appbar-large-frontmatter-scroll-snap.md). With
+ * L4.1-L4.4's pieces in hand this is mostly composition: derive rows from
+ * the live CM parse, wire each row to the editing/add/remove behaviors
+ * those leaves already built, and keep the list in sync with the document
+ * via `frontMatterSyncExtension` — appended to the running editor's own
+ * config on mount via CM's own documented `StateEffect.appendConfig`
+ * mechanism (dynamically adding an extension to a live `EditorState`,
+ * rather than requiring editor_state.ts's static extension list to know
+ * about this panel — this leaf's own file list never touches
+ * editor_state.ts, and L5/Phase 3, which actually mounts this component
+ * into the DOM, only needs to render `<FrontMatterPanel client={client} />`
+ * with no separate wiring step of its own).
+ *
+ * Renders `null` when there's no frontmatter block at all — no empty card.
+ */
+export function FrontMatterPanel({ client }: { client: Client }) {
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [{ block, rows: freshRows }, setDerived] = useState(() =>
+    deriveFrontMatterRows(client)
+  );
+  const previousRowsRef = useRef<FrontMatterRowData[]>(freshRows);
+
+  const refresh = () => setDerived(deriveFrontMatterRows(client));
+
+  useEffect(() => {
+    client.editorView.dispatch({
+      effects: StateEffect.appendConfig.of(
+        frontMatterSyncExtension(refresh),
+      ),
+    });
+    // Intentionally no cleanup: `StateEffect.appendConfig` has no matching
+    // "remove" effect in CM6's public API, and this panel is expected to
+    // live for as long as its editor does (L5 mounts it once, alongside
+    // <TopBar>, not conditionally per-render) — same lifetime assumption
+    // `frontmatterFoldingExtension` already makes.
+  }, [client]);
+
+  const rows = reconcileEditingRow(freshRows, previousRowsRef.current, editingKey);
+  previousRowsRef.current = rows;
+
+  if (!block) return null;
+
+  return (
+    <div className="sb-fm-panel">
+      {rows.map((row) => (
+        <FrontMatterRow
+          key={row.key}
+          field={row.field}
+          value={row.value}
+          client={client}
+          block={block}
+          editingKey={editingKey}
+          onEditingKeyChange={setEditingKey}
+          onCommitted={refresh}
+          remainingFieldCount={rows.length}
+          onRemoved={refresh}
+        />
+      ))}
+      <AddPropertyRow client={client} block={block} onAdded={refresh} />
+    </div>
+  );
 }

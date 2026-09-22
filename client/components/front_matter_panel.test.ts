@@ -20,6 +20,7 @@ import { EditorState } from "@codemirror/state";
 import { h, render as preactRender } from "preact";
 import render from "preact-render-to-string";
 import { describe, expect, test, vi } from "vitest";
+import { buildExtendedMarkdownLanguage } from "../markdown_parser/parser.ts";
 import type { FrontmatterBlock } from "../codemirror/frontmatter_folding.ts";
 import type { FrontMatterFieldSpan } from "../lib/frontmatter_yaml.ts";
 import * as frontmatterYaml from "../lib/frontmatter_yaml.ts";
@@ -29,6 +30,7 @@ import {
   commitFieldEdit,
   editFieldAsRawYaml,
   frontMatterSyncExtension,
+  FrontMatterPanel,
   FrontMatterRow,
   insertNewProperty,
   reconcileEditingRow,
@@ -39,7 +41,16 @@ import { EditorView } from "@codemirror/view";
 const domTest = typeof document === "undefined" ? test.skip : test;
 
 function docWithFrontMatter(doc: string) {
-  const state = EditorState.create({ doc });
+  // The extended markdown language extension is needed so
+  // `findFrontmatterBlock` (a real syntax-tree walk, used internally by
+  // `<FrontMatterPanel>`) can actually locate the FrontMatter node — most
+  // tests in this file bypass it by constructing `block` manually below,
+  // but the `<FrontMatterPanel>` suite exercises the panel's own
+  // find-block-from-live-state path directly.
+  const state = EditorState.create({
+    doc,
+    extensions: [buildExtendedMarkdownLanguage()],
+  });
   const text = doc;
   const secondFence = text.indexOf("\n---", 3);
   const to = state.doc.lineAt(secondFence + 1).to;
@@ -687,6 +698,116 @@ describe("frontMatterSyncExtension — bidirectional doc<->list sync (requires a
       expect(callCount).toBe(1);
 
       view.destroy();
+    },
+  );
+});
+
+// L4.5 — assemble FrontMatterPanel: full render + all edit paths together.
+describe("<FrontMatterPanel>", () => {
+  test("renders null (no panel at all) when there's no frontmatter block", () => {
+    const noFrontMatterState = EditorState.create({ doc: "Just body text" });
+    const { client } = fakeClient(noFrontMatterState);
+
+    const html = render(h(FrontMatterPanel, { client }));
+
+    expect(html).toBe("");
+  });
+
+  test("renders one row per top-level key, in document order", () => {
+    const { state } = docWithFrontMatter(
+      "---\nstatus: draft\ntags: [journal, retro]\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+
+    const html = render(h(FrontMatterPanel, { client }));
+
+    expect(html).toContain("sb-fm-panel");
+    const statusIndex = html.indexOf("status");
+    const tagsIndex = html.indexOf("tags");
+    expect(statusIndex).toBeGreaterThan(-1);
+    expect(tagsIndex).toBeGreaterThan(-1);
+    expect(statusIndex).toBeLessThan(tagsIndex);
+    expect(html).toContain("draft");
+    expect(html).toContain("journal, retro");
+    expect(html).toContain("sb-fm-add-property");
+  });
+
+  test(
+    "integration fixture — every shape at once, back to back, doesn't misattribute one field's lines to its neighbor",
+    () => {
+      const doc = [
+        "---",
+        "title: My Page",
+        "tags: [journal, retro]",
+        "authors:",
+        "  - jack",
+        "  - alex",
+        "owner:",
+        "  name: Jack",
+        "  email: j@x.com",
+        "notes: |",
+        "  line one",
+        "  line two",
+        "status: draft",
+        "---",
+        "Body",
+      ].join("\n");
+      const { state } = docWithFrontMatter(doc);
+      const { client } = fakeClient(state);
+
+      const html = render(h(FrontMatterPanel, { client }));
+
+      // Every key present, each with ITS OWN correct value — the real
+      // regression this fixture guards against is one multi-line field's
+      // span bleeding into a neighboring field's.
+      expect(html).toContain("My Page");
+      expect(html).toContain("journal, retro");
+      expect(html).toContain('value="jack"');
+      expect(html).toContain('value="alex"');
+      expect(html).toContain("name: Jack");
+      expect(html).toContain("email: j@x.com");
+      expect(html).toContain("line one\nline two");
+      expect(html).toContain("draft");
+      // The scalar `status` field trailing the block scalar must still be
+      // its own row, not swallowed as a continuation of `notes`.
+      const notesTextareaIndex = html.indexOf("sb-fm-block-scalar-textarea");
+      const statusValueIndex = html.lastIndexOf("draft");
+      expect(notesTextareaIndex).toBeLessThan(statusValueIndex);
+    },
+  );
+
+  domTest(
+    "committing a scalar edit through the assembled panel re-renders the row from the live doc (requires real DOM)",
+    () => {
+      const { state } = docWithFrontMatter(
+        "---\nstatus: draft\n---\nBody",
+      );
+      const { client } = fakeClient(state);
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+
+      preactRender(h(FrontMatterPanel, { client }), container);
+
+      const valueSpan = Array.from(
+        container.querySelectorAll(".sb-fm-value"),
+      ).find((el) => el.textContent === "draft") as HTMLElement;
+      valueSpan.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+      const input = container.querySelector(
+        ".sb-fm-value-input",
+      ) as HTMLInputElement;
+      input.value = "final";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+
+      const resultState = client.editorView.state as EditorState;
+      expect(resultState.sliceDoc(0, resultState.doc.length)).toContain(
+        "status: final",
+      );
+
+      document.body.removeChild(container);
     },
   );
 });
