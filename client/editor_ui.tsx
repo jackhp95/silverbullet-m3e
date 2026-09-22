@@ -114,8 +114,16 @@ const SEVERITY_CONTAINER_COLOR: Record<NotificationType, string | undefined> = {
 // the same frontmatter range independently via its own CM `ViewPlugin` —
 // a candidate to unify behind one shared hook if the duplication grows,
 // per the plan's own note, not attempted in this leaf.
+//
+// Guarded against `client.editorView` not existing yet: `client.ts` calls
+// `this.ui.render(this.parent)` (MainUI's first render) BEFORE `this.
+// editorView = new EditorView(...)` a few lines later — so the very first
+// render pass has no editor view at all. Without this guard the first
+// render throws (`Cannot read properties of undefined (reading 'state')`),
+// verified live at :3333 during this leaf's own verification pass.
 function computeBodyText(client: Client): string {
-  const state = client.editorView.state;
+  const state = client.editorView?.state;
+  if (!state) return "";
   const block = findFrontmatterBlock(state);
   return block ? state.sliceDoc(block.to) : state.sliceDoc();
 }
