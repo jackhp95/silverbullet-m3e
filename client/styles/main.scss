@@ -209,9 +209,9 @@ body {
 }
 
 #sb-editor {
-  flex: 2;
-  height: 100%;
-
+  // No longer a flex item of anything, and no longer needs to fill a box
+  // (§2/L6 auto-height "page scrolls" mode) — its height is intrinsic to
+  // its content, same as its new #sb-page-scroll siblings (top.scss).
   width: 100%;
 
   iframe {

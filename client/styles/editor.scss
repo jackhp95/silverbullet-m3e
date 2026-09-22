@@ -4,7 +4,10 @@
 
 #sb-main .cm-editor {
   font-size: 18px;
-  height: 100%;
+  // Auto-height / "page scrolls" mode (§2 of the 2026-09-22 large-app-bar
+  // plan): no fixed height — the editor sizes to its content so CM's own
+  // scrollableParents() walk (view/index.js) tracks #sb-page-scroll (L5)
+  // as the real scrolling ancestor instead of .cm-scroller.
 
   .cm-content {
     width: 100%;
@@ -806,12 +809,17 @@
   .cm-scroller {
     // Give some breathing space at the bottom of the screen
     padding-bottom: 20em;
+    // Auto-height / "page scrolls" mode (§2/L6): .cm-scroller no longer
+    // owns scroll itself — #sb-page-scroll (client/styles/top.scss) does.
+    overflow: visible;
+    height: auto;
   }
 }
 
-#sb-editor>.cm-editor>.cm-scroller {
-  scrollbar-gutter: stable;
-}
+// `scrollbar-gutter: stable` used to live on `.cm-scroller` (the element
+// that scrolled). Now that #sb-page-scroll is the real scrolling element
+// (L5/L6), the rule moved there (client/styles/top.scss) — this selector
+// would be a no-op here since .cm-scroller never overflows post-L6.
 
 div:not(.cm-focused).cm-fat-cursor {
   outline: none !important;
