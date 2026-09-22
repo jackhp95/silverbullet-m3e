@@ -1,3 +1,11 @@
+// Audit note (m3e/tailwind sweep): mixed file. `.cm-*` rules (below) pierce
+// CodeMirror's own class contract and must stay CSS — never touch per the
+// conservative editor-rendering directive. `#sb-root`/`#sb-top`/`#sb-main`/
+// `#sb-bhs` etc. are root layout-anchor selectors applying theme.scss's
+// `--*-color` tokens; converting these to tailwind arbitrary-value utilities
+// is possible in principle but touches every page render across light+dark,
+// so left as-is here rather than guess-migrated — flagged for Jack as a
+// deliberate, visually-reviewed follow-up rather than blind conversion.
 #sb-root {
   font-family: var(--ui-font);
   background-color: var(--root-background-color);

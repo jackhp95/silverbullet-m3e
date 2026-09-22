@@ -77,6 +77,9 @@
   --m3e-filled-button-pressed-state-layer-color: var(--danger-contrast-color);
 }
 
+// MUST STAY (a): --*-color custom-property bridge into theme.scss tokens; no
+// vendored <m3e-text-field>/<m3e-select> wired into these call sites yet, so
+// leave as-is rather than half-migrate markup no consumer expects.
 .sb-input,
 .sb-select {
   padding: 0.3em 0.6em;
@@ -169,21 +172,6 @@
   background-color: var(--badge-background-color);
   color: var(--badge-color);
   border-radius: 4px;
-}
-
-/* Progress bar */
-.sb-progress {
-  width: 100%;
-  height: 4px;
-  background-color: var(--subtle-background-color);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.sb-progress-bar {
-  height: 100%;
-  background-color: var(--ui-accent-color);
-  transition: width 150ms ease;
 }
 
 /* Inline keyboard-shortcut hint inside a button, e.g. "Cancel esc" / "Ok ⏎".

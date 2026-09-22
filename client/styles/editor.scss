@@ -1,3 +1,10 @@
+// Audit note (m3e/tailwind sweep): this file is almost entirely category
+// (a) — every rule targets CodeMirror's own `.cm-*` class contract (or
+// `.sb-line-*`/`.sb-*` classes CM6 decorations attach to those lines), which
+// tailwind utilities/<m3e-*> components cannot express or safely replace.
+// Per the task's explicit conservative directive, nothing here was touched:
+// guessing wrong on a CM selector risks silently breaking editor rendering
+// with no compile-time signal.
 .cm-focused {
   outline: none !important;
 }
