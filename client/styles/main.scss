@@ -1,3 +1,11 @@
+// Audit note (m3e/tailwind sweep): reviewed end to end. Font-face blocks are
+// self-hosted assets (must stay, extensively rationalized in place already).
+// #sb-root/#sb-main/#sb-editor/#sb-page-scroll/.sb-panel* are DOM-ID layout
+// plumbing wired directly to client.ts/content_manager.ts/navigator.ts
+// (scroll-tracking correctness, drawer-container sizing) — not swappable for
+// a component. .sb-modal/.sb-modal-backdrop back the plug showPanel("modal")
+// API surface (untraced plug-rendering call sites, out of this pass's safe
+// scope — flagged for a follow-up, not migrated blind). No dead CSS found.
 @use "tokens";
 @use "editor";
 @use "modals";

@@ -1,3 +1,10 @@
+// Audit note (m3e/tailwind sweep): file reviewed end to end — every rule is
+// (a) genuine m3e-app-bar/m3e-menu/scroll-snap plumbing already carrying its
+// own detailed rationale comment (app-bar sizing, the upstream m3e-menu-item
+// min-width bug workaround, the V5b scroll-snap container), or (b) front-
+// matter panel layout tied 1:1 to front_matter_panel.tsx's own class names,
+// no tailwind-utility or <m3e-*> component swap available for either. No
+// dead CSS, no utility-class candidates found this pass.
 #sb-top {
   display: flex;
   flex-direction: row;
