@@ -29,6 +29,7 @@ import {
 } from "./types/ui.ts";
 import "@m3e/web/theme";
 import "@m3e/web/snackbar";
+import "@m3e/web/dialog";
 // Registers m3e-chip/-assist-chip/etc (used by codemirror/hashtag.ts,
 // frontmatter_folding.ts, and markdown_renderer/markdown_render.ts for tag
 // pills) here rather than in those lower-level modules: they're imported by
@@ -1018,14 +1019,31 @@ export class MainUI {
           )}
         </m3e-drawer-container>
         {viewState.panels.modal.mode !== undefined && (
-          <div className="sb-modal-backdrop">
-            <div
-              className="sb-modal"
-              style={{ inset: `${viewState.panels.modal.mode}px` }}
-            >
-              <Panel config={viewState.panels.modal} editor={client} />
-            </div>
-          </div>
+          // m3e-dialog replaces the hand-rolled .sb-modal-backdrop/.sb-modal
+          // pair — see DialogElement.d.ts (open/dismissible/onclosed) and
+          // basic_modals.tsx's AlwaysShownModal for the same pattern. Plug
+          // content (arbitrary html/script from showPanel("modal", ...)) is
+          // untrusted, so it's still sandboxed inside Panel's iframe, slotted
+          // as the dialog's default-slot content; only the chrome (backdrop,
+          // centering, dismiss) is now the real component instead of custom
+          // CSS. `mode` (a pixel inset from the old absolute-positioned div)
+          // becomes explicit min/max width/height so the dialog keeps roughly
+          // the same footprint plug authors already size their content for.
+          <m3e-dialog
+            open
+            dismissible
+            style={{
+              "--m3e-dialog-min-width": `calc(100% - ${
+                viewState.panels.modal.mode * 2
+              }px)`,
+              "--m3e-dialog-max-width": `calc(100% - ${
+                viewState.panels.modal.mode * 2
+              }px)`,
+            }}
+            onclosed={() => dispatch({ type: "hide-panel", id: "modal" })}
+          >
+            <Panel config={viewState.panels.modal} editor={client} />
+          </m3e-dialog>
         )}
         {viewState.panels.bhs.mode !== undefined && (
           <div className="sb-bhs">

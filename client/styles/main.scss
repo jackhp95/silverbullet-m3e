@@ -3,9 +3,12 @@
 // #sb-root/#sb-main/#sb-editor/#sb-page-scroll/.sb-panel* are DOM-ID layout
 // plumbing wired directly to client.ts/content_manager.ts/navigator.ts
 // (scroll-tracking correctness, drawer-container sizing) — not swappable for
-// a component. .sb-modal/.sb-modal-backdrop back the plug showPanel("modal")
-// API surface (untraced plug-rendering call sites, out of this pass's safe
-// scope — flagged for a follow-up, not migrated blind). No dead CSS found.
+// a component. .sb-modal/.sb-modal-backdrop USED to back the plug
+// showPanel("modal") API surface; traced (editor_ui.tsx's
+// `viewState.panels.modal` render) and migrated to `<m3e-dialog dismissible>`
+// — see DialogElement.d.ts and basic_modals.tsx's AlwaysShownModal for the
+// same pattern. Backdrop/scrim/centering are now the component's own; only
+// the plug's Panel iframe still needs a local sizing rule (below).
 @use "tokens";
 @use "editor";
 @use "modals";
@@ -276,36 +279,14 @@ body {
   }
 }
 
-// Full-screen dim behind a "modal" panel, matching the <dialog> backdrop used
-// by command-palette / prompt / confirm modals (.sb-modal-box).
-.sb-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  background-color: var(--modal-backdrop-color);
-}
+// The showPanel("modal") plug panel's <m3e-dialog> (editor_ui.tsx): only the
+// plug's Panel iframe needs a local rule — backdrop/scrim/border/elevation/
+// mobile-inset are now the component's own (--m3e-dialog-scrim-color etc.).
+m3e-dialog .sb-panel {
+  height: 100%;
 
-.sb-modal {
-  position: absolute;
-  border: var(--modal-border-color) 1px solid;
-  border-radius: 8px;
-  overflow: hidden;
-  // Match the .sb-modal-box drop shadow so plug modals look consistent.
-  box-shadow: rgba(0, 0, 0, 0.35) 0px 20px 20px;
-
-  .sb-panel {
-    height: 100%;
-
-    iframe {
-      background-color: initial;
-    }
-  }
-
-  @media only screen and (max-width: 600px) {
-    // On narrow screens override the inline `inset` that plugs pass to
-    // showPanel("modal", N) so the modal sits closer to the edges. It keeps
-    // its rounded corners since (unlike .sb-modal-box) it isn't edge-to-edge.
-    inset: 8px !important;
+  iframe {
+    background-color: initial;
   }
 }
 
