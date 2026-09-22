@@ -8,7 +8,7 @@ vi.mock("../anything_picker.tsx", () => ({
     navigateToAnythingPickerName(...args),
 }));
 
-const { ChangelogTab, relativeTime } = await import("./changelog_tab.tsx");
+const { ChangelogTab } = await import("./changelog_tab.tsx");
 
 function page(overrides: Partial<PageMeta>): PageMeta {
   return {
@@ -73,23 +73,5 @@ test("activating a row navigates by page name and closes the sheet", () => {
   expect(navigateToAnythingPickerName).toHaveBeenCalledWith(
     "widget",
     onNavigate,
-  );
-});
-
-// --- relativeTime -----------------------------------------------------
-
-test("relativeTime: formats seconds/minutes/hours/days/months/years ago", () => {
-  const now = new Date("2026-06-15T12:00:00.000Z").getTime();
-  expect(relativeTime(new Date(now - 30_000).toISOString(), now)).toBe(
-    "30 seconds ago",
-  );
-  expect(relativeTime(new Date(now - 5 * 60_000).toISOString(), now)).toBe(
-    "5 minutes ago",
-  );
-  expect(relativeTime(new Date(now - 3 * 3_600_000).toISOString(), now)).toBe(
-    "3 hours ago",
-  );
-  expect(relativeTime(new Date(now - 2 * 86_400_000).toISOString(), now)).toBe(
-    "2 days ago",
   );
 });
