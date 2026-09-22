@@ -1,5 +1,7 @@
 import { useCallback, useState } from "preact/hooks";
 import { X } from "preact-feather";
+// Tabs renders <m3e-tabs>/<m3e-tab> — see plug-api/ui/tabs.tsx.
+import "@m3e/web/tabs";
 import * as editor from "../../../../plug-api/syscalls/editor.ts";
 import { useCfg } from "../cfg_context.tsx";
 import { EditorsContext } from "../editors_context.tsx";

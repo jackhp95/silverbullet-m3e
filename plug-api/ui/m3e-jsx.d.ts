@@ -65,12 +65,30 @@ type M3eChipAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   variant?: "elevated" | "outlined";
 };
 
+type M3eTabsAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  "disable-pagination"?: boolean;
+  "disable-swipe"?: boolean;
+  "header-position"?: string;
+  stretch?: boolean;
+  /** @default "secondary" */
+  variant?: "primary" | "secondary";
+};
+
+type M3eTabAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  disabled?: boolean;
+  /** Id of the panel this tab is associated with (same-page switching, not a URL). */
+  for?: string | null;
+  selected?: boolean;
+};
+
 interface M3eIntrinsicElements {
   "m3e-button": M3eButtonAttributes;
   "m3e-form-field": M3eFormFieldAttributes;
   "m3e-linear-progress-indicator": M3eLinearProgressIndicatorAttributes;
   "m3e-checkbox": M3eCheckboxAttributes;
   "m3e-chip": M3eChipAttributes;
+  "m3e-tabs": M3eTabsAttributes;
+  "m3e-tab": M3eTabAttributes;
 }
 
 declare module "preact" {

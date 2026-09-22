@@ -54,7 +54,7 @@ test.describe("configuration-manager plug m3e-button/m3e-form-field", () => {
     await gotoSilverBulletPage(sbPage, sbServer, "index");
     await openConfigurationPanel(sbPage);
 
-    const frame = sbPage.frameLocator(".sb-modal iframe");
+    const frame = sbPage.frameLocator("m3e-dialog iframe");
     await expect(frame.locator("#cfg-header")).toBeVisible();
 
     // configuration_tab.tsx's `<Input class="cfg-search" .../>` — kit
@@ -81,7 +81,7 @@ test.describe("configuration-manager plug m3e-button/m3e-form-field", () => {
     await gotoSilverBulletPage(sbPage, sbServer, "index");
     await openConfigurationPanel(sbPage);
 
-    const frame = sbPage.frameLocator(".sb-modal iframe");
+    const frame = sbPage.frameLocator("m3e-dialog iframe");
     await expect(frame.locator("#cfg-header")).toBeVisible();
 
     // app.tsx's SaveFooter: `<Button id="cfg-cancel" shortcut="esc">` and
@@ -102,6 +102,6 @@ test.describe("configuration-manager plug m3e-button/m3e-form-field", () => {
     // the m3e-button click still round-trips through the same onClick prop
     // plug-api/ui/button.tsx forwards via `{...rest}`.
     await cancel.click();
-    await expect(sbPage.locator(".sb-modal")).toHaveCount(0);
+    await expect(sbPage.locator("m3e-dialog")).toHaveCount(0);
   });
 });

@@ -88,8 +88,9 @@ test("Tabs marks the active tab and wires per-item onSelect", () => {
     { label: "B", active: true, onSelect: () => (picked = "b") },
   ];
   const html = render(h(Tabs, { items }));
+  expect(html).toContain("<m3e-tabs");
   expect(html).toContain("sb-tab sb-active");
-  expect(html).toContain('aria-selected="true"');
+  expect(html).toContain("selected");
   // each tab carries its own handler
   items[0].onSelect();
   expect(picked).toBe("a");

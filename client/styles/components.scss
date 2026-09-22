@@ -121,14 +121,25 @@
   vertical-align: middle;
 }
 
-/* Tabs */
-.sb-tabs {
+/* Tabs. Two different elements share these class names now:
+   - `<a class="sb-tabs/sb-tab">` (App.tsx's admin nav) — plain route-link
+     anchors styled as tabs, real navigation semantics preserved (m3e-tab has
+     no href/link attribute — TabElement.d.ts: disabled/for/selected only —
+     so this stays hand-rolled, same reasoning as .sb-button:not(m3e-button)
+     below). Styled the old way.
+   - `<m3e-tabs class="sb-tabs">`/`<m3e-tab class="sb-tab">` (plug-api/ui's
+     Tabs, tabs.tsx) — its own Shadow DOM already paints the selected-state
+     indicator/hover/focus per the `variant` attribute, so the custom
+     padding/border-bottom below would double-paint a second indicator
+     behind it. `:not(m3e-tabs)`/`:not(m3e-tab)` keep this block scoped to
+     the `<a>` case. */
+.sb-tabs:not(m3e-tabs) {
   display: flex;
   gap: 0;
   flex-wrap: wrap;
 }
 
-.sb-tab {
+.sb-tab:not(m3e-tab) {
   padding: 8px 16px;
   cursor: pointer;
   border: none;
