@@ -74,10 +74,11 @@ test("Select wraps options", () => {
   expect(html).toContain(">A</option>");
 });
 
-test("Checkbox is a checkbox input", () => {
+test("Checkbox renders an m3e-checkbox with the checked attribute", () => {
   const html = render(h(Checkbox, { checked: true }));
-  expect(html).toContain('type="checkbox"');
-  expect(html).toContain("sb-checkbox");
+  expect(html).toContain("<m3e-checkbox");
+  expect(html).toContain("m3e-checkbox");
+  expect(html).toContain("checked");
 });
 
 test("Tabs marks the active tab and wires per-item onSelect", () => {

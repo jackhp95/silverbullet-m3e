@@ -100,11 +100,25 @@
   padding-right: 1.2em;
 }
 
+// must-stay, CM-only: styles the raw `<input type=checkbox>` CodeMirror's
+// task-list widget renders inline in editable document content
+// (client/codemirror/task.ts) — explicitly excluded from the m3e sweep per
+// the "don't regress the CodeMirror editor" directive. plug-api/ui's own
+// Checkbox component renders a real `<m3e-checkbox class="m3e-checkbox">`
+// and must NOT use this class: the fixed 16x16 box here clips the m3e
+// component's own ~48px touch-target/ripple internals (this is what broke
+// visually and got reverted in 5e0efa84 — see checkbox.tsx).
 .sb-checkbox {
   width: 16px;
   height: 16px;
   accent-color: var(--ui-accent-color);
   cursor: pointer;
+}
+
+// plug-api/ui's Checkbox: let the component size itself via its own
+// --m3e-checkbox-* tokens; only lay it out inline with its label.
+.m3e-checkbox {
+  vertical-align: middle;
 }
 
 /* Tabs */
