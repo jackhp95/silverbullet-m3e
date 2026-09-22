@@ -194,6 +194,28 @@ body {
   }
 }
 
+// #sb-page-scroll (L5, `PAGE_SCROLL_CONTAINER_ID`) is the light-DOM scroll
+// container `#sb-editor`'s consumers (navigator.ts/content_manager.ts/
+// client.ts, L7) now read `.scrollTop` from instead of CodeMirror's own
+// `.cm-scroller` (auto-height per L6, no longer scrolls at all). Pulled
+// forward from L9 (docs/plans/2026-09-22-appbar-large-frontmatter-scroll-
+// snap.md) — MINIMAL, two declarations only, no scroll-snap-type/-webkit-
+// overflow-scrolling/scrollbar-gutter (those are genuinely L9's own scope:
+// snap behavior and cosmetics, not scroll-tracking correctness). Without
+// `height`/`overflow` here, this div has no box of its own to scroll —
+// `m3e-drawer-container`'s shadow `.content` region (already `height:100%;
+// overflow:auto`, §1.1) silently takes over as the real scrolling element
+// whenever `#sb-page-scroll`'s content overflows it, which makes L7's
+// `PAGE_SCROLL_CONTAINER_ID`-based `scrollTop` reads/writes permanently
+// no-op (always 0) — verified live at :3333 during L7's mandatory
+// verification pass: per-page scroll memory (R8) silently failed without
+// this. L9 will still add its own scroll-snap-specific rules on top of
+// this rule; nothing here should need to change when it does.
+#sb-page-scroll {
+  height: 100%;
+  overflow-y: auto;
+}
+
 // Chrome wrapper for slotted lhs/rhs drawer content (the `start`/`end` slots
 // of `#sb-main`) — a close affordance (m3e-drawer-toggle) stacked above the
 // plug-owned Panel (panel.tsx), which is untouched.
