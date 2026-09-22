@@ -1,11 +1,6 @@
 import type { EditorState } from "@codemirror/state";
-import {
-  foldedRanges,
-  foldEffect,
-  syntaxTree,
-  unfoldEffect,
-} from "@codemirror/language";
-import { Decoration, type EditorView, WidgetType } from "@codemirror/view";
+import { syntaxTree } from "@codemirror/language";
+import { Decoration, type EditorView } from "@codemirror/view";
 import { decoratorStateField, isCursorInRange, LinkWidget } from "./util.ts";
 import type { Client } from "../client.ts";
 import {
@@ -15,73 +10,6 @@ import {
   frontmatterWikiLinkRegex,
 } from "../markdown_parser/constants.ts";
 import { processWikiLink, type WikiLinkMatch } from "./wiki_link_processor.ts";
-
-class FrontmatterMarkerWidget extends WidgetType {
-  constructor(
-    private readonly from: number,
-    private readonly to: number,
-    private readonly folded: boolean,
-  ) {
-    super();
-  }
-
-  toDOM(view: EditorView): HTMLElement {
-    const marker = document.createElement("span");
-    marker.className = "sb-frontmatter-marker";
-    marker.role = "button";
-    marker.tabIndex = 0;
-    marker.title = this.folded ? "Unfold frontmatter" : "Fold frontmatter";
-    marker.setAttribute(
-      "aria-label",
-      this.folded ? "Unfold frontmatter" : "Fold frontmatter",
-    );
-    marker.textContent = `${this.folded ? "◂" : "▾"} frontmatter`;
-
-    const toggleFold = (event: Event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      view.dispatch({
-        effects: (this.folded ? unfoldEffect : foldEffect).of({
-          from: this.from,
-          to: this.to,
-        }),
-      });
-      view.focus();
-    };
-
-    marker.addEventListener("click", toggleFold);
-    marker.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        toggleFold(event);
-      }
-    });
-    return marker;
-  }
-
-  override eq(other: WidgetType): boolean {
-    return (
-      other instanceof FrontmatterMarkerWidget &&
-      other.from === this.from &&
-      other.to === this.to &&
-      other.folded === this.folded
-    );
-  }
-}
-
-function hasExactFoldedRange(
-  state: EditorState,
-  from: number,
-  to: number,
-): boolean {
-  const folded = foldedRanges(state).iter();
-  while (folded.value) {
-    if (folded.from === from && folded.to === to) {
-      return true;
-    }
-    folded.next();
-  }
-  return false;
-}
 
 export function shouldRenderFrontmatterLivePreview({
   state,
@@ -103,51 +31,35 @@ export function shouldRenderFrontmatterLivePreview({
 export function frontmatterPlugin(client: Client) {
   return decoratorStateField((state: EditorState) => {
     const widgets: any[] = [];
-    const foldRanges = foldedRanges(state);
     const shortWikiLinks = client.config.get("shortWikiLinks", true);
 
     syntaxTree(state).iterate({
       enter(node) {
-        if (node.name === "FrontMatterMarker") {
-          const parent = node.node.parent!;
-          const frontmatterFolded = hasExactFoldedRange(
-            state,
-            parent.from,
-            parent.to,
-          );
-
-          const folded = foldRanges.iter();
-          let shouldShowFrontmatterBanner = false;
-          while (folded.value) {
-            // Check if cursor is in the folded range
-            if (isCursorInRange(state, [folded.from, folded.to])) {
-              // console.log("Cursor is in folded area, ");
-              shouldShowFrontmatterBanner = true;
-              break;
-            }
-            folded.next();
-          }
-          if (!isCursorInRange(state, [parent.from, parent.to])) {
-            widgets.push(
-              Decoration.line({
-                class: "sb-line-frontmatter-outside",
-              }).range(node.from),
-            );
-            shouldShowFrontmatterBanner = true;
-          }
-          if (shouldShowFrontmatterBanner && parent.from === node.from) {
-            // Only put this on the first line of the frontmatter
-            widgets.push(
-              Decoration.widget({
-                widget: new FrontmatterMarkerWidget(
-                  parent.from,
-                  parent.to,
-                  frontmatterFolded,
-                ),
-              }).range(node.from),
-            );
-          }
-        }
+        // V5b (2026-09-22): this used to also handle "FrontMatterMarker" —
+        // painting a `sb-line-frontmatter-outside` line decoration plus a
+        // "▾/◂ frontmatter" `FrontmatterMarkerWidget` banner whenever the
+        // cursor sat outside the block. That system predates (and, once the
+        // real fold effect landed, actively fought with)
+        // `frontmatter_folding.ts`'s `frontmatterFoldingExtension` +
+        // `frontmatterFoldPlaceholderDOM`: frontmatter now ALWAYS auto-folds
+        // while the selection is outside it (`shouldAutoFoldFrontmatter`),
+        // and the inline `<FrontMatterPanel>` (client/components/
+        // front_matter_panel.tsx) is the only rendering of frontmatter a
+        // reader sees. With both systems live, the merged folded line still
+        // carried this branch's line class/widget (verified via live
+        // Playwright + computed-style inspection on :3333 — the folded
+        // line's own DOM node had class `sb-line-frontmatter-outside
+        // sb-frontmatter` and contained the `◂ frontmatter` marker span),
+        // producing a leftover highlighted band + label the fold
+        // placeholder's own now-empty content (see that file's L3 comment)
+        // was supposed to have eliminated. Removed outright rather than
+        // conditioned on fold state: the marker's own click-to-toggle-fold
+        // affordance is now redundant with the placeholder's own
+        // click-to-unfold handler AND the row-level "Edit as YAML" button
+        // (`editFieldAsRawYaml`), so there's no remaining behavior to
+        // preserve. The `FrontMatterCode` branch below (frontmatter link
+        // rendering) is untouched — that fires only while the block is
+        // genuinely unfolded and is unrelated to this defect.
 
         // Render links inside frontmatter code as clickable anchors (external and wiki links)
         if (node.name === "FrontMatterCode") {
