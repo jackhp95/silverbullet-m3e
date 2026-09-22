@@ -49,7 +49,7 @@ import { IndexedDBKvPrimitives } from "./data/indexeddb_kv_primitives.ts";
 import type { KvPrimitives } from "./data/kv_primitives.ts";
 import { DataStoreMQ } from "./data/mq.datastore.ts";
 import { ObjectIndex } from "./data/object_index.ts";
-import { EDITOR_SCROLL_CONTAINER_ID, MainUI } from "./editor_ui.tsx";
+import { MainUI, PAGE_SCROLL_CONTAINER_ID } from "./editor_ui.tsx";
 import { PathPageNavigator, parseRefFromURI } from "./navigator.ts";
 import { pushRecent } from "./lib/recency.ts";
 import { EventHook } from "./plugos/hooks/event.ts";
@@ -287,12 +287,16 @@ export class Client {
       state: createEditorState(this, "", "", true),
       parent: document.getElementById("sb-editor")!,
     });
-    // Stable id for m3e-app-bar's `for`-driven scroll elevation
-    // (client/editor_ui.tsx's EDITOR_SCROLL_CONTAINER_ID) — set once, right
-    // here at construction, on CodeMirror's own public `scrollDOM` handle.
-    // Deliberately not a runtime DOM query: see the id constant's own
-    // comment in editor_ui.tsx for why.
-    this.editorView.scrollDOM.id = EDITOR_SCROLL_CONTAINER_ID;
+    // The `EDITOR_SCROLL_CONTAINER_ID` stamp that used to live here
+    // (stamping CodeMirror's own `scrollDOM` for `m3e-app-bar`'s `for`-
+    // driven scroll elevation) is dead: L6 configures `.cm-scroller` for
+    // auto-height ("page scrolls") mode, so it no longer scrolls at all —
+    // `#sb-page-scroll` (L5, `PAGE_SCROLL_CONTAINER_ID`) is the real
+    // scrolling ancestor now. `top_bar.tsx`'s `scrollContainerId` prop
+    // still passes the now-unassigned `EDITOR_SCROLL_CONTAINER_ID` through
+    // to the (still small, still `for`-driven) app bar until L8 removes
+    // that prop entirely — a real but purely cosmetic loss of the
+    // scroll-elevation shadow in the interim, not a functional break.
 
     this.focus();
 
@@ -800,14 +804,21 @@ export class Client {
     // Preserve selection + scroll across the rebuild — this fires on
     // widget loading→ready transitions after the editor is already
     // interactive, so a reset to pos 0 / scrollTop 0 is jarring.
+    //
+    // CodeMirror's own `.cm-scroller` (`editorView.scrollDOM`) no longer
+    // owns scroll once L6 configures it for auto-height ("page scrolls")
+    // mode — `#sb-page-scroll` (L5) is the real scrolling ancestor now, so
+    // both the "is the cursor within the visible scrolled window" calc
+    // below and the final scrollTop write need to read/write that element
+    // instead.
+    const pageScroll = document.getElementById(PAGE_SCROLL_CONTAINER_ID)!;
     const previousSelection = editorView.state.selection;
-    const previousScrollTop = editorView.scrollDOM.scrollTop;
+    const previousScrollTop = pageScroll.scrollTop;
 
     let cursorWasVisible = false;
     try {
       const block = editorView.lineBlockAt(previousSelection.main.head);
-      const scrollBottom =
-        previousScrollTop + editorView.scrollDOM.clientHeight;
+      const scrollBottom = previousScrollTop + pageScroll.clientHeight;
       cursorWasVisible =
         block.bottom > previousScrollTop && block.top < scrollBottom;
     } catch {
@@ -823,7 +834,7 @@ export class Client {
         previousSelection,
       ),
     );
-    editorView.scrollDOM.scrollTop = previousScrollTop;
+    pageScroll.scrollTop = previousScrollTop;
 
     if (cursorWasVisible) {
       editorView.dispatch({

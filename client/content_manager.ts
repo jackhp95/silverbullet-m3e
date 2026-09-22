@@ -28,6 +28,7 @@ import { fsEndpoint } from "./spaces/constants.ts";
 import { parseMarkdown } from "./markdown_parser/parser.ts";
 import type { Client } from "./client.ts";
 import type { LocationState } from "./navigator.ts";
+import { PAGE_SCROLL_CONTAINER_ID } from "./editor_ui.tsx";
 
 const frontMatterRegex = /^---\n(([^\n]|\n)*?)---\n/;
 
@@ -609,8 +610,11 @@ export class ContentManager {
         // Frontmatter found, put cursor after it
         initialCursorPos = match[0].length;
       }
-      // By default scroll to the top
-      this.client.editorView.scrollDOM.scrollTop = 0;
+      // By default scroll to the top. CodeMirror's own `.cm-scroller` no
+      // longer owns scroll once L6 configures it for auto-height ("page
+      // scrolls") mode — `#sb-page-scroll` (L5) is the real scrolling
+      // ancestor now.
+      document.getElementById(PAGE_SCROLL_CONTAINER_ID)!.scrollTop = 0;
       this.client.editorView.dispatch({
         selection: { anchor: initialCursorPos },
         // And then scroll down if required
@@ -631,7 +635,13 @@ export class ContentManager {
       this.scrollRestoreCleanup();
     }
 
-    const scrollDOM = this.client.editorView.scrollDOM;
+    // CodeMirror's own `.cm-scroller` no longer owns scroll once L6
+    // configures it for auto-height ("page scrolls") mode — `#sb-page-
+    // scroll` (L5) is the real scrolling ancestor now. Its subtree still
+    // includes `#sb-editor`'s widget-driven height changes (`#sb-editor`
+    // remains a descendant), so the `subtree: true` MutationObserver config
+    // below needs no further change.
+    const scrollDOM = document.getElementById(PAGE_SCROLL_CONTAINER_ID)!;
     let settled = false;
 
     const applyScroll = () => {
