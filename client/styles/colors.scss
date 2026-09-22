@@ -1,11 +1,24 @@
-// Audit note (m3e/tailwind sweep): mixed file. `.cm-*` rules (below) pierce
-// CodeMirror's own class contract and must stay CSS — never touch per the
-// conservative editor-rendering directive. `#sb-root`/`#sb-top`/`#sb-main`/
-// `#sb-bhs` etc. are root layout-anchor selectors applying theme.scss's
-// `--*-color` tokens; converting these to tailwind arbitrary-value utilities
-// is possible in principle but touches every page render across light+dark,
-// so left as-is here rather than guess-migrated — flagged for Jack as a
-// deliberate, visually-reviewed follow-up rather than blind conversion.
+// Audit note (m3e/tailwind sweep), full pass: every rule block in this file
+// is category (a)/(b) — none is pure layout/spacing glue. Three sub-shapes,
+// none Tailwind-addressable:
+//   1. `.cm-*`/`.sb-line-*`/`.sb-*` selectors under `#sb-editor` (from
+//      L.256 down) are CodeMirror 6 decoration class names emitted by
+//      TS editor extensions, never authored in a .tsx template — Tailwind's
+//      content scanner can never see them (confirmed against
+//      docs/plans/2026-09-19-tailwind-m3e-bridge-and-custom-css-audit.md §A.2
+//      bucket (c)).
+//   2. `#sb-root`/`#sb-top`/`#sb-main`/`.sb-modal-box`/`.sb-search-sheet-*`
+//      etc. set only `color`/`background-color`/`border-color` from this
+//      fork's `--*-color` theme.scss tokens — a value substitution, not a
+//      fixed utility (light/dark resolve differently), so there is no
+//      Tailwind utility class equivalent short of importing the bridge's
+//      seed/ref/sys cascade (Phase D, out of scope for this pass).
+//   3. `--m3e-list-item-*`/`--m3e-search-bar-*`/`--m3e-outlined-chip-*`
+//      overrides are the sanctioned per-instance M3E override channel (see
+//      the m3e skill's styling ladder) — already the correct mechanism, nothing
+//      to migrate.
+// Nothing in this file matched the Phase 2 "pure layout, no custom
+// properties, no at-rules" filter, so no rule blocks were converted.
 #sb-root {
   font-family: var(--ui-font);
   background-color: var(--root-background-color);
