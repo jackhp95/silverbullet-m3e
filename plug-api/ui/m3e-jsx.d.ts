@@ -40,9 +40,19 @@ type M3eFormFieldAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   variant?: "filled" | "outlined";
 };
 
+type M3eLinearProgressIndicatorAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  mode?: "determinate" | "indeterminate" | "buffer" | "query";
+  /** @default 0 */
+  value?: number;
+  /** @default 100 */
+  max?: number;
+  "buffer-value"?: number;
+};
+
 interface M3eIntrinsicElements {
   "m3e-button": M3eButtonAttributes;
   "m3e-form-field": M3eFormFieldAttributes;
+  "m3e-linear-progress-indicator": M3eLinearProgressIndicatorAttributes;
 }
 
 declare module "preact" {

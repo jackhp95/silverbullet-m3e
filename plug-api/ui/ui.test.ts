@@ -108,10 +108,10 @@ test("Badge", () => {
   expect(render(h(Badge, {}, "b"))).toContain('class="sb-badge">b<');
 });
 
-test("Progress clamps value to a width percentage", () => {
-  expect(render(h(Progress, { value: 0.5 }))).toMatch(/width:\s*50%/);
-  expect(render(h(Progress, { value: 2 }))).toMatch(/width:\s*100%/);
-  expect(render(h(Progress, { value: -1 }))).toMatch(/width:\s*0%/);
+test("Progress clamps value to the m3e-linear-progress-indicator value attribute", () => {
+  expect(render(h(Progress, { value: 0.5 }))).toMatch(/value="50"/);
+  expect(render(h(Progress, { value: 2 }))).toMatch(/value="100"/);
+  expect(render(h(Progress, { value: -1 }))).toMatch(/value="0"/);
 });
 
 test("UrlPrefixInput shows the origin it is given, not the ambient one", () => {
