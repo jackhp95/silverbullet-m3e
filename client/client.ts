@@ -117,6 +117,20 @@ export class Client {
 
   // CodeMirror editor
   editorView!: EditorView;
+  // Set once by <FrontMatterPanel>'s mount effect (client/components/
+  // front_matter_panel.tsx) and read by `frontMatterSyncExtension`, wired
+  // into every editor state by `createEditorState` (client/codemirror/
+  // editor_state.ts) — a stable field on the long-lived `Client`, not a
+  // one-time `StateEffect.appendConfig` onto a single `EditorState`,
+  // because `content_manager.ts`'s `navigateWithinPage` and `client.ts`'s
+  // own boot both load a page via `editorView.setState(...)` (a full state
+  // replacement, not an incremental transaction) — an extension appended
+  // via `appendConfig` onto the state being replaced does not carry over,
+  // so the panel would silently stop syncing after the very first
+  // navigation. Reading this field from inside the extension (rather than
+  // capturing the callback at extension-construction time) makes it
+  // survive every such swap for free.
+  onFrontMatterChanged?: () => void;
   commandKeyHandlerCompartment?: Compartment;
   vimCompartment?: Compartment;
   indentUnitCompartment?: Compartment;

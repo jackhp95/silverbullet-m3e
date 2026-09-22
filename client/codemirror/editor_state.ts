@@ -53,6 +53,7 @@ import { codeCopyPlugin } from "../codemirror/code_copy.ts";
 import { disableSpellcheck } from "../codemirror/spell_checking.ts";
 import type { ClickEvent } from "@silverbulletmd/silverbullet/type/client";
 import {
+  frontMatterSyncExtension,
   frontmatterFoldingExtension,
   frontmatterFoldPlaceholderDOM,
   prepareFrontmatterFoldPlaceholder,
@@ -169,6 +170,14 @@ export function createEditorState(
           frontmatterFoldPlaceholderDOM(view, onclick, prepared, client),
       }),
       frontmatterFoldingExtension(client),
+      // Keeps <FrontMatterPanel> (client/components/front_matter_panel.tsx)
+      // in sync with the document — registered unconditionally here (not
+      // appended once from the component's mount effect) because every
+      // navigation replaces the whole EditorState via `setState`, which
+      // would silently drop a one-time `appendConfig`. See
+      // `frontMatterSyncExtension`'s own doc comment (frontmatter_folding.ts)
+      // for the full rationale.
+      frontMatterSyncExtension(() => client.onFrontMatterChanged?.()),
       indentUnits,
       indentOnInput(),
       ...cleanModePlugins(client),

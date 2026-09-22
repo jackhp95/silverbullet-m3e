@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { isolateHistory } from "@codemirror/commands";
 import { unfoldEffect } from "@codemirror/language";
-import { type Extension, StateEffect } from "@codemirror/state";
-import { ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import YAML from "js-yaml";
 import { Input } from "@silverbulletmd/silverbullet/ui";
 import "@m3e/web/icon";
@@ -567,46 +565,6 @@ export function AddPropertyRow({ client, block, onAdded }: {
   );
 }
 
-/**
- * A CM `ViewPlugin` that calls `onFrontMatterChanged` whenever a document
- * change intersects the frontmatter block — either where it WAS before the
- * change, or where it IS after (covers both "edited a value inside it" and
- * "the block itself just got added/removed/resized"). Built on the exact
- * same primitive `frontmatterFoldingExtension`
- * (client/codemirror/frontmatter_folding.ts) already proves works in this
- * codebase — a plain callback prop, not an `eventHook` API guess. Threaded
- * into `FrontMatterPanel` via a prop (L4.5), registered alongside the other
- * `editor_state.ts` extensions once L5 wires the panel into the real editor
- * (this leaf only builds the extension factory itself).
- */
-export function frontMatterSyncExtension(
-  onFrontMatterChanged: () => void,
-): Extension {
-  return ViewPlugin.fromClass(
-    class {
-      update(update: ViewUpdate): void {
-        if (!update.docChanged) return;
-        const oldBlock = findFrontmatterBlock(update.startState);
-        const newBlock = findFrontmatterBlock(update.state);
-        let intersects = false;
-        update.changes.iterChangedRanges((fromA, toA, fromB, toB) => {
-          if (
-            oldBlock && fromA < oldBlock.to && toA > oldBlock.from
-          ) {
-            intersects = true;
-          }
-          if (
-            newBlock && fromB < newBlock.to && toB > newBlock.from
-          ) {
-            intersects = true;
-          }
-        });
-        if (intersects) onFrontMatterChanged();
-      }
-    },
-  );
-}
-
 /** The focused-row echo-guard (L4.4), factored out as a small pure
  * function so it works identically for every L4.3 control type without
  * needing shape-specific logic: given the freshly re-derived rows (from
@@ -647,6 +605,20 @@ type FrontMatterRowData = {
 function deriveFrontMatterRows(
   client: Client,
 ): { block: FrontmatterBlock | undefined; rows: FrontMatterRowData[] } {
+  // `client.editorView` is declared non-optional (`editorView!: EditorView`
+  // in client.ts) but is genuinely `undefined` for one real window: `client.
+  // ts`'s boot sequence calls `this.ui.render(this.parent)` (which mounts
+  // this panel via L5's `<FrontMatterPanel>` and runs this function inside
+  // `useState`'s lazy initializer, synchronously, during that very render)
+  // BEFORE the very next line constructs `this.editorView = new
+  // EditorView(...)`. Guard here rather than deferring the whole
+  // computation into an effect (tried first — broke every
+  // preact-render-to-string test in this file, which mounts a `client` mock
+  // that already has `editorView` set and expects the first synchronous
+  // render to already show real rows, no effect flush available under SSR-
+  // style rendering). `FrontMatterPanel`'s mount effect below still calls
+  // `refresh()` once mounted for real, picking up the real editorView.
+  if (!client.editorView) return { block: undefined, rows: [] };
   const state = client.editorView.state;
   const block = findFrontmatterBlock(state);
   if (!block) return { block: undefined, rows: [] };
@@ -668,14 +640,19 @@ function deriveFrontMatterRows(
  * L4.1-L4.4's pieces in hand this is mostly composition: derive rows from
  * the live CM parse, wire each row to the editing/add/remove behaviors
  * those leaves already built, and keep the list in sync with the document
- * via `frontMatterSyncExtension` — appended to the running editor's own
- * config on mount via CM's own documented `StateEffect.appendConfig`
- * mechanism (dynamically adding an extension to a live `EditorState`,
- * rather than requiring editor_state.ts's static extension list to know
- * about this panel — this leaf's own file list never touches
- * editor_state.ts, and L5/Phase 3, which actually mounts this component
- * into the DOM, only needs to render `<FrontMatterPanel client={client} />`
- * with no separate wiring step of its own).
+ * via `frontMatterSyncExtension` (client/codemirror/frontmatter_folding.ts)
+ * — registered unconditionally in `createEditorState`'s static extension
+ * list (client/codemirror/editor_state.ts), the same way
+ * `frontmatterFoldingExtension` already is, NOT via a one-time
+ * `StateEffect.appendConfig` call from this component's mount effect: both
+ * `content_manager.ts`'s `navigateWithinPage` and `client.ts`'s own boot
+ * load a page via `editorView.setState(...)` (a full state replacement
+ * built fresh from `createEditorState`), which would silently drop an
+ * `appendConfig`-appended extension on the very first navigation. Instead
+ * this component just assigns `client.onFrontMatterChanged = refresh` once
+ * on mount — a stable field on the long-lived `Client` (client.ts) that
+ * `frontMatterSyncExtension` reads dynamically, so it keeps working across
+ * every subsequent state swap.
  *
  * Renders `null` when there's no frontmatter block at all — no empty card.
  */
@@ -689,16 +666,25 @@ export function FrontMatterPanel({ client }: { client: Client }) {
   const refresh = () => setDerived(deriveFrontMatterRows(client));
 
   useEffect(() => {
-    client.editorView.dispatch({
-      effects: StateEffect.appendConfig.of(
-        frontMatterSyncExtension(refresh),
-      ),
-    });
-    // Intentionally no cleanup: `StateEffect.appendConfig` has no matching
-    // "remove" effect in CM6's public API, and this panel is expected to
-    // live for as long as its editor does (L5 mounts it once, alongside
-    // <TopBar>, not conditionally per-render) — same lifetime assumption
-    // `frontmatterFoldingExtension` already makes.
+    // Re-derive once mounted for real: `deriveFrontMatterRows`'s initial
+    // synchronous call above (in `useState`'s lazy initializer) may have
+    // run before `client.editorView` existed yet (see that function's own
+    // comment) and returned the empty placeholder — this picks up the real
+    // frontmatter once `client.ts`'s boot sequence has actually constructed
+    // the editor. A no-op (re-derives the same rows) on every render after
+    // the first, and in every test that mounts a `client` mock whose
+    // `editorView` already exists at construction time.
+    refresh();
+    // Register this instance's `refresh` as the callback
+    // `frontMatterSyncExtension` (registered once, unconditionally, in
+    // `createEditorState`) invokes on every doc change that touches the
+    // frontmatter block — see this function's own doc comment for why a
+    // stable field on `client` is used instead of appending the extension
+    // here. No cleanup: this panel is expected to live for as long as its
+    // editor does (L5 mounts it once, alongside <TopBar>, not conditionally
+    // per-render) — same lifetime assumption `frontmatterFoldingExtension`
+    // already makes.
+    client.onFrontMatterChanged = refresh;
   }, [client]);
 
   const rows = reconcileEditingRow(freshRows, previousRowsRef.current, editingKey);

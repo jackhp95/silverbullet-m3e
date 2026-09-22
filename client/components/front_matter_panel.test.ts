@@ -21,7 +21,10 @@ import { h, render as preactRender } from "preact";
 import render from "preact-render-to-string";
 import { describe, expect, test, vi } from "vitest";
 import { buildExtendedMarkdownLanguage } from "../markdown_parser/parser.ts";
-import type { FrontmatterBlock } from "../codemirror/frontmatter_folding.ts";
+import {
+  type FrontmatterBlock,
+  frontMatterSyncExtension,
+} from "../codemirror/frontmatter_folding.ts";
 import type { FrontMatterFieldSpan } from "../lib/frontmatter_yaml.ts";
 import * as frontmatterYaml from "../lib/frontmatter_yaml.ts";
 import { locateFrontMatterFields } from "../lib/frontmatter_yaml.ts";
@@ -29,7 +32,6 @@ import {
   commitBlockMappingEdit,
   commitFieldEdit,
   editFieldAsRawYaml,
-  frontMatterSyncExtension,
   FrontMatterPanel,
   FrontMatterRow,
   insertNewProperty,
