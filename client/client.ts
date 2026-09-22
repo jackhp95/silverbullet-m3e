@@ -289,14 +289,11 @@ export class Client {
     });
     // The `EDITOR_SCROLL_CONTAINER_ID` stamp that used to live here
     // (stamping CodeMirror's own `scrollDOM` for `m3e-app-bar`'s `for`-
-    // driven scroll elevation) is dead: L6 configures `.cm-scroller` for
-    // auto-height ("page scrolls") mode, so it no longer scrolls at all —
-    // `#sb-page-scroll` (L5, `PAGE_SCROLL_CONTAINER_ID`) is the real
-    // scrolling ancestor now. `top_bar.tsx`'s `scrollContainerId` prop
-    // still passes the now-unassigned `EDITOR_SCROLL_CONTAINER_ID` through
-    // to the (still small, still `for`-driven) app bar until L8 removes
-    // that prop entirely — a real but purely cosmetic loss of the
-    // scroll-elevation shadow in the interim, not a functional break.
+    // driven scroll elevation) is gone for good: L6 configures `.cm-scroller`
+    // for auto-height ("page scrolls") mode, so it no longer scrolls at all,
+    // and L8 dropped the app bar's `for`/scroll-elevation entirely in favor
+    // of the non-sticky `size="large"` bar — `#sb-page-scroll` (L5,
+    // `PAGE_SCROLL_CONTAINER_ID`) is the one real scrolling ancestor now.
 
     this.focus();
 

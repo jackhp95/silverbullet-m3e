@@ -17,6 +17,7 @@ import {
 } from "./components/top_bar.tsx";
 import { FloatingToolbar } from "./components/floating_toolbar.tsx";
 import { FrontMatterPanel } from "./components/front_matter_panel.tsx";
+import { findFrontmatterBlock } from "./codemirror/frontmatter_folding.ts";
 import { SearchSheet } from "./components/search_sheet.tsx";
 import { NavigationSheet } from "./components/navigation_sheet.tsx";
 import { notificationsIconFor } from "./lib/push_ui.ts";
@@ -69,17 +70,14 @@ import {
   unsubscribeFromPush,
 } from "./lib/push_subscribe.ts";
 
-// Stable id given to the real editor scroll container exactly once, in
-// client.ts right after `new EditorView(...)` constructs it — see the
-// comment there. `EditorView.scrollDOM` (view/index.d.ts) is CodeMirror's
-// own public, documented handle to that element (already used elsewhere in
-// client.ts, e.g. `editorView.scrollDOM.scrollTop`), so no DOM class-name
-// hunting is needed to find it: it's a real API return value, not `.cm-
-// scroller` discovered by querying internal CM6 markup. AppBarElement.d.ts's
-// `for` attribute needs a real element id to attach its scroll listener to
-// (scroll events don't bubble, so it must be the actual scrolling element,
-// not an ancestor).
-export const EDITOR_SCROLL_CONTAINER_ID = "sb-editor-scroller";
+// `EDITOR_SCROLL_CONTAINER_ID` ("sb-editor-scroller" — the stable id
+// formerly stamped onto CodeMirror's own `scrollDOM` for `m3e-app-bar`'s
+// `for`-driven scroll elevation) was deleted 2026-09-22 (L7 removed the
+// stamp in client.ts, L8 removed its last consumer, `top_bar.tsx`'s
+// `scrollContainerId` prop) — CodeMirror's `.cm-scroller` no longer scrolls
+// at all (L6, auto-height/"page scrolls" mode) and the app bar is no
+// longer `for`-attached (L8, non-sticky `size="large"`). `PAGE_SCROLL_
+// CONTAINER_ID` below is the one real scrolling ancestor now.
 
 // Stable id of the new light-DOM scroll+snap container introduced by the
 // 2026-09-22 large-app-bar/inline-frontmatter plan (§2/L5) — the sole child
@@ -104,6 +102,23 @@ const SEVERITY_CONTAINER_COLOR: Record<NotificationType, string | undefined> = {
   warning: "var(--md-sys-color-tertiary)",
   error: "var(--md-sys-color-error)",
 };
+
+// TopBar's "N min read" subtitle segment (2026-09-22 V5b, L8) should reflect
+// body prose, not YAML key/value noise — slice the frontmatter range out the
+// same way `client/lib/reading_time.ts`'s doc comment specifies (§1.3 of the
+// plan). Computed inline at render time, same as `pageNamePrefix`/`cssClass`
+// just below in the JSX — this file's `ViewComponent` already re-renders on
+// every `page-changed`/`document-editor-changed` dispatch (reducer.ts), i.e.
+// on every doc edit, so no separate live-doc subscription is needed here.
+// `FrontMatterPanel` (client/components/front_matter_panel.tsx) re-derives
+// the same frontmatter range independently via its own CM `ViewPlugin` —
+// a candidate to unify behind one shared hook if the duplication grows,
+// per the plan's own note, not attempted in this leaf.
+function computeBodyText(client: Client): string {
+  const state = client.editorView.state;
+  const block = findFrontmatterBlock(state);
+  return block ? state.sliceDoc(block.to) : state.sliceDoc();
+}
 
 export class MainUI {
   viewState: AppViewState = initialViewState;
@@ -958,7 +973,8 @@ export class MainUI {
               }
               readOnly={isReadOnly}
               breadcrumbItems={breadcrumbItems}
-              scrollContainerId={EDITOR_SCROLL_CONTAINER_ID}
+              lastModified={client.currentPageMeta()?.lastModified}
+              bodyText={computeBodyText(client)}
               menuItems={menuItems}
               // Read-only toggle in the app-bar trailing slot (spec §2.2 / R2) —
               // a 1:1 port of the old floating-toolbar lock button's logic. Guarded
