@@ -29,15 +29,7 @@ test.use({
 // `document.documentElement` — descendants pick it up via ordinary CSS
 // custom-property inheritance, but the property only reads back as
 // non-empty from the `<m3e-theme>` element (or one of its descendants), not
-// from `html`/`body`.
-function readPrimaryColor(page: import("@playwright/test").Page) {
-  return page.evaluate(() => {
-    const el = document.querySelector("m3e-theme");
-    return el
-      ? getComputedStyle(el).getPropertyValue("--md-sys-color-primary").trim()
-      : "";
-  });
-}
+// from `html`/`body` (see `readRgb` below, which reads off it directly).
 
 test("space-style --ui-accent-color override reshapes m3e's Material primary color role", async ({
   sbServer,
@@ -54,31 +46,41 @@ test("space-style --ui-accent-color override reshapes m3e's Material primary col
     })
     .toBeGreaterThan(0);
 
-  // `m3e-theme` re-derives --md-sys-color-* only after its `color` prop
-  // actually changes, which happens on the render following the
-  // space-style load — poll rather than reading once immediately after the
-  // style tag appears.
-  await expect.poll(() => readPrimaryColor(page), {
-    timeout: 10_000,
-  }).not.toBe("");
-
-  const rgb = await page.evaluate(() => {
-    const themeEl = document.querySelector("m3e-theme")!;
-    const probe = document.createElement("span");
-    probe.style.color = getComputedStyle(themeEl)
-      .getPropertyValue("--md-sys-color-primary")
-      .trim();
-    document.body.appendChild(probe);
-    const [r, g, b] = getComputedStyle(probe)
-      .color.match(/\d+/g)!
-      .map(Number);
-    probe.remove();
-    return { r, g, b };
-  });
+  // 2026-09-22 (e2e regression triage): `m3e-theme` sets a real, non-empty
+  // `--md-sys-color-primary` from its OWN default seed color from the very
+  // first render, well before the space-style override has loaded — so
+  // polling for merely "non-empty" (the previous version of this test)
+  // resolves on that default and races the override. It happened to win
+  // that race often enough to read as reliably green, until this branch's
+  // larger client bundle (more app-bar/search-sheet/toolbar surface) pushed
+  // first-paint timing past the point where the race consistently lost —
+  // confirmed live (a debug probe with an extra fixed second of wait showed
+  // the override DOES land correctly: docAccent, the theme's `color` prop,
+  // and the resulting primary color role were all exactly right). Not an
+  // application regression — the fix is polling on the actual signal this
+  // test cares about (red-dominant, i.e. the override having taken effect)
+  // instead of a weaker one that happens to usually correlate with it.
+  function readRgb(page: import("@playwright/test").Page) {
+    return page.evaluate(() => {
+      const themeEl = document.querySelector("m3e-theme")!;
+      const probe = document.createElement("span");
+      probe.style.color = getComputedStyle(themeEl)
+        .getPropertyValue("--md-sys-color-primary")
+        .trim();
+      document.body.appendChild(probe);
+      const [r, g, b] = getComputedStyle(probe)
+        .color.match(/\d+/g)!
+        .map(Number);
+      probe.remove();
+      return { r, g, b };
+    });
+  }
 
   // A palette derived from a saturated red seed should be red-dominant —
   // the default `#464cfc` seed derives a blue-dominant primary, so this
   // alone distinguishes "override took effect" from "still on default".
-  expect(rgb.r).toBeGreaterThan(rgb.b);
-  expect(rgb.r).toBeGreaterThan(rgb.g);
+  await expect.poll(async () => {
+    const rgb = await readRgb(page);
+    return rgb.r > rgb.b && rgb.r > rgb.g;
+  }, { timeout: 10_000 }).toBe(true);
 });
