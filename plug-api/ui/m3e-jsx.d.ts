@@ -1,5 +1,6 @@
 // Ambient JSX typings for the @m3e/web custom elements used directly inside
-// this package's own Button/Input wrappers (button.tsx, input.tsx).
+// this package's own Button/Input/Alert wrappers (button.tsx, input.tsx,
+// alert.tsx).
 //
 // Deliberately NOT imported from client/components/m3e-jsx.d.ts: plug-api is
 // published standalone as `@silverbulletmd/silverbullet/ui` for plug authors
@@ -81,6 +82,15 @@ type M3eTabAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   selected?: boolean;
 };
 
+type M3eSnackbarAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
+  action?: string;
+  "close-label"?: string;
+  dismissible?: boolean;
+  /** @default 3000 */
+  duration?: number;
+  open?: boolean;
+};
+
 interface M3eIntrinsicElements {
   "m3e-button": M3eButtonAttributes;
   "m3e-form-field": M3eFormFieldAttributes;
@@ -89,6 +99,7 @@ interface M3eIntrinsicElements {
   "m3e-chip": M3eChipAttributes;
   "m3e-tabs": M3eTabsAttributes;
   "m3e-tab": M3eTabAttributes;
+  "m3e-snackbar": M3eSnackbarAttributes;
 }
 
 declare module "preact" {

@@ -1,6 +1,10 @@
 import type { ComponentType } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { Alert } from "@silverbulletmd/silverbullet/ui";
+// Alert now renders `m3e-snackbar` (plug-api/ui/alert.tsx, Task D) — self
+// imported here per that file's convention (reachable from plug FUNCTION
+// code too, so the DOM-side consumer registers the element, not the wrapper).
+import "@m3e/web/snackbar";
 import { api, formatApiError, getSession } from "../api.ts";
 import {
   NavigateProvider,

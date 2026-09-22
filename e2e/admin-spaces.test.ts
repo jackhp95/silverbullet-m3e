@@ -242,6 +242,22 @@ test("switching a host-bound space to prefix without a value is rejected", async
   await expect(page.locator(".sb-alert-error")).toContainText(
     "prefix is required",
   );
+  // Task D (2026-09-22): `.sb-alert-error` is now a real, upgraded
+  // `m3e-snackbar` (plug-api/ui/alert.tsx's declarative migration), not a
+  // bare `<div>` — dismissible + persistent (`duration="0"`, so it doesn't
+  // vanish on its own while the form's error state is still true) and with
+  // the error container-color token applied via inline style, not a class.
+  const errorAlert = page.locator(".sb-alert-error");
+  await expect(errorAlert).toHaveJSProperty("tagName", "M3E-SNACKBAR");
+  expect(await isUpgraded(page, "m3e-snackbar", ".sb-alert-error")).toBe(true);
+  await expect(errorAlert).toHaveAttribute("dismissible", "");
+  // `duration` is a plain (non-reflecting) Lit property, not an HTML
+  // attribute — checked via the live JS property instead.
+  await expect(errorAlert).toHaveJSProperty("duration", 0);
+  await expect(errorAlert).toHaveAttribute(
+    "style",
+    /--m3e-snackbar-container-color:\s*var\(--md-sys-color-error\)/,
+  );
   // Saving must have been aborted client-side: still on the edit URL.
   await expect(page).toHaveURL(`${base}/.spaces/${encodeURIComponent(id)}`);
 

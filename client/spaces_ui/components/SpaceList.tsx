@@ -2,6 +2,8 @@ import { useEffect, useState } from "preact/hooks";
 import { Alert, Badge } from "@silverbulletmd/silverbullet/ui";
 // Badge renders <m3e-chip> — see plug-api/ui/badge.tsx.
 import "@m3e/web/chips";
+// Alert renders `m3e-snackbar` (plug-api/ui/alert.tsx, Task D).
+import "@m3e/web/snackbar";
 import { api, formatApiError } from "../api.ts";
 import { bindingLabel, spaceUrl } from "../bindings.ts";
 import { spacesUrl } from "../routes.ts";

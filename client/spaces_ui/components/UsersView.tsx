@@ -13,6 +13,8 @@ import "@m3e/web/button";
 import "@m3e/web/form-field";
 import "@m3e/web/checkbox";
 import "@m3e/web/chips";
+// Alert renders `m3e-snackbar` (plug-api/ui/alert.tsx, Task D).
+import "@m3e/web/snackbar";
 // The API-token list renders `m3e-list`/`m3e-list-item` directly — see
 // FolderPicker.tsx's identical self-import comment.
 import "@m3e/web/list";

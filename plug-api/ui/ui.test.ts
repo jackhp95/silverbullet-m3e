@@ -106,6 +106,29 @@ test("Alert variant class", () => {
   expect(render(h(Alert, { variant: "info" }, "i"))).toContain("sb-alert-info");
 });
 
+// Migrated (Task D, 2026-09-22) from a bare `<div class="sb-alert">` to
+// m3e-snackbar's declarative API — see alert.tsx's header comment for the
+// flagged semantic mismatches (persistent-inline vs transient-fixed, the
+// 2-line clamp, singleton collision risk).
+test("Alert renders a declarative m3e-snackbar, persistent + dismissible, with the right container-color mapping", () => {
+  const errorHtml = render(h(Alert, { variant: "error" }, "e"));
+  expect(errorHtml).toContain("<m3e-snackbar");
+  expect(errorHtml).not.toContain("<div");
+  expect(errorHtml).toContain("open");
+  expect(errorHtml).toContain("dismissible");
+  expect(errorHtml).toContain('duration="0"');
+  expect(errorHtml).toContain("--m3e-snackbar-container-color:var(--md-sys-color-error)");
+
+  const warningHtml = render(h(Alert, { variant: "warning" }, "w"));
+  expect(warningHtml).toContain(
+    "--m3e-snackbar-container-color:var(--md-sys-color-tertiary)",
+  );
+
+  // "info" keeps the library's own neutral default — no inline style at all.
+  const infoHtml = render(h(Alert, { variant: "info" }, "i"));
+  expect(infoHtml).not.toContain("--m3e-snackbar-container-color");
+});
+
 test("Badge", () => {
   expect(render(h(Badge, {}, "b"))).toContain('class="sb-badge">b<');
 });

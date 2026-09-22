@@ -160,31 +160,14 @@
   }
 }
 
-/* Alerts / banners */
-.sb-alert {
-  padding: 8px 12px;
-  font-size: 0.85em;
-  border-radius: 0.5em;
-  border: 1px solid transparent;
-}
-
-.sb-alert-error {
-  background-color: var(--alert-error-background-color);
-  color: var(--alert-error-color);
-  border-color: var(--alert-error-border-color);
-}
-
-.sb-alert-warning {
-  background-color: var(--alert-warning-background-color);
-  color: var(--alert-warning-color);
-  border-color: var(--alert-warning-border-color);
-}
-
-.sb-alert-info {
-  background-color: var(--alert-info-background-color);
-  color: var(--alert-info-color);
-  border-color: var(--alert-info-border-color);
-}
+/* Alerts / banners — `.sb-alert`/`.sb-alert-{error,warning,info}` retired
+   2026-09-22 (Task D). `plug-api/ui/alert.tsx`'s `Alert` no longer renders a
+   bare `<div>` these classes styled directly — it's a declarative
+   `<m3e-snackbar>` now, styled entirely through the component's own
+   `--m3e-snackbar-container-color` cssprop (see alert.tsx). The class names
+   themselves are kept AS CLASSES on the new element (existing consumers /
+   tests key off `sb-alert-error` etc. for identification), just with no CSS
+   left to retire them from. */
 
 /* Badge — renders as <m3e-chip>, the base non-interactive chip (no click/
    remove/selected affordances, unlike assist/filter/input/suggestion chips).

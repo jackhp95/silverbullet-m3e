@@ -1,5 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { Alert } from "@silverbulletmd/silverbullet/ui";
+// Alert renders `m3e-snackbar` (plug-api/ui/alert.tsx, Task D).
+import "@m3e/web/snackbar";
 import { adminApi, formatApiError } from "../api.ts";
 import { useNavigate } from "../navigation.ts";
 import { spacesUrl } from "../routes.ts";

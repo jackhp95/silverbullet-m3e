@@ -11,6 +11,8 @@ import {
 import "@m3e/web/button";
 import "@m3e/web/form-field";
 import "@m3e/web/checkbox";
+// Alert renders `m3e-snackbar` (plug-api/ui/alert.tsx, Task D).
+import "@m3e/web/snackbar";
 
 export type LoginValues = {
   username: string;
