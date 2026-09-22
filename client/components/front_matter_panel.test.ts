@@ -1,0 +1,907 @@
+// Component-level coverage for client/components/front_matter_panel.tsx —
+// FrontMatterPanel's inline editing (L4 of
+// docs/plans/2026-09-22-appbar-large-frontmatter-scroll-snap.md).
+//
+// Seams under test:
+//  - `commitFieldEdit`, a plain function taking a fake `Client`-shaped
+//    object — no DOM/Preact rendering needed, so this coverage runs under
+//    plain `vitest run`.
+//  - `<FrontMatterRow>`, rendered with `preact-render-to-string` for static
+//    structure (matches top_bar.test.ts's own pattern) where possible.
+//  - True interactive behavior (click a row to edit, type, blur/Enter to
+//    commit) needs a real DOM to dispatch events against — those cases are
+//    written but guarded by the same `domTest` pattern
+//    client/codemirror/frontmatter_folding.test.ts already established
+//    (`typeof document === "undefined" ? test.skip : test`), and — same as
+//    that file — legitimately SKIP under this repo's plain `vitest run`
+//    (no jsdom environment configured in vitest.config.ts). This is a
+//    pre-existing, expected gap, not a regression introduced here.
+import { EditorState } from "@codemirror/state";
+import { h, render as preactRender } from "preact";
+import render from "preact-render-to-string";
+import { describe, expect, test, vi } from "vitest";
+import { buildExtendedMarkdownLanguage } from "../markdown_parser/parser.ts";
+import {
+  type FrontmatterBlock,
+  frontMatterSyncExtension,
+} from "../codemirror/frontmatter_folding.ts";
+import type { FrontMatterFieldSpan } from "../lib/frontmatter_yaml.ts";
+import * as frontmatterYaml from "../lib/frontmatter_yaml.ts";
+import { locateFrontMatterFields } from "../lib/frontmatter_yaml.ts";
+import {
+  commitBlockMappingEdit,
+  commitFieldEdit,
+  editFieldAsRawYaml,
+  FrontMatterPanel,
+  FrontMatterRow,
+  insertNewProperty,
+  reconcileEditingRow,
+  removeProperty,
+} from "./front_matter_panel.tsx";
+import { EditorView } from "@codemirror/view";
+
+const domTest = typeof document === "undefined" ? test.skip : test;
+
+function docWithFrontMatter(doc: string) {
+  // The extended markdown language extension is needed so
+  // `findFrontmatterBlock` (a real syntax-tree walk, used internally by
+  // `<FrontMatterPanel>`) can actually locate the FrontMatter node — most
+  // tests in this file bypass it by constructing `block` manually below,
+  // but the `<FrontMatterPanel>` suite exercises the panel's own
+  // find-block-from-live-state path directly.
+  const state = EditorState.create({
+    doc,
+    extensions: [buildExtendedMarkdownLanguage()],
+  });
+  const text = doc;
+  const secondFence = text.indexOf("\n---", 3);
+  const to = state.doc.lineAt(secondFence + 1).to;
+  const block: FrontmatterBlock = {
+    from: 0,
+    to,
+    lines: state.doc.lineAt(to).number,
+  };
+  return { state, block };
+}
+
+function fakeClient(
+  state: EditorState,
+  options?: { promptValue?: string; confirmValue?: boolean },
+) {
+  const dispatched: any[] = [];
+  const flashed: { message: string; type?: string }[] = [];
+  let focusCalls = 0;
+  const editorView = {
+    state,
+    dispatch: (tx: any) => {
+      dispatched.push(tx);
+      // Apply document-changing transactions so subsequent reads (and
+      // multi-step tests) see the resulting document, mirroring a real
+      // EditorView. Effect-only transactions (e.g. the unfold + selection
+      // dispatch from `editFieldAsRawYaml`) are recorded but not replayed
+      // through `state.update` — CM's fold machinery needs its own
+      // registered StateField, which these minimal test fixtures
+      // deliberately don't set up (unit-testing the intent, not CM's own
+      // fold plumbing, which frontmatter_folding.test.ts already covers).
+      if (tx.changes) {
+        const newState = state.update(tx).state;
+        (editorView as any).state = newState;
+      }
+    },
+    focus: () => {
+      focusCalls++;
+    },
+  };
+  const client = {
+    editorView,
+    get focusCalls() {
+      return focusCalls;
+    },
+    ui: {
+      flashNotification: (message: string, type?: string) => {
+        flashed.push({ message, type });
+      },
+      prompt: async (_message: string) => options?.promptValue,
+      confirm: async (_message: string, _opts?: unknown) =>
+        options?.confirmValue ?? false,
+    },
+  };
+  return { client: client as any, dispatched, flashed };
+}
+
+describe("commitFieldEdit", () => {
+  test("a valid scalar edit dispatches a transaction with the new value at the right span", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nstatus: draft\n---\nBody",
+    );
+    const fields = locateFrontMatterFields(state, block);
+    const field = fields.find((f) => f.key === "status")!;
+    const { client, dispatched } = fakeClient(state);
+
+    const ok = commitFieldEdit(client, block, field, "final");
+
+    expect(ok).toBe(true);
+    expect(dispatched).toHaveLength(1);
+    const resultState = client.editorView.state as EditorState;
+    expect(resultState.sliceDoc(0, resultState.doc.length)).toContain(
+      "status: final",
+    );
+    expect(resultState.sliceDoc(0, resultState.doc.length)).toContain("Body");
+  });
+
+  test("an invalid edit does not change the doc and flashes an error", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nstatus: draft\n---\nBody",
+    );
+    const fields = locateFrontMatterFields(state, block);
+    const field = fields.find((f) => f.key === "status")!;
+    const { client, dispatched, flashed } = fakeClient(state);
+
+    // `serializeYamlValue` (thoroughly covered on its own in
+    // frontmatter_yaml.test.ts) always produces syntactically valid YAML
+    // for any real JS value it's given — genuinely malformed YAML can only
+    // reach `commitFieldEdit`'s splice if something upstream of it breaks.
+    // This test exercises `commitFieldEdit`'s OWN validation gate directly
+    // by forcing that upstream failure: mock `serializeYamlValue` to hand
+    // back deliberately-broken YAML text for this one call, and assert the
+    // gate (whole-block `tryParseFrontMatter`, unmocked and real) catches
+    // it — never dispatches, flashes the expected error.
+    const spy = vi.spyOn(frontmatterYaml, "serializeYamlValue")
+      .mockReturnValueOnce("[unterminated");
+
+    const ok = commitFieldEdit(client, block, field, "irrelevant");
+
+    expect(ok).toBe(false);
+    expect(dispatched).toHaveLength(0);
+    expect(flashed).toHaveLength(1);
+    expect(flashed[0].type).toBe("error");
+    expect(flashed[0].message).toContain("status");
+
+    spy.mockRestore();
+  });
+
+  test("a valid block-shaped (blockSequence) edit replaces the full multi-line span, leaving surrounding keys untouched", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\ntitle: My Page\ntags:\n  - journal\n  - retro\nstatus: draft\n---\nBody",
+    );
+    const fields = locateFrontMatterFields(state, block);
+    const tagsField = fields.find((f) => f.key === "tags")!;
+    const { client } = fakeClient(state);
+
+    const ok = commitFieldEdit(client, block, tagsField, [
+      "one",
+      "two",
+      "three",
+    ]);
+
+    expect(ok).toBe(true);
+    const resultDoc = (client.editorView.state as EditorState).sliceDoc(
+      0,
+      (client.editorView.state as EditorState).doc.length,
+    );
+    expect(resultDoc).toContain("title: My Page");
+    expect(resultDoc).toContain("status: draft");
+    expect(resultDoc).toContain("- one");
+    expect(resultDoc).toContain("- two");
+    expect(resultDoc).toContain("- three");
+    expect(resultDoc).not.toContain("journal");
+    expect(resultDoc).not.toContain("retro");
+  });
+});
+
+describe("<FrontMatterRow> — static rendering", () => {
+  // Renders against a real doc + a real located `field` (rather than a
+  // hand-rolled `{valueFrom: 0, valueTo: 0, ...}` stand-in) whenever the
+  // scalar/flow display path is under test — that display now reads the
+  // RAW SOURCE TEXT at `[field.valueFrom, field.valueTo)` straight off
+  // `client.editorView.state` (see `rawValueText` in front_matter_panel.tsx),
+  // so a fabricated zero/zero span would slice to `""` and silently break
+  // these assertions rather than exercise the real behavior.
+  function renderRow(doc: string, field: FrontMatterFieldSpan, value: unknown) {
+    const { state, block } = docWithFrontMatter(doc);
+    const { client } = fakeClient(state);
+    return render(
+      h(FrontMatterRow, {
+        field,
+        value,
+        client,
+        block,
+        editingKey: null,
+        onEditingKeyChange: () => {},
+        onCommitted: () => {},
+      }),
+    );
+  }
+
+  test("renders the key, icon, and display value for a scalar field", () => {
+    const doc = "---\nstatus: draft\n---\nBody";
+    const { state, block } = docWithFrontMatter(doc);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "status"
+    )!;
+    const html = renderRow(doc, field, "draft");
+    expect(html).toContain("status");
+    expect(html).toContain("draft");
+    expect(html).toContain('name="label"'); // default icon for an unmapped key
+  });
+
+  test("uses the tags icon for a `tags` key", () => {
+    const doc = "---\ntags: [journal, retro]\n---\nBody";
+    const { state, block } = docWithFrontMatter(doc);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "tags"
+    )!;
+    const html = renderRow(doc, field, ["journal", "retro"]);
+    expect(html).toContain('name="sell"');
+    expect(html).toContain("journal, retro");
+  });
+
+  test("a `date` value displays as its raw authored text, not a stringified JS Date", () => {
+    // Regression coverage: js-yaml parses a `date:` scalar into a real JS
+    // `Date`, and the OLD display path (`String(parsedValue)`) rendered
+    // that Date's full `.toString()` form — wrong format, and (since
+    // `Date.toString()` renders in the browser's local timezone) capable of
+    // showing the wrong calendar day entirely. The fixed display path
+    // (`rawValueText`) never looks at the parsed `value` for a scalar/flow
+    // row at all — it slices the document's own text — so this asserts
+    // against a real `Date` `value` prop to prove that.
+    const doc = "---\ndate: 2026-09-21\n---\nBody";
+    const { state, block } = docWithFrontMatter(doc);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "date"
+    )!;
+    const html = renderRow(doc, field, new Date("2026-09-21"));
+    expect(html).toContain("2026-09-21");
+    expect(html).not.toContain("GMT");
+    expect(html).not.toContain("00:00:00");
+  });
+
+  test("a block-shaped field renders its own structured editor control, not the scalar input", () => {
+    const doc = "---\nstatus: draft\n---\nBody";
+    const field: FrontMatterFieldSpan = {
+      key: "owner",
+      shape: "blockMapping",
+      valueFrom: 0,
+      valueTo: 0,
+      lineFrom: 0,
+      lineTo: 0,
+      isBlockValue: true,
+    };
+    const html = renderRow(doc, field, { name: "Jack" });
+    // L4.3 gives every block shape its own control (BlockMappingEditor
+    // here) — confirmed in more detail by the "block-mapping field" /
+    // "block-sequence field" / "block-scalar fields" describe blocks below.
+    expect(html).toContain("sb-fm-block-mapping");
+    expect(html).not.toContain("sb-fm-value-input");
+  });
+});
+
+describe("<FrontMatterRow> — interactive editing (requires real DOM)", () => {
+  domTest(
+    "clicking the value swaps in an input, and Enter commits the new value",
+    () => {
+      const { state, block } = docWithFrontMatter(
+        "---\nstatus: draft\n---\nBody",
+      );
+      const { client } = fakeClient(state);
+      const field = locateFrontMatterFields(state, block).find((f) =>
+        f.key === "status"
+      )!;
+
+      let editingKey: string | null = null;
+      const onEditingKeyChange = vi.fn((key: string | null) => {
+        editingKey = key;
+      });
+      const onCommitted = vi.fn();
+
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+
+      preactRender(
+        h(FrontMatterRow, {
+          field,
+          value: "draft",
+          client,
+          block,
+          editingKey,
+          onEditingKeyChange,
+          onCommitted,
+        }),
+        container,
+      );
+
+      const valueSpan = container.querySelector(".sb-fm-value")!;
+      valueSpan.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      expect(onEditingKeyChange).toHaveBeenCalledWith("status");
+
+      preactRender(
+        h(FrontMatterRow, {
+          field,
+          value: "draft",
+          client,
+          block,
+          editingKey: "status",
+          onEditingKeyChange,
+          onCommitted,
+        }),
+        container,
+      );
+
+      const input = container.querySelector(
+        ".sb-fm-value-input",
+      ) as HTMLInputElement;
+      input.value = "final";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+
+      expect(onCommitted).toHaveBeenCalled();
+      const resultState = client.editorView.state as EditorState;
+      expect(resultState.sliceDoc(0, resultState.doc.length)).toContain(
+        "status: final",
+      );
+
+      document.body.removeChild(container);
+    },
+  );
+});
+
+describe("<FrontMatterRow> — Enter-then-blur commits exactly once (requires real DOM)", () => {
+  domTest(
+    "confirming via Enter, then a blur firing for the SAME edit session, does not double-commit",
+    () => {
+      // Regression test for a real data-corruption bug: Enter (`onConfirm`)
+      // and a subsequent blur both used to run the commit path
+      // unconditionally. In production the second (blur) call is triggered
+      // by the browser's own native "remove a focused element -> fire
+      // blur" behavior, which happens as an in-place side effect of the
+      // SAME re-render that unmounts this `<Input>` once `isEditing` goes
+      // false — i.e. it can land before a test's own manual re-render
+      // would ever run. This test doesn't depend on that unmount timing at
+      // all: it dispatches "blur" directly at the still-mounted input right
+      // after "Enter", which is the worst case (an even earlier blur than
+      // production ever produces) and exercises the exact same code path
+      // (`ScalarOrFlowValue`'s `commit`) the real race hits.
+      const { state, block } = docWithFrontMatter(
+        "---\ntags: [journal]\n---\nBody",
+      );
+      const { client } = fakeClient(state);
+      const field = locateFrontMatterFields(state, block).find((f) =>
+        f.key === "tags"
+      )!;
+
+      let editingKey: string | null = "tags";
+      const onEditingKeyChange = vi.fn((key: string | null) => {
+        editingKey = key;
+      });
+      const onCommitted = vi.fn();
+
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+
+      preactRender(
+        h(FrontMatterRow, {
+          field,
+          value: ["journal"],
+          client,
+          block,
+          editingKey,
+          onEditingKeyChange,
+          onCommitted,
+        }),
+        container,
+      );
+
+      const input = container.querySelector(
+        ".sb-fm-value-input",
+      ) as HTMLInputElement;
+      input.value = "journal, verified";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+
+      // Enter has now committed once. Mirror the production race: fire a
+      // blur on the SAME (not-yet-unmounted, in this hand-rolled test tree)
+      // input, with its DOM value unchanged — exactly what a browser's
+      // unmount-driven native blur delivers.
+      input.dispatchEvent(new Event("blur", { bubbles: true }));
+
+      // Exactly one commit's worth of dispatched transactions...
+      const resultState = client.editorView.state as EditorState;
+      const doc = resultState.sliceDoc(0, resultState.doc.length);
+      // ...and the value itself must NOT be duplicated.
+      expect(doc).toContain("tags: [journal, verified]");
+      expect(doc).not.toContain("verified, verified");
+      expect(onCommitted).toHaveBeenCalledTimes(1);
+
+      document.body.removeChild(container);
+    },
+  );
+});
+
+// L4.3 — full editing for every value shape, including block-style YAML.
+describe("block-sequence field", () => {
+  test("renders the list-row editor with one input per item plus an add row", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\ntags:\n  - journal\n  - retro\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "tags"
+    )!;
+
+    const html = render(
+      h(FrontMatterRow, {
+        field,
+        value: ["journal", "retro"],
+        client,
+        block,
+        editingKey: null,
+        onEditingKeyChange: () => {},
+        onCommitted: () => {},
+      }),
+    );
+
+    expect(html).toContain("sb-fm-seq-row");
+    expect(html).toContain('value="journal"');
+    expect(html).toContain('value="retro"');
+    expect(html).toContain("sb-fm-seq-add");
+  });
+
+  test("adding an item via commitFieldEdit produces the expected multi-line doc text", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\ntags:\n  - journal\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "tags"
+    )!;
+
+    const ok = commitFieldEdit(client, block, field, ["journal", "retro"]);
+
+    expect(ok).toBe(true);
+    const resultState = client.editorView.state as EditorState;
+    const doc = resultState.sliceDoc(0, resultState.doc.length);
+    expect(doc).toContain("- journal");
+    expect(doc).toContain("- retro");
+  });
+});
+
+describe("block-mapping field", () => {
+  test("renders a textarea pre-filled with the raw nested YAML", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nowner:\n  name: Jack\n  email: j@x.com\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "owner"
+    )!;
+
+    const html = render(
+      h(FrontMatterRow, {
+        field,
+        value: { name: "Jack", email: "j@x.com" },
+        client,
+        block,
+        editingKey: null,
+        onEditingKeyChange: () => {},
+        onCommitted: () => {},
+      }),
+    );
+
+    expect(html).toContain("sb-fm-block-mapping-textarea");
+    expect(html).toContain("name: Jack");
+    expect(html).toContain("email: j@x.com");
+    expect(html).toContain("m3e-textarea-autosize");
+  });
+
+  test("commitBlockMappingEdit re-indents and splices valid edited YAML", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\ntitle: Doc\nowner:\n  name: Jack\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "owner"
+    )!;
+
+    const ok = commitBlockMappingEdit(
+      client,
+      block,
+      field,
+      "name: Jack\nemail: j@x.com",
+    );
+
+    expect(ok).toBe(true);
+    const resultState = client.editorView.state as EditorState;
+    const doc = resultState.sliceDoc(0, resultState.doc.length);
+    expect(doc).toContain("title: Doc");
+    expect(doc).toContain("  name: Jack");
+    expect(doc).toContain("  email: j@x.com");
+  });
+
+  test("commitBlockMappingEdit rejects inconsistently-indented text without touching the doc", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nowner:\n  name: Jack\n---\nBody",
+    );
+    const { client, dispatched, flashed } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "owner"
+    )!;
+
+    // Inconsistent indentation within a mapping is invalid YAML on its own.
+    const ok = commitBlockMappingEdit(
+      client,
+      block,
+      field,
+      "name: Jack\n  email: j@x.com",
+    );
+
+    expect(ok).toBe(false);
+    expect(dispatched).toHaveLength(0);
+    expect(flashed).toHaveLength(1);
+    expect(flashed[0].type).toBe("error");
+  });
+});
+
+describe("block-scalar fields", () => {
+  test("blockScalarLiteral renders a textarea with DECODED newlines, not the raw `|`-prefixed source", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nnotes: |\n  line one\n  line two\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "notes"
+    )!;
+
+    const html = render(
+      h(FrontMatterRow, {
+        field,
+        value: "line one\nline two",
+        client,
+        block,
+        editingKey: null,
+        onEditingKeyChange: () => {},
+        onCommitted: () => {},
+      }),
+    );
+
+    expect(html).toContain("sb-fm-block-scalar-textarea");
+    expect(html).toContain("line one\nline two");
+    expect(html).not.toContain("|-\n  line one");
+  });
+
+  test("committing a blockScalarLiteral edit keeps the `|` indicator", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nnotes: |\n  line one\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "notes"
+    )!;
+
+    const ok = commitFieldEdit(client, block, field, "line one\nline two");
+
+    expect(ok).toBe(true);
+    const resultState = client.editorView.state as EditorState;
+    const doc = resultState.sliceDoc(0, resultState.doc.length);
+    expect(doc).toContain("notes: |");
+    expect(doc).not.toContain("notes: >");
+  });
+
+  test("committing a blockScalarFolded edit keeps the `>` indicator", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nnotes: >\n  line one\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "notes"
+    )!;
+
+    const ok = commitFieldEdit(client, block, field, "line one\nline two");
+
+    expect(ok).toBe(true);
+    const resultState = client.editorView.state as EditorState;
+    const doc = resultState.sliceDoc(0, resultState.doc.length);
+    expect(doc).toContain("notes: >");
+  });
+});
+
+describe("editFieldAsRawYaml — escape hatch, all shapes", () => {
+  test("unfolds the block and places the cursor at the field's own key line", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\ntitle: Doc\nowner:\n  name: Jack\n---\nBody",
+    );
+    const { client, dispatched } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "owner"
+    )!;
+
+    editFieldAsRawYaml(client, block, field);
+
+    expect(dispatched).toHaveLength(1);
+    const tx = dispatched[0];
+    expect(tx.selection.anchor).toBe(field.lineFrom);
+    expect(tx.effects).toBeDefined();
+    expect(client.focusCalls).toBe(1);
+  });
+});
+
+// L4.4 — add/remove properties, and bidirectional doc<->list sync.
+describe("insertNewProperty", () => {
+  test("inserts a new `key: ` line immediately before the closing fence", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nstatus: draft\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+
+    const ok = insertNewProperty(client, block, "author");
+
+    expect(ok).toBe(true);
+    const resultState = client.editorView.state as EditorState;
+    const doc = resultState.sliceDoc(0, resultState.doc.length);
+    expect(doc).toBe("---\nstatus: draft\nauthor: \n---\nBody");
+  });
+
+  test("rejects a key name that collides with an existing one", () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nstatus: draft\n---\nBody",
+    );
+    const { client, dispatched, flashed } = fakeClient(state);
+
+    const ok = insertNewProperty(client, block, "status");
+
+    expect(ok).toBe(false);
+    expect(dispatched).toHaveLength(0);
+    expect(flashed).toHaveLength(1);
+    expect(flashed[0].type).toBe("error");
+    expect(flashed[0].message).toContain("status");
+  });
+});
+
+describe("removeProperty", () => {
+  test("removing one of several fields deletes just that field's own line", async () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nstatus: draft\ntitle: Doc\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "status"
+    )!;
+
+    const removed = await removeProperty(client, block, field, 2);
+
+    expect(removed).toBe(true);
+    const resultState = client.editorView.state as EditorState;
+    const doc = resultState.sliceDoc(0, resultState.doc.length);
+    expect(doc).toBe("---\ntitle: Doc\n---\nBody");
+  });
+
+  test("removing the LAST field asks for confirmation and removes the whole block when confirmed", async () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nstatus: draft\n---\nBody",
+    );
+    const { client, dispatched } = fakeClient(state, { confirmValue: true });
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "status"
+    )!;
+
+    const removed = await removeProperty(client, block, field, 1);
+
+    expect(removed).toBe(true);
+    expect(dispatched).toHaveLength(1);
+    const resultState = client.editorView.state as EditorState;
+    expect(resultState.sliceDoc(0, resultState.doc.length)).toBe("Body");
+  });
+
+  test("removing the LAST field does nothing if the confirmation is declined", async () => {
+    const { state, block } = docWithFrontMatter(
+      "---\nstatus: draft\n---\nBody",
+    );
+    const { client, dispatched } = fakeClient(state, { confirmValue: false });
+    const field = locateFrontMatterFields(state, block).find((f) =>
+      f.key === "status"
+    )!;
+
+    const removed = await removeProperty(client, block, field, 1);
+
+    expect(removed).toBe(false);
+    expect(dispatched).toHaveLength(0);
+    const resultState = client.editorView.state as EditorState;
+    expect(resultState.sliceDoc(0, resultState.doc.length)).toBe(
+      "---\nstatus: draft\n---\nBody",
+    );
+  });
+});
+
+describe("reconcileEditingRow — the focused-row echo guard", () => {
+  type Row = { key: string; value: string };
+
+  test("no row is being edited: every row takes the fresh value", () => {
+    const fresh: Row[] = [{ key: "a", value: "fresh-a" }, {
+      key: "b",
+      value: "fresh-b",
+    }];
+    const previous: Row[] = [{ key: "a", value: "old-a" }, {
+      key: "b",
+      value: "old-b",
+    }];
+
+    expect(reconcileEditingRow(fresh, previous, null)).toEqual(fresh);
+  });
+
+  test("the actively-edited row keeps its previous value; every other row updates live", () => {
+    const fresh: Row[] = [{ key: "a", value: "fresh-a" }, {
+      key: "b",
+      value: "fresh-b",
+    }];
+    const previous: Row[] = [{ key: "a", value: "old-a" }, {
+      key: "b",
+      value: "old-b",
+    }];
+
+    const result = reconcileEditingRow(fresh, previous, "a");
+
+    expect(result).toEqual([{ key: "a", value: "old-a" }, {
+      key: "b",
+      value: "fresh-b",
+    }]);
+  });
+
+  test("this guard is shape-agnostic — same behavior for a block-sequence row's array value, a block-mapping/scalar row's string value", () => {
+    type SeqRow = { key: string; value: string[] };
+    const freshSeq: SeqRow[] = [{ key: "tags", value: ["fresh", "list"] }];
+    const previousSeq: SeqRow[] = [{ key: "tags", value: ["draft", "wip"] }];
+    expect(reconcileEditingRow(freshSeq, previousSeq, "tags")).toEqual(
+      previousSeq,
+    );
+
+    type TextRow = { key: string; value: string };
+    const freshText: TextRow[] = [{ key: "notes", value: "fresh text" }];
+    const previousText: TextRow[] = [{ key: "notes", value: "old text" }];
+    expect(reconcileEditingRow(freshText, previousText, "notes")).toEqual(
+      previousText,
+    );
+  });
+});
+
+describe("frontMatterSyncExtension — bidirectional doc<->list sync (requires a real EditorView)", () => {
+  domTest(
+    "fires the callback when a change intersects the frontmatter block, not when it only touches the body",
+    () => {
+      let callCount = 0;
+      const container = document.createElement("div");
+      const view = new EditorView({
+        doc: "---\nstatus: draft\n---\nBody",
+        extensions: [frontMatterSyncExtension(() => callCount++)],
+        parent: container,
+      });
+
+      // Body-only edit: must NOT fire.
+      view.dispatch({
+        changes: { from: view.state.doc.length, insert: "!" },
+      });
+      expect(callCount).toBe(0);
+
+      // Frontmatter-intersecting edit: must fire.
+      const statusValueFrom = view.state.doc.toString().indexOf("draft");
+      view.dispatch({
+        changes: { from: statusValueFrom, to: statusValueFrom + 5, insert: "final" },
+      });
+      expect(callCount).toBe(1);
+
+      view.destroy();
+    },
+  );
+});
+
+// L4.5 — assemble FrontMatterPanel: full render + all edit paths together.
+describe("<FrontMatterPanel>", () => {
+  test("renders null (no panel at all) when there's no frontmatter block", () => {
+    const noFrontMatterState = EditorState.create({ doc: "Just body text" });
+    const { client } = fakeClient(noFrontMatterState);
+
+    const html = render(h(FrontMatterPanel, { client }));
+
+    expect(html).toBe("");
+  });
+
+  test("renders one row per top-level key, in document order", () => {
+    const { state } = docWithFrontMatter(
+      "---\nstatus: draft\ntags: [journal, retro]\n---\nBody",
+    );
+    const { client } = fakeClient(state);
+
+    const html = render(h(FrontMatterPanel, { client }));
+
+    expect(html).toContain("sb-fm-panel");
+    const statusIndex = html.indexOf("status");
+    const tagsIndex = html.indexOf("tags");
+    expect(statusIndex).toBeGreaterThan(-1);
+    expect(tagsIndex).toBeGreaterThan(-1);
+    expect(statusIndex).toBeLessThan(tagsIndex);
+    expect(html).toContain("draft");
+    expect(html).toContain("journal, retro");
+    expect(html).toContain("sb-fm-add-property");
+  });
+
+  test(
+    "integration fixture — every shape at once, back to back, doesn't misattribute one field's lines to its neighbor",
+    () => {
+      const doc = [
+        "---",
+        "title: My Page",
+        "tags: [journal, retro]",
+        "authors:",
+        "  - jack",
+        "  - alex",
+        "owner:",
+        "  name: Jack",
+        "  email: j@x.com",
+        "notes: |",
+        "  line one",
+        "  line two",
+        "status: draft",
+        "---",
+        "Body",
+      ].join("\n");
+      const { state } = docWithFrontMatter(doc);
+      const { client } = fakeClient(state);
+
+      const html = render(h(FrontMatterPanel, { client }));
+
+      // Every key present, each with ITS OWN correct value — the real
+      // regression this fixture guards against is one multi-line field's
+      // span bleeding into a neighboring field's.
+      expect(html).toContain("My Page");
+      expect(html).toContain("journal, retro");
+      expect(html).toContain('value="jack"');
+      expect(html).toContain('value="alex"');
+      expect(html).toContain("name: Jack");
+      expect(html).toContain("email: j@x.com");
+      expect(html).toContain("line one\nline two");
+      expect(html).toContain("draft");
+      // The scalar `status` field trailing the block scalar must still be
+      // its own row, not swallowed as a continuation of `notes`.
+      const notesTextareaIndex = html.indexOf("sb-fm-block-scalar-textarea");
+      const statusValueIndex = html.lastIndexOf("draft");
+      expect(notesTextareaIndex).toBeLessThan(statusValueIndex);
+    },
+  );
+
+  domTest(
+    "committing a scalar edit through the assembled panel re-renders the row from the live doc (requires real DOM)",
+    () => {
+      const { state } = docWithFrontMatter(
+        "---\nstatus: draft\n---\nBody",
+      );
+      const { client } = fakeClient(state);
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+
+      preactRender(h(FrontMatterPanel, { client }), container);
+
+      const valueSpan = Array.from(
+        container.querySelectorAll(".sb-fm-value"),
+      ).find((el) => el.textContent === "draft") as HTMLElement;
+      valueSpan.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+      const input = container.querySelector(
+        ".sb-fm-value-input",
+      ) as HTMLInputElement;
+      input.value = "final";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+
+      const resultState = client.editorView.state as EditorState;
+      expect(resultState.sliceDoc(0, resultState.doc.length)).toContain(
+        "status: final",
+      );
+
+      document.body.removeChild(container);
+    },
+  );
+});

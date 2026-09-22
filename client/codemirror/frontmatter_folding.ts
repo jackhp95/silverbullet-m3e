@@ -9,13 +9,10 @@ import { type EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import YAML from "js-yaml";
 import type { Client } from "../client.ts";
 import { tagPrefix } from "../../plugs/index/constants.ts";
-import {
-  encodePageURI,
-  parseToRef,
-} from "@silverbulletmd/silverbullet/lib/ref";
-// NOTE: deliberately no `import "@m3e/web/chips"` here — see hashtag.ts's
-// comment. This file is imported by frontmatter_folding.test.ts under
-// plain Node (no DOM); registration lives in editor_ui.tsx instead.
+// NOTE: no `m3e-assist-chip`/ref-navigation imports here — V5b (2026-09-22)
+// removed the folded-frontmatter tag-chip placeholder; frontmatterFoldTags/
+// frontmatterFoldTagTarget stay (still exported + tested), but nothing in
+// this file renders them into DOM anymore.
 
 export type FrontmatterFoldByDefault = "never" | "long" | "always";
 
@@ -122,6 +119,36 @@ export function findFrontmatterBlock(
   return block;
 }
 
+/**
+ * Locates the document position of a top-level frontmatter key's own line
+ * (the `key:` line itself, not any indented continuation of a block value)
+ * inside `block`. Returns `undefined` if the block has no such key. Used by
+ * `FrontMatterPanel` (L4) to move the cursor to a specific key's line when
+ * a property row is activated — a line-based scan, deliberately not a
+ * structural YAML-position API, matching the "ad-hoc but honest" approach
+ * `findFrontmatterBlock` and `content_manager.ts`'s `frontMatterRegex`
+ * already take elsewhere in this codebase.
+ */
+export function frontmatterKeyLinePos(
+  state: EditorState,
+  block: FrontmatterBlock,
+  key: string,
+): number | undefined {
+  const startLine = state.doc.lineAt(block.from).number;
+  const endLine = state.doc.lineAt(Math.max(block.from, block.to - 1)).number;
+  for (let lineNumber = startLine + 1; lineNumber < endLine; lineNumber++) {
+    const line = state.doc.line(lineNumber);
+    if (/^[ \t]/.test(line.text)) {
+      continue; // indented continuation line of a prior key's block value
+    }
+    const match = /^([\w.$-]+):/.exec(line.text);
+    if (match && match[1] === key) {
+      return line.from;
+    }
+  }
+  return undefined;
+}
+
 export function selectionIntersectsRange(
   state: EditorState,
   from: number,
@@ -135,23 +162,20 @@ export function selectionIntersectsRange(
   });
 }
 
+// V5b (2026-09-22): frontmatter always auto-folds while the selection is
+// outside it, regardless of the space's `"never"/"long"/"always"` config —
+// the inline property list (FrontMatterPanel, L4) is now the only rendering
+// of frontmatter a reader sees, so the old "don't fold at all" opt-out no
+// longer has a chip-placeholder to opt out of. `config`/`lines` are kept in
+// the signature (rather than narrowed away) so callers and the config type
+// itself don't need to change shape for a behavior that may become
+// configurable again later.
 export function shouldAutoFoldFrontmatter(args: {
   config: FrontmatterFoldingConfig;
   lines: number;
   selectionInside: boolean;
 }): boolean {
-  if (args.selectionInside) {
-    return false;
-  }
-
-  switch (args.config.foldByDefault) {
-    case "always":
-      return true;
-    case "long":
-      return args.lines > args.config.foldByDefaultLines;
-    case "never":
-      return false;
-  }
+  return !args.selectionInside;
 }
 
 export function prepareFrontmatterFoldPlaceholder(
@@ -240,6 +264,14 @@ export function frontmatterFoldPlaceholderDOM(
   element.title = view.state.phrase("unfold");
 
   if (prepared.type === "frontmatter") {
+    // V5b (2026-09-22): fully hide frontmatter instead of a chip placeholder
+    // — the inline property list (FrontMatterPanel, L4) is now the only
+    // rendering of frontmatter a reader sees, so this placeholder paints
+    // nothing (no tag chips, no "N lines hidden" status text). The
+    // click-to-unfold wiring is unchanged: clicking the (empty) placeholder
+    // still unfolds the range and places the cursor at `editPos`, which
+    // remains the fallback affordance for block-style values a structured
+    // editor can't represent (§4/L4.3's "Edit as YAML" escape hatch).
     element.classList.add("cm-frontmatterFoldPlaceholder");
     element.addEventListener("pointerdown", (event) => {
       event.preventDefault();
@@ -254,41 +286,6 @@ export function frontmatterFoldPlaceholderDOM(
       });
       view.focus();
     };
-    if (prepared.tags.length > 0) {
-      for (const tag of prepared.tags) {
-        const target = frontmatterFoldTagTarget(client, tag);
-        // m3e-assist-chip, not a plain <a> — see hashtag.ts's identical
-        // rationale. `href` is native to the element (chips skill card);
-        // the click listener below still does the actual SPA navigation,
-        // same as before.
-        const tagElement = document.createElement("m3e-assist-chip");
-        tagElement.setAttribute("variant", "outlined");
-        tagElement.dataset.tagName = tag;
-        tagElement.setAttribute("href", `/${encodePageURI(target)}`);
-        tagElement.setAttribute("rel", "tag");
-        tagElement.textContent = `#${tag}`;
-        tagElement.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const ref = parseToRef(target);
-          if (client && ref) {
-            void client.navigate(ref, false, event.ctrlKey || event.metaKey);
-          }
-        });
-        element.appendChild(tagElement);
-        element.append(" ");
-      }
-      element.lastChild?.remove();
-    }
-    const status = document.createElement("span");
-    status.className = "cm-frontmatterFoldStatus";
-    status.textContent = `${prepared.lines} frontmatter lines hidden`;
-    element.appendChild(status);
-    element.title = `${prepared.lines} folded frontmatter lines`;
-    element.setAttribute(
-      "aria-label",
-      `${prepared.lines} folded frontmatter lines`,
-    );
     return element;
   }
   element.textContent = frontmatterFoldPlaceholderText(prepared);
@@ -350,6 +347,81 @@ export function frontmatterFoldingExtension(client: Client): Extension {
             effects: foldEffect.of({ from: block.from, to: block.to }),
           });
         }
+      }
+    },
+  );
+}
+
+/**
+ * A CM `ViewPlugin` that calls `onFrontMatterChanged` whenever a document
+ * change intersects the frontmatter block — either where it WAS before the
+ * change, or where it IS after (covers both "edited a value inside it" and
+ * "the block itself just got added/removed/resized"). Built on the same
+ * plain-callback primitive `frontmatterFoldingExtension` above already
+ * proves works in this codebase — no `eventHook` API guess needed.
+ *
+ * Lives here, not in `client/components/front_matter_panel.tsx`, even
+ * though that's its only real consumer: it's pure CM (no Preact/JSX), and
+ * `client/codemirror/editor_state.ts` (`createEditorState`) needs to
+ * register it unconditionally alongside `frontmatterFoldingExtension` for
+ * EVERY editor state — `editor_state.ts` importing a Preact component file
+ * would be a backwards data/domain → view dependency (coding-preferences'
+ * "data → domain → view → page" direction), the same reasoning the
+ * 2026-09-22 plan's §11.2 applied to `snapToAppBar`.
+ *
+ * Registering it unconditionally in `createEditorState` (rather than having
+ * `<FrontMatterPanel>` append it once via `StateEffect.appendConfig` on
+ * mount) matters because `content_manager.ts`'s `navigateWithinPage` and
+ * `client.ts`'s own boot both load a page via `editorView.setState(...)` —
+ * a full state replacement built fresh from `createEditorState`, not an
+ * incremental transaction on the existing state. An extension appended via
+ * `appendConfig` onto the state being replaced does not carry over to the
+ * next one, so a mount-time-only `appendConfig` call would silently stop
+ * syncing after the very first navigation. `onFrontMatterChanged` is looked
+ * up dynamically (via the callback passed in, e.g. `() =>
+ * client.onFrontMatterChanged?.()`) rather than captured once, so whichever
+ * function `<FrontMatterPanel>` last assigned onto the long-lived `Client`
+ * instance is always the one invoked, regardless of how many times the
+ * `EditorState` itself has been swapped out from under it.
+ */
+export function frontMatterSyncExtension(
+  onFrontMatterChanged: () => void,
+): Extension {
+  return ViewPlugin.fromClass(
+    class {
+      constructor() {
+        // A page load (`content_manager.ts`'s `navigateWithinPage`, and
+        // `client.ts`'s own boot) replaces the WHOLE `EditorState` via
+        // `editorView.setState(...)`, not an incremental transaction — CM6
+        // constructs a brand-new instance of every `ViewPlugin` for that,
+        // it does not call `update()` on the old one. Without this, the
+        // panel would only ever reflect the doc at the moment its `Client`
+        // was first constructed (an empty placeholder — see `client.ts`'s
+        // boot sequence), never the real page that loads moments later.
+        // Fires on EVERY plugin (re)construction, including this
+        // extension's own initial install onto the placeholder boot state
+        // (harmless: `onFrontMatterChanged` — `FrontMatterPanel`'s
+        // `refresh` — handles "no frontmatter block" gracefully already).
+        onFrontMatterChanged();
+      }
+      update(update: ViewUpdate): void {
+        if (!update.docChanged) return;
+        const oldBlock = findFrontmatterBlock(update.startState);
+        const newBlock = findFrontmatterBlock(update.state);
+        let intersects = false;
+        update.changes.iterChangedRanges((fromA, toA, fromB, toB) => {
+          if (
+            oldBlock && fromA < oldBlock.to && toA > oldBlock.from
+          ) {
+            intersects = true;
+          }
+          if (
+            newBlock && fromB < newBlock.to && toB > newBlock.from
+          ) {
+            intersects = true;
+          }
+        });
+        if (intersects) onFrontMatterChanged();
       }
     },
   );

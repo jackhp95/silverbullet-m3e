@@ -4,7 +4,10 @@
 
 #sb-main .cm-editor {
   font-size: 18px;
-  height: 100%;
+  // Auto-height / "page scrolls" mode (§2 of the 2026-09-22 large-app-bar
+  // plan): no fixed height — the editor sizes to its content so CM's own
+  // scrollableParents() walk (view/index.js) tracks #sb-page-scroll (L5)
+  // as the real scrolling ancestor instead of .cm-scroller.
 
   .cm-content {
     width: 100%;
@@ -94,22 +97,34 @@
     border: 0;
   }
 
+  // V5b (2026-09-22) defect fix: this ruleset used to size a visible
+  // "N lines hidden" / tag-chip placeholder — `width: 100%` + `padding` +
+  // `display: inline-flex` so that chip content could stretch and align
+  // across the folded line's full width. `frontmatterFoldPlaceholderDOM`
+  // (client/codemirror/frontmatter_folding.ts) now renders the frontmatter
+  // placeholder fully EMPTY (the inline `<FrontMatterPanel>` is the only
+  // rendering of frontmatter a reader sees), so those box-model properties
+  // just forced an empty `width: 100%` span to wrap onto its own line
+  // (confirmed via live Playwright/computed-style inspection on :3333 —
+  // the folded line measured 3 stacked line-heights tall for zero visible
+  // content). `cursor: pointer` is all that's still meaningful here.
   .cm-frontmatterFoldPlaceholder {
-    box-sizing: border-box;
     cursor: pointer;
-    display: inline-flex;
-    align-items: baseline;
-    gap: 3px;
-    padding: 2px 7px !important;
-    user-select: none;
-    width: 100%;
   }
 
-  .cm-frontmatterFoldStatus {
-    color: var(--subtle-color);
-    font-size: 0.85em;
-    margin-left: 0.4em;
-    opacity: 0.75;
+  // Same defect fix, other half: `line_wrapper.ts`'s `lineWrapper` config
+  // (client/codemirror/editor_state.ts) tags every source line of the
+  // `FrontMatter` syntax node with `.sb-frontmatter` (the background this
+  // rule now strips) purely from the syntax tree, independent of fold
+  // state — so the merged, folded line (which CM renders at the block's
+  // OPENING line position, exactly where that first `.sb-frontmatter`
+  // decoration attaches) kept the highlighted background even once the
+  // fold placeholder itself went empty. Scoped to lines that actually host
+  // the (empty) fold placeholder, so the background is untouched for a
+  // genuinely unfolded/live-preview frontmatter block (e.g. while a reader
+  // has clicked into "Edit as YAML").
+  .cm-line:has(.cm-frontmatterFoldPlaceholder) {
+    background-color: transparent;
   }
 
   .sb-line-comment {
@@ -806,12 +821,17 @@
   .cm-scroller {
     // Give some breathing space at the bottom of the screen
     padding-bottom: 20em;
+    // Auto-height / "page scrolls" mode (§2/L6): .cm-scroller no longer
+    // owns scroll itself — #sb-page-scroll (client/styles/top.scss) does.
+    overflow: visible;
+    height: auto;
   }
 }
 
-#sb-editor>.cm-editor>.cm-scroller {
-  scrollbar-gutter: stable;
-}
+// `scrollbar-gutter: stable` used to live on `.cm-scroller` (the element
+// that scrolled). Now that #sb-page-scroll is the real scrolling element
+// (L5/L6), the rule moved there (client/styles/top.scss) — this selector
+// would be a no-op here since .cm-scroller never overflows post-L6.
 
 div:not(.cm-focused).cm-fat-cursor {
   outline: none !important;

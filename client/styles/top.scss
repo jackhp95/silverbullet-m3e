@@ -3,47 +3,24 @@
   flex-direction: row;
   z-index: 20;
 
-  // Hard clip at the chrome-row boundary (flagged live 2026-09-16: the
-  // collapsed breadcrumb row still peaked a little above/behind the sticky
-  // app bar on scroll). `max-height: 0` on `.sb-breadcrumb-row` below caps
-  // its own painted box, but neither it nor `.main` (which wraps both rows,
-  // `overflow-y: auto`) was actually clipping content to that box in every
-  // browser — a shadow-DOM-painted sliver from `m3e-breadcrumb` could still
-  // render past a zero-height ancestor, and `.main`'s own `overflow-y: auto`
-  // (needed elsewhere for narrow viewports) is a *scroll* box, not a hard
-  // clip. This outer, non-scrolling wrapper is the right place to guarantee
-  // nothing inside #sb-top ever paints outside its own box.
+  // Hard clip at the chrome-row boundary — guards against any shadow-DOM-
+  // painted sliver escaping #sb-top's own box (the historical reason this
+  // existed was a breadcrumb-collapse edge case, removed 2026-09-22 V5b/L9,
+  // but the general guarantee — nothing inside #sb-top paints outside it —
+  // is still worth keeping now that #sb-top holds a taller `size="large"`
+  // app bar).
   overflow: hidden;
 
-  // No longer a fixed 55px: `.main` (below) now stacks an `m3e-breadcrumb`
-  // row above the `m3e-app-bar` row (client/components/top_bar.tsx), so the
-  // header's total height is intrinsic to that content instead of a single
-  // hardcoded number. The app bar's own row keeps its historical 55px via
-  // --m3e-app-bar-small-container-height below; only the outer wrapper grew
-  // a second row on top of it. #sb-main (main.scss, `flex-grow: 1; height:
-  // 0`) absorbs whatever height #sb-top ends up with, same as before.
-  --m3e-app-bar-small-container-height: 55px;
+  // #sb-top's height is intrinsic to its content — the `m3e-app-bar` inside
+  // `.main` below is `size="large"` (client/components/top_bar.tsx, V5b/L8),
+  // whose own container-height tokens (`--m3e-app-bar-large-container-
+  // height`/`-with-subtitle`) size it, not a hardcoded number here. #sb-main
+  // (main.scss, `flex-grow: 1; height: 0`) absorbs whatever height #sb-top
+  // ends up with, same as before.
 
   .main {
     flex: 2;
     max-width: 100%;
-    overflow-y: auto;
-    scrollbar-gutter: stable;
-
-    // Explicit stacking for the sticky app bar (flagged live 2026-09-16
-    // alongside the breadcrumb-collapse overflow above): `position: sticky`
-    // (inline style, top_bar.tsx) already makes this a positioned element,
-    // which paints over the preceding *static* `m3e-breadcrumb` sibling
-    // regardless of z-index — but that's an implicit browser default, not a
-    // guarantee, and `z-index: auto` still made the stacking order easy to
-    // accidentally invert with any later change nearby. Made explicit
-    // instead of relying on paint order alone. Its own `--m3e-app-bar-
-    // container-color` (default: `DesignToken.color.surface`) already
-    // renders an opaque background internally, so no extra background rule
-    // is needed here on top of that.
-    m3e-app-bar {
-      z-index: 1;
-    }
 
     // Match the horizontal breathing room the previous hand-rolled
     // `.wrapper { padding: 0 20px }` gave the bar's content.
@@ -62,14 +39,12 @@
     align-items: baseline;
     min-width: 0;
     width: 100%;
-    // No manual font-size override here on purpose (2026-09-15): the old
-    // hardcoded 28px made this read as a second, competing page heading —
-    // directly on top of a page's own in-content `# H1` (most pages open
-    // with one matching the page name). Leaving this unset lets m3e's own
-    // "small" app-bar title token (--m3e-app-bar-small-title-text-font-size,
-    // Material's "Title Large" scale, ~22px) cascade in through the slot
-    // instead — still legible, editable, and rename-able, just no longer
-    // sized to duplicate the content's own heading.
+    // No manual font-size override here on purpose (2026-09-15, still true
+    // post-V5b): leaving this unset lets m3e's own app-bar title token
+    // cascade in through the slot instead of a hardcoded value — now the
+    // `size="large"` token (--m3e-app-bar-large-title-text-font-size,
+    // Material's "Display Small" scale) rather than the old `size="small"`
+    // one (2026-09-22 V5b/L8/L9) — still legible, editable, and rename-able.
   }
 
   #sb-current-page {
@@ -90,13 +65,12 @@
       font-family: var(--chrome-font);
       font-size: inherit;
       // Match the line box the old CodeMirror title used so the text stays
-      // vertically centred in the bar (a native input defaults to a shorter
+      // vertically centred in its row (a native input defaults to a shorter
       // `line-height: normal`, which pulls the title upward). Must still fit
-      // inside the app bar's own 55px row (--m3e-app-bar-small-container-
-      // height above) at whatever font-size the app-bar's own small-title
-      // token resolves to (see .sb-page-title above) — check visually after
-      // any token/size change, .main's `overflow-y: auto` silently turns
-      // any overflow into a permanent scrollbar.
+      // the app bar's own title row at whatever font-size the app-bar's own
+      // title token resolves to (see .sb-page-title above, now the
+      // `size="large"` token per V5b/L8/L9) — check visually after any
+      // token/size change.
       line-height: 1.35;
       color: inherit;
       background-color: transparent;
@@ -215,120 +189,143 @@
 // placement CSS needed here, unlike the old portal-rendered
 // `.sb-notifications` this replaced.
 
-// m3e-breadcrumb (client/components/top_bar.tsx) sits above the app bar and
-// is meant to scroll away, leaving the app bar "stuck", as the user scrolls
-// real page content — AppBarElement.d.ts's own `for`+`position:sticky`
-// pattern assumes the bar lives *inside* the scrolling container it's
-// attached to, but #sb-top is a fixed, non-scrolling chrome row in this
-// app-shell layout (html/body's own `overflow: hidden`, main.scss) sitting
-// outside #sb-editor's CodeMirror scroller entirely — there's no ancestor
-// for plain CSS `position: sticky` to stick against here. So this fork
-// approximates the same user-visible effect a different, real way:
-// client/editor_ui.tsx listens to the actual editor scroll container (the
-// `.cm-scroller` CodeMirror renders inside #sb-editor) and toggles
-// `#sb-top[data-scrolled]`, which this collapses the breadcrumb row against
-// — driven by genuine content scroll, not a decorative timer/guess. The
-// app bar's own elevation-on-scroll (its `for` attribute, still wired in
-// top_bar.tsx) reacts to that same real scroll independently, via its own
-// documented internal mechanism.
-// HISTORY — why this is a grid and not a `max-height` transition.
+// ---------------------------------------------------------------------------
+// 2026-09-22 V5b (docs/plans/2026-09-22-appbar-large-frontmatter-scroll-snap.md
+// §1.5/§3/L9) — scroll-snap container + front-matter property-list styling.
 //
-// The collapse used to animate `max-height: 42px -> 0` plus `padding` on the
-// m3e-breadcrumb itself. `padding` had to be animated in lockstep because of
-// a real box-sizing rule (established 2026-09-17 by computed-style dump): a
-// border-box element's content area cannot go negative, so when the vertical
-// padding sum (4 + 10 = 14px) exceeds the declared `max-height`, the rendered
-// height floors at the padding sum, not at `max-height`. Collapsed height was
-// `14px` — this fork's "breadcrumb peaks above the app bar" bug.
+// The app bar is no longer sticky chrome above a separately-scrolling editor
+// — it's ordinary content inside `#sb-page-scroll` (client/editor_ui.tsx),
+// scrolling past like anything else. `#sb-top` (this file's outer wrapper,
+// still the identity-stable element across the L8 restructuring) just needs
+// the two snap properties below; `position: sticky`/`top: 0` themselves were
+// inline styles on `m3e-app-bar` in top_bar.tsx, removed there in L8.
 //
-// That worked, but the `42px` was a hand-maintained magic number, and on
-// 2026-09-19 it was measured to be WRONG and actively clipping content:
-//
-//   getComputedStyle(row).maxHeight  42px
-//   row.scrollHeight                 54px
-//   row.clientHeight                 42px   -> 12px of the row clipped
-//   breadcrumb items                 top 4, bottom 44, height 40 (not the
-//                                    28px the old comment assumed)
-//   row bottom                       42     -> items ended 2px BELOW the row
-//
-// So the 10px of "breathing room below the trail" that the 2026-09-16 fix
-// added was being clipped away again by the same magic number it had to be
-// kept in sync with, and every breadcrumb item was cut off 2px into its own
-// box. The number could have been bumped to 54px, but it would have gone
-// stale again the next time the padding, the type scale or the m3e item
-// height moved.
-//
-// The grid form removes the number entirely. `grid-template-rows: 1fr -> 0fr`
-// sizes the track from the content, so the expanded state is always exactly
-// the natural height and the collapsed state is a zero-height track, with no
-// constant to keep in sync with the padding or the type scale.
-//
-// The padding floor does NOT go away just by switching to a grid, though —
-// this was measured, not assumed, and two plausible shapes were rejected on
-// evidence before the third was adopted:
-//
-//   grid + padding left on the grid item      collapsed shell = 14px  (the
-//     floor is a property of any padded box, not of `max-height`)
-//   ...plus `overflow: hidden` on the grid
-//     CONTAINER                               collapsed shell = 14px  (the
-//     floored item still sizes the track; clipping the container doesn't
-//     shrink it)
-//   grid + a bare clip element as the grid
-//     item, padding on the breadcrumb inside  collapsed shell = 0px   ADOPTED
-//
-// So the rule the structure encodes is simply: the element that collapses
-// must not be the element that has padding. `.sb-breadcrumb-row-clip` is that
-// bare element.
-//
-// Verified live at 390x844 by toggling `#sb-top[data-scrolled]` and dumping
-// computed styles:
-//   expanded   shell 54px, #sb-top 110px   (was 42 / 98 — the 12px is back)
-//   collapsed  shell  0px, #sb-top  56px   (no 14px residual box)
-//
-// Note `grid-template-rows` is a layout-animated property, same as the
-// `max-height` it replaces — this change is for correctness and for deleting
-// the magic number, not a compositor win. The element is a single short row
-// that animates only on a scroll-direction change, so layout cost is not the
-// concern here.
-.sb-breadcrumb-row-shell {
-  display: grid;
-  grid-template-rows: 1fr;
-  visibility: visible;
-  // `visibility` rides along with the track/opacity but with its own
-  // 0s-duration transition — undelayed here (expanding), delayed to match
-  // the others below (collapsing). That delay is the point: a zero-height
-  // track alone still left some browsers sub-pixel-rendering shadow-DOM
-  // content from `m3e-breadcrumb` for the last instant of the collapse.
-  // `visibility: hidden` is a genuinely non-painting state, not just a
-  // zero-size box, so it must land only once the collapse has visually
-  // finished, or it'd snap the row away before the other properties settle.
-  transition: grid-template-rows 0.2s ease, opacity 0.15s ease,
-    visibility 0s linear 0s;
+// `scroll-snap-type: y proximity` (not `mandatory`) is a deliberate choice
+// carried over from the mockup's own comment (`/tmp/sb-appbar-mockups/
+// v5b.html`): the real page body below the app bar is unbounded in length
+// and carries no snap-align of its own, so a `mandatory` config would yank
+// the reader's scroll position back up to the app bar after every pause deep
+// in the body — the opposite of "the bar is the default rest point, then you
+// scroll the body freely." `proximity` only engages when the browser's own
+// heuristic finds the resting position already close to a snap point (i.e.
+// right at the front-matter/app-bar boundary).
+// NOTE: `height: 100%; overflow-y: auto;` for `#sb-page-scroll` already live
+// in main.scss (§2/L5, pulled forward early as commit bbbc6515) — this rule
+// adds only scroll-snap + cosmetics on top of that, not a duplicate box.
+#sb-page-scroll {
+  // Moved from `.cm-scroller` (client/styles/editor.scss) — L6 configured
+  // CodeMirror for auto-height/"page scrolls" mode, so `.cm-scroller` no
+  // longer scrolls at all; `#sb-page-scroll` is the one real scrolling
+  // ancestor now, so the layout-shift-avoidance property belongs here.
+  scrollbar-gutter: stable;
+  scroll-snap-type: y proximity;
+  -webkit-overflow-scrolling: touch;
 }
 
-#sb-top[data-scrolled="on"] .sb-breadcrumb-row-shell {
-  grid-template-rows: 0fr;
-  opacity: 0;
-  visibility: hidden;
-  transition: grid-template-rows 0.2s ease, opacity 0.15s ease,
-    visibility 0s linear 0.2s;
+.sb-fm-panel {
+  scroll-snap-align: start;
 }
 
-// The grid item. Deliberately empty of padding — that is the whole point of
-// it existing (see above). `min-height: 0` lets it follow the track down to
-// zero, since a grid item's automatic minimum size would otherwise floor it
-// at its content height; `overflow: hidden` clips the padded breadcrumb
-// inside it as the track shrinks.
-.sb-breadcrumb-row-clip {
-  min-height: 0;
+#sb-top {
+  scroll-snap-align: start;
+  // Safety net against a hard fling skipping past the app bar on first
+  // load/fast scroll: `proximity` only opts in when the browser is already
+  // going to rest nearby, so without this a high-velocity pull from the very
+  // top straight into the body could glide past the bar's snap position
+  // entirely. `scroll-snap-stop: always` forces at least one stop AT the bar.
+  scroll-snap-stop: always;
+}
+
+// Front-matter property list (client/components/front_matter_panel.tsx),
+// ported from the mockup's `.sb-property-list`/`.sb-property-row`
+// (`/tmp/sb-appbar-mockups/v5b.html:146-179`) onto the class names the real
+// component renders.
+.sb-fm-panel {
+  margin: 20px 20px 0;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 16px;
+  background: var(--md-sys-color-surface-container-lowest);
   overflow: hidden;
 }
 
-.sb-breadcrumb-row {
-  // The breathing room below the trail, so it doesn't read as glued onto the
-  // app bar's own background/shadow edge (flagged live 2026-09-16). It lives
-  // here, inside the clip, precisely so it can never floor the collapse.
-  padding: 4px 20px 10px;
+.sb-fm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  font: var(--md-sys-typescale-body-medium-font);
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.sb-fm-icon {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 18px;
+  flex: none;
+}
+
+.sb-fm-key {
+  width: 84px;
+  flex: none;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.sb-fm-value {
+  flex: 1;
+  min-width: 0;
+  color: var(--md-sys-color-on-surface);
+  border-bottom: 1px dashed var(--md-sys-color-outline-variant);
+  cursor: text;
+}
+
+// Block-shaped fields (sequences/mappings/scalars, L4.3) — the structured
+// editors that render below a row rather than replacing its value span.
+.sb-fm-block-sequence,
+.sb-fm-block-mapping,
+.sb-fm-block-scalar {
+  padding: 0 14px 9px 14px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.sb-fm-seq-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.sb-fm-seq-item-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.sb-fm-block-mapping-textarea,
+.sb-fm-block-scalar-textarea {
+  width: 100%;
+}
+
+.sb-fm-remove,
+.sb-fm-edit-as-yaml {
+  flex: none;
+}
+
+.sb-fm-add-property {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 14px;
+  color: var(--md-sys-color-on-surface-variant);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: var(--md-sys-typescale-body-medium-font);
 }
 
 // ---------------------------------------------------------------------------

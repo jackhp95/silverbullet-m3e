@@ -290,8 +290,9 @@ type M3eButtonSegmentAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   value?: string;
 };
 
-// m3e-breadcrumb / m3e-breadcrumb-item: top_bar.tsx's folder-path trail
-// above the app bar. See @m3e/web/breadcrumb card / BreadcrumbElement.d.ts,
+// m3e-breadcrumb / m3e-breadcrumb-item: top_bar.tsx's folder-path trail,
+// rendered as the large app bar's own `slot="leading"` content (2026-09-22
+// V5b). See @m3e/web/breadcrumb card / BreadcrumbElement.d.ts,
 // BreadcrumbItemElement.d.ts.
 type M3eBreadcrumbAttributes = PreactJSX.HTMLAttributes<HTMLElement> & {
   /** Whether breadcrumb items wrap onto a new line. @default false */

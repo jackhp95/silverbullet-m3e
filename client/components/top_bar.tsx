@@ -1,6 +1,8 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Input } from "@silverbulletmd/silverbullet/ui";
+import { relativeTime } from "../lib/relative_time.ts";
+import { countWords, readingTimeMinutes } from "../lib/reading_time.ts";
 import "@m3e/web/app-bar";
 import "@m3e/web/breadcrumb";
 import "@m3e/web/progress-indicator";
@@ -170,8 +172,8 @@ export function TopBar({
   mobileMenuStyle,
   readOnly,
   breadcrumbItems,
-  scrollContainerId,
-  headerScrolled,
+  lastModified,
+  bodyText,
   menuItems = [],
   readOnlyToggle,
 }: {
@@ -188,15 +190,18 @@ export function TopBar({
   cssClass?: string;
   mobileMenuStyle?: string;
   readOnly: boolean;
-  /** Folder-path trail rendered above the app bar — see BreadcrumbItem. */
+  /** Folder-path trail rendered as the app bar's own leading breadcrumb —
+   * see BreadcrumbItem. `breadcrumbItems[0]` is rendered as the icon-only
+   * asterisk/home item; the rest render as ordinary label items. */
   breadcrumbItems: BreadcrumbItem[];
-  /** Id of the real scrolling container the app bar reacts to (its `for`
-   * attribute, AppBarElement.d.ts) — set once client/editor_ui.tsx finds
-   * the CodeMirror scroller; undefined until then. */
-  scrollContainerId?: string;
-  /** Whether that container is currently scrolled past its top — drives the
-   * breadcrumb-row collapse in top.scss (`#sb-top[data-scrolled]`). */
-  headerScrolled?: boolean;
+  /** `PageMeta.lastModified` (ISO-8601), used to compute the "Edited Xh
+   * ago" subtitle segment. Kept raw (not pre-formatted by the caller) so
+   * `relativeTime`'s `now` stays live across re-renders. Undefined before
+   * the page's meta has loaded. */
+  lastModified?: string;
+  /** The page's body text (frontmatter range excluded), used to compute
+   * the "N min read" subtitle segment via `reading_time.ts`. */
+  bodyText: string;
   /** Trailing kebab-menu items (sb-app-bar-menu) — see AppBarMenuItem. */
   menuItems?: AppBarMenuItem[];
   /** Read-only mode toggle, rendered in the trailing slot before the kebab
@@ -210,28 +215,28 @@ export function TopBar({
   // what only it can do: the editable page title and sync/notification
   // status — it isn't "orphaned," its remaining job is just narrower.
   //
-  // The breadcrumb (added 2026-09-15) sits above the app bar, inside the
-  // same `.main` column (top.scss) — moved here from being the app-bar
-  // element's own class, since `.main` now needs to host two stacked rows
-  // instead of being the app bar itself. `m3e-app-bar`'s `for` + inline
-  // `position: sticky; top: 0` follow AppBarElement.d.ts's own second
-  // documented example (a `for`-attached scroll container producing
-  // elevation-on-scroll) as closely as this app's real layout allows — see
-  // top.scss's comment on `.sb-breadcrumb-row` for why the *collapse* of the
-  // breadcrumb itself is driven by `data-scrolled` rather than by `for`
-  // alone: `#sb-top` is a fixed, non-scrolling chrome row in SB's app-shell
-  // layout (html/body's own `overflow: hidden`, main.scss), not a descendant
-  // of the actual scrolling container, so plain CSS `position: sticky`
-  // relative to it has nothing to stick against on its own.
+  // 2026-09-22 V5b (docs/plans/2026-09-22-appbar-large-frontmatter-scroll-snap.md
+  // §1.5/L8): the app bar is `size="large"` and non-sticky — it scrolls with
+  // the page as part of `#sb-page-scroll` (client/editor_ui.tsx), resting
+  // above the CodeMirror editor host and below the front-matter property
+  // list. The breadcrumb that used to sit in its own row above the app bar
+  // is now the bar's own `slot="leading"` content — `size="large"`'s
+  // compiled template (verified directly against the installed
+  // `@m3e/web@2.7.12` `dist/app-bar.js`, not assumed from the older
+  // `m3e` skill card) puts leading/trailing slot content in a `.heading`
+  // row above a separate `.label` row holding title/subtitle, so the
+  // breadcrumb and the sync/lock/offline/kebab cluster share the top row
+  // for free — no custom placement CSS needed here.
   //
-  // L6 (docs/plans/2026-09-16-toolbar-search-feedback-spec.md §4): the
-  // leading asterisk icon-button below runs the exact same navigation as
-  // the root breadcrumb segment ("Space", breadcrumbItems[0] — always
-  // constructed first in editor_ui.tsx's breadcrumbItems array) rather than
-  // a second, separately-wired copy of "Navigate: Home" — one command
-  // binding, two entry points into it. Disabled under the same condition
-  // the breadcrumb segment itself uses (command unavailable -> no onClick).
+  // The leading asterisk breadcrumb item below runs the exact same
+  // navigation as the root breadcrumb segment ("Space", breadcrumbItems[0]
+  // — always constructed first in editor_ui.tsx's breadcrumbItems array)
+  // rather than a second, separately-wired copy of "Navigate: Home" — one
+  // command binding, rendered as that segment's own icon-only item.
+  // Disabled under the same condition the segment itself uses (command
+  // unavailable -> no onClick).
   const homeOnClick = breadcrumbItems[0]?.onClick;
+  const restBreadcrumbItems = breadcrumbItems.slice(1);
 
   // V11: one-shot toast on the online<->offline *transition* — the chip
   // above is the sustained-state indicator; this is just the moment-of-
@@ -256,72 +261,49 @@ export function TopBar({
       id="sb-top"
       className={isOnline ? undefined : "sb-sync-error"}
       data-mobile-menu-style={mobileMenuStyle}
-      data-scrolled={headerScrolled ? "on" : "off"}
     >
       {lhs}
       <div className="main">
-        {/* Two structural wrappers, one job each, so the breadcrumb's
-            collapse-on-scroll animates a single property and still reaches a
-            genuine zero height:
-              .sb-breadcrumb-row-shell — the grid; its one row animates
-                `1fr` -> `0fr`.
-              .sb-breadcrumb-row-clip  — the grid item; carries no padding of
-                its own (an element with padding cannot collapse below its
-                padding sum) so the track can reach 0, and clips the padded
-                breadcrumb inside it.
-            Both are measured and justified at `.sb-breadcrumb-row-shell` in
-            client/styles/top.scss — including why the previous single-element
-            `max-height` version had to go. */}
-        <div className="sb-breadcrumb-row-shell">
-          <div className="sb-breadcrumb-row-clip">
-            <m3e-breadcrumb
-              className="sb-breadcrumb-row"
-              aria-label="Breadcrumb"
-            >
-              {breadcrumbItems.map((item) => (
-                <m3e-breadcrumb-item
-                  key={item.key}
-                  current={item.current ? "page" : null}
-                  disabled={!item.onClick}
-                  onClick={item.onClick
-                    ? (e: MouseEvent) => {
-                      e.preventDefault();
-                      item.onClick!();
-                    }
-                    : undefined}
-                >
-                  {item.label}
-                </m3e-breadcrumb-item>
-              ))}
-            </m3e-breadcrumb>
-          </div>
-        </div>
-        <m3e-app-bar
-          size="small"
-          for={scrollContainerId}
-          style={{ position: "sticky", top: 0 }}
-        >
+        <m3e-app-bar size="large">
           {/* "asterisk" verified as a real glyph in the bundled font
               subset — client/fonts/MaterialSymbolsOutlined.woff2 decompiled
               (fontTools) and its glyph order literally contains "asterisk"
               (alongside "inbox_text_asterisk"/"mail_asterisk", which aren't
               it), the same way "close"/"history"/"add" etc. already used
               elsewhere in this file/floating_toolbar.tsx resolve — so no
-              `emergency` fallback is needed here. */}
-          <m3e-icon-button
-            slot="leading"
-            title="Home"
-            aria-label="Home"
-            disabled={!homeOnClick}
-            onClick={homeOnClick
-              ? (e: MouseEvent) => {
-                e.preventDefault();
-                homeOnClick();
-              }
-              : undefined}
-          >
-            <m3e-icon name="asterisk"></m3e-icon>
-          </m3e-icon-button>
+              `emergency` fallback is needed here. The breadcrumb's first
+              item renders this icon in its own `slot="icon"`
+              (BreadcrumbItemElement.d.ts) rather than as a standalone
+              icon-button — see the file-level comment above. */}
+          <m3e-breadcrumb slot="leading" aria-label="Breadcrumb">
+            <m3e-breadcrumb-item
+              item-label="Home"
+              disabled={!homeOnClick}
+              onClick={homeOnClick
+                ? (e: MouseEvent) => {
+                  e.preventDefault();
+                  homeOnClick();
+                }
+                : undefined}
+            >
+              <m3e-icon slot="icon" name="asterisk"></m3e-icon>
+            </m3e-breadcrumb-item>
+            {restBreadcrumbItems.map((item) => (
+              <m3e-breadcrumb-item
+                key={item.key}
+                current={item.current ? "page" : null}
+                disabled={!item.onClick}
+                onClick={item.onClick
+                  ? (e: MouseEvent) => {
+                    e.preventDefault();
+                    item.onClick!();
+                  }
+                  : undefined}
+              >
+                {item.label}
+              </m3e-breadcrumb-item>
+            ))}
+          </m3e-breadcrumb>
           <span slot="title" className="sb-page-title">
             <span className="sb-page-prefix">{pageNamePrefix}</span>
             <span
@@ -334,6 +316,10 @@ export function TopBar({
                 onRename={onRename}
               />
             </span>
+          </span>
+          <span slot="subtitle">
+            Edited {relativeTime(lastModified ?? "")} ·{" "}
+            {readingTimeMinutes(countWords(bodyText))} min read
           </span>
           {/* Each trailing item carries `slot="trailing"` ITSELF, as a direct
               child of the app bar — the documented pattern (the app-bar card's

@@ -57,11 +57,13 @@ test.describe("Guide: Journaling", () => {
   }) => {
     await runJournalToday(sbPage);
 
-    // The editor should show the template body — frontmatter sets
-    // `tags: journal` (from the built-in template at
-    // Library/Std/Journal/Template).
-    const editor = sbPage.locator("#sb-editor .cm-content");
-    await expect(editor).toContainText("tags: journal");
+    // Frontmatter is folded out of the editor and rendered in the
+    // front-matter property panel above the app bar (the appbar/frontmatter
+    // redesign — see docs/plans/2026-09-22-appbar-large-frontmatter-scroll-snap.md),
+    // so the `tags: journal` set by the built-in template
+    // (Library/Std/Journal/Template) now surfaces there, not as raw text in
+    // `.cm-content`.
+    await expect(sbPage.locator(".sb-fm-panel")).toContainText("journal");
   });
 
   test("created journal page is tagged journal on disk", async ({

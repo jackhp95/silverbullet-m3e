@@ -27,7 +27,67 @@ const baseProps = {
   onRename: async () => {},
   readOnly: false,
   breadcrumbItems: [],
+  bodyText: "",
 };
+
+// 2026-09-22 V5b (docs/plans/2026-09-22-appbar-large-frontmatter-scroll-snap.md
+// L8): the app bar is now `size="large"`, non-sticky, with the breadcrumb as
+// its own `slot="leading"` content (first item icon-only) and a computed
+// "Edited … · N min read" subtitle — replacing the old `size="small"` +
+// standalone leading icon-button + separate breadcrumb row above it.
+test("renders a size=large app bar with the breadcrumb as leading content, first item icon-only", () => {
+  const html = render(
+    h(TopBar, {
+      ...baseProps,
+      breadcrumbItems: [
+        { key: "space", label: "Space", current: false, onClick: () => {} },
+        { key: "journal", label: "Journal", current: false },
+        { key: "page", label: "2026-09-21", current: true },
+      ],
+    }),
+  );
+
+  expect(html).toContain('<m3e-app-bar size="large">');
+  // No more standalone leading icon-button or separate breadcrumb row.
+  expect(html).not.toContain('<m3e-icon-button slot="leading"');
+  expect(html).not.toContain("sb-breadcrumb-row");
+
+  const bar = html.slice(html.indexOf("<m3e-app-bar"));
+  const breadcrumbIndex = bar.indexOf('<m3e-breadcrumb slot="leading"');
+  expect(breadcrumbIndex).toBeGreaterThan(-1);
+  const breadcrumb = bar.slice(
+    breadcrumbIndex,
+    bar.indexOf("</m3e-breadcrumb>"),
+  );
+  // First item is icon-only (asterisk), not a repeated "Space" text item.
+  const firstItemEnd = breadcrumb.indexOf("</m3e-breadcrumb-item>");
+  const firstItem = breadcrumb.slice(0, firstItemEnd);
+  expect(firstItem).toContain('name="asterisk"');
+  expect(firstItem).not.toContain("Space");
+  // The rest of the trail renders as ordinary label items.
+  const restItems = breadcrumb.slice(firstItemEnd);
+  expect(restItems).toContain("Journal");
+  expect(restItems).toContain("2026-09-21");
+});
+
+test("renders the Edited/reading-time subtitle from lastModified + bodyText", () => {
+  const html = render(
+    h(TopBar, {
+      ...baseProps,
+      lastModified: new Date(Date.now() - 60_000).toISOString(),
+      bodyText: "word ".repeat(450),
+    }),
+  );
+
+  const bar = html.slice(html.indexOf("<m3e-app-bar"));
+  const subtitle = bar.slice(
+    bar.indexOf('slot="subtitle"'),
+    bar.indexOf("</span>", bar.indexOf('slot="subtitle"')),
+  );
+  expect(subtitle).toContain("Edited");
+  expect(subtitle).toContain("min read");
+  expect(subtitle).toContain("2 min read");
+});
 
 test("readOnlyToggle active:true renders a lock icon-button before the kebab trigger", () => {
   const html = render(

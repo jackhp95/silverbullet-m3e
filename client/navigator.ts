@@ -7,6 +7,7 @@ import {
   type Ref,
 } from "@silverbulletmd/silverbullet/lib/ref";
 import type { Client } from "./client.ts";
+import { PAGE_SCROLL_CONTAINER_ID } from "./editor_ui.tsx";
 
 // The path of a location state should not be empty, rather it should be
 // normalized to the indexpage beforhand
@@ -158,7 +159,11 @@ export class PathPageNavigator {
     const editorView = this.client.editorView;
     const mainSelection = editorView.state.selection.main;
     return {
-      scrollTop: editorView.scrollDOM.scrollTop,
+      // CodeMirror's own `.cm-scroller` no longer owns scroll once L6
+      // configures it for auto-height ("page scrolls") mode —
+      // `#sb-page-scroll` (L5) is the real scrolling ancestor now.
+      scrollTop:
+        document.getElementById(PAGE_SCROLL_CONTAINER_ID)?.scrollTop ?? 0,
       selection: { head: mainSelection.head, anchor: mainSelection.anchor },
     };
   }

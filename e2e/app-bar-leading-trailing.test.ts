@@ -50,8 +50,11 @@ test("leading asterisk icon-button reuses the breadcrumb root's Home navigation"
 }) => {
   await gotoSilverBulletPage(page, sbServer, "Some Page");
 
+  // 2026-09-22 V5b: the leading slot is now the breadcrumb itself
+  // (`<m3e-breadcrumb slot="leading">`), not a standalone icon-button — the
+  // asterisk/home affordance is the breadcrumb's own first item.
   const homeButton = page.locator(
-    'm3e-app-bar m3e-icon-button[slot="leading"]',
+    'm3e-app-bar m3e-breadcrumb[slot="leading"] m3e-breadcrumb-item:first-child',
   );
   await expect(homeButton).toHaveCount(1);
   await expect(homeButton).toBeVisible();
