@@ -1,5 +1,12 @@
 @use "tokens";
 
+// Audit note (m3e/tailwind sweep): this entire file is category (a) — it IS
+// the theme, defining/bridging the app's own `--*-color` custom properties
+// (and the read-only-mode font swap + admonition icon data-URIs below) across
+// light/dark `html[data-theme]`; there is no tailwind utility or <m3e-*>
+// component that can replace a token *definition* site, so nothing here
+// migrates — only consumers of these tokens elsewhere are migration
+// candidates.
 html {
   --ui-accent-text-color: var(--ui-accent-color);
   --highlight-color: rgba(255, 255, 0, 0.5);
