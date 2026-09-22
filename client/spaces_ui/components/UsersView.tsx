@@ -365,7 +365,7 @@ export function UserDetail({
           </Button>
         </div>
         {shownToken && (
-          <div class="sb-token-reveal">
+          <div class="flex flex-col gap-1 mt-2 sb-token-reveal">
             <Alert variant="warning">
               This token is shown only once — copy it now.
             </Alert>

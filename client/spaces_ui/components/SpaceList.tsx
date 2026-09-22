@@ -65,7 +65,7 @@ export function SpaceList({
             <Badge class={space.state}>{space.state}</Badge>
             {admin && (
               <a
-                class="sb-button sb-space-edit"
+                class="sb-button justify-self-end"
                 href={spacesUrl(`/${encodeURIComponent(space.id)}`)}
               >
                 Edit

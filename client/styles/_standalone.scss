@@ -181,18 +181,14 @@ body.sb-standalone.sb-page {
   margin-block: 2rem;
 }
 
-.sb-standalone .center {
-  height: 100vh;
-  display: grid;
-  place-items: center;
-}
+// .center container migrated to Tailwind utilities (`grid h-screen
+// place-items-center`) at its one call site, SpaceLogin.tsx — see
+// docs/plans/2026-09-19-tailwind-m3e-bridge-and-custom-css-audit.md Phase 2.
 
-.sb-standalone .flow {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-}
-
+// .flow container migrated to Tailwind utilities (`flex flex-col
+// justify-start`); the `.flow` class itself is kept on the element only so
+// the child-spacing rules immediately below (no simple utility equivalent
+// for the `> * + *` combinator) keep matching.
 .sb-standalone .flow>* {
   margin-block: 0;
 }
@@ -205,13 +201,9 @@ body.sb-standalone.sb-page {
   color: #b00020;
 }
 
-.sb-standalone .checkbox-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-direction: row;
-}
-
+// .checkbox-wrapper container migrated to Tailwind utilities (`flex
+// items-center gap-2 flex-row`); class kept on the element so the label
+// selector immediately below keeps matching.
 // A checkbox's label sits beside it, not above it: undo the block layout,
 // top margin and bold weight that `form label` gives the field labels, which
 // otherwise push the text out of line with the box and make every option
@@ -223,12 +215,9 @@ body.sb-standalone.sb-page {
   font-weight: normal;
 }
 
-.sb-standalone .password-field {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
+// .password-field container migrated to Tailwind utilities (`flex gap-2
+// items-center`); class kept on the element so the child selector below
+// keeps matching.
 .sb-standalone .password-field .sb-input,
 .sb-standalone .password-field m3e-form-field {
   flex: 1;
@@ -250,11 +239,9 @@ body.sb-standalone.sb-page {
   margin-bottom: 1rem;
 }
 
-.sb-standalone .sb-spaces-header-left {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-}
+// .sb-spaces-header-left fully migrated to Tailwind utilities (`flex
+// items-center gap-6`) at its one call site, App.tsx — no other selector
+// depends on this class, so it was dropped from the markup entirely.
 
 .sb-standalone .sb-wordmark {
   display: inline-flex;
@@ -296,10 +283,9 @@ body.sb-standalone.sb-page {
   font-weight: 600;
 }
 
-/* Admin-only per-row edit control, right-aligned at the end of the row. */
-.sb-standalone .sb-space-edit {
-  justify-self: end;
-}
+/* Admin-only per-row edit control, right-aligned at the end of the row —
+   fully migrated to the Tailwind utility `justify-self-end`, dropped from
+   the markup entirely (no other selector depends on this class). */
 
 /* Bottom-of-form destructive zone. Delete stays visually destructive (via
    .sb-button-danger's colour) but is sized like every other button — it
@@ -361,20 +347,12 @@ body.sb-standalone.sb-page {
 }
 
 // m3e-breadcrumb owns its own item layout + separators internally (see
-// @m3e/web/breadcrumb card) — this class hook now only places the whole
-// element within the browse panel, same as top_bar.tsx's .sb-breadcrumb-row.
-.sb-standalone .sb-folder-crumbs {
-  display: block;
-  margin-bottom: 0.5rem;
-}
+// @m3e/web/breadcrumb card) — fully migrated to Tailwind utilities (`block
+// mb-2`) at its one call site, FolderPicker.tsx.
 
-// m3e-list owns its own item padding/dividers; only the browse panel's
-// scroll behavior is this class's job now.
-.sb-standalone .sb-folder-dirs {
-  display: block;
-  max-height: 12rem;
-  overflow-y: auto;
-}
+// m3e-list owns its own item padding/dividers — fully migrated to Tailwind
+// utilities (`block max-h-48 overflow-y-auto`) at its one call site,
+// FolderPicker.tsx.
 
 .sb-standalone .sb-folder-empty {
   color: var(--subtle-color);
@@ -434,13 +412,9 @@ body.sb-standalone.sb-page {
   margin: 0 0 0.5rem;
 }
 
-.sb-standalone .sb-token-reveal {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  margin-top: 0.5rem;
-}
-
+// .sb-token-reveal container migrated to Tailwind utilities (`flex flex-col
+// gap-1 mt-2`); class kept on the element so the child selector below keeps
+// matching.
 .sb-standalone .sb-token-reveal .sb-input,
 .sb-standalone .sb-token-reveal m3e-form-field {
   font-family: monospace;

@@ -169,7 +169,7 @@ export function FolderPicker({
       </div>
       {browsing && (
         <div class="sb-folder-browser">
-          <m3e-breadcrumb class="sb-folder-crumbs" aria-label="Folder path" wrap>
+          <m3e-breadcrumb class="block mb-2" aria-label="Folder path" wrap>
             {crumbsFor(browsePath).map((c, i, crumbs) => (
               <m3e-breadcrumb-item
                 key={`${c.target}-${i}`}
@@ -189,7 +189,7 @@ export function FolderPicker({
           {browseDirs.length === 0 ? (
             <p class="sb-folder-empty">No subdirectories</p>
           ) : (
-            <m3e-list class="sb-folder-dirs">
+            <m3e-list class="block max-h-48 overflow-y-auto">
               {browseDirs.map((dir) => (
                 <m3e-list-action key={dir} onClick={() => navigate(dir)}>
                   {dir.split("/").filter(Boolean).pop() || dir}

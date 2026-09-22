@@ -132,7 +132,7 @@ export function App() {
   return (
     <NavigateProvider value={navigate}>
       <div class="sb-spaces-header">
-        <div class="sb-spaces-header-left">
+        <div class="flex items-center gap-6">
           <strong class="sb-wordmark">
             {/* The dock icon, in the small copy meant for inline use (see
                 client/images/README.md). `alt` is empty on purpose: the

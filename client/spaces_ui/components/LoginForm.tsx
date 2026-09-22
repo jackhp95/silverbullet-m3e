@@ -61,7 +61,7 @@ export function LoginForm({
 
   return (
     <form
-      class="flow"
+      class="flex flex-col justify-start flow"
       id="login"
       onSubmit={(event) => {
         event.preventDefault();
@@ -90,7 +90,7 @@ export function LoginForm({
       </div>
       <div>
         <label for="password">Password</label>
-        <div class="password-field">
+        <div class="flex gap-2 items-center password-field">
           <Input
             id="password"
             name="password"
@@ -109,7 +109,7 @@ export function LoginForm({
         </div>
       </div>
       {rememberMeDays !== undefined && (
-        <div class="checkbox-wrapper">
+        <div class="flex items-center gap-2 flex-row checkbox-wrapper">
           <Checkbox
             id="rememberMe"
             checked={rememberMe}
@@ -120,7 +120,7 @@ export function LoginForm({
       )}
       {clientEncryption && (
         <div>
-          <div class="checkbox-wrapper">
+          <div class="flex items-center gap-2 flex-row checkbox-wrapper">
             <Checkbox
               id="clientEncryption"
               checked={encrypt}
