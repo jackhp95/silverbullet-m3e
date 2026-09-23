@@ -30,6 +30,8 @@ import {
 import "@m3e/web/button";
 import "@m3e/web/form-field";
 import "@m3e/web/chips";
+// `Alert` renders `m3e-snackbar` (plug-api/ui/alert.tsx, Task D).
+import "@m3e/web/snackbar";
 
 function openPage(name: string) {
   void (async () => {

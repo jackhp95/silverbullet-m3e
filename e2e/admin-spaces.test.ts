@@ -244,13 +244,14 @@ test("switching a host-bound space to prefix without a value is rejected", async
   );
   // Task D (2026-09-22): `.sb-alert-error` is now a real, upgraded
   // `m3e-snackbar` (plug-api/ui/alert.tsx's declarative migration), not a
-  // bare `<div>` — dismissible + persistent (`duration="0"`, so it doesn't
-  // vanish on its own while the form's error state is still true) and with
-  // the error container-color token applied via inline style, not a class.
+  // bare `<div>` — persistent (`duration="0"`, so it doesn't vanish on its
+  // own while the form's error state is still true) and with the error
+  // container-color token applied via inline style, not a class.
+  // Deliberately NOT dismissible — see alert.tsx's header comment.
   const errorAlert = page.locator(".sb-alert-error");
   await expect(errorAlert).toHaveJSProperty("tagName", "M3E-SNACKBAR");
   expect(await isUpgraded(page, "m3e-snackbar", ".sb-alert-error")).toBe(true);
-  await expect(errorAlert).toHaveAttribute("dismissible", "");
+  await expect(errorAlert).not.toHaveAttribute("dismissible");
   // `duration` is a plain (non-reflecting) Lit property, not an HTML
   // attribute — checked via the live JS property instead.
   await expect(errorAlert).toHaveJSProperty("duration", 0);

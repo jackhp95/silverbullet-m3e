@@ -110,13 +110,16 @@ test("Alert variant class", () => {
 // m3e-snackbar's declarative API — see alert.tsx's header comment for the
 // flagged semantic mismatches (persistent-inline vs transient-fixed, the
 // 2-line clamp, singleton collision risk).
-test("Alert renders a declarative m3e-snackbar, persistent + dismissible, with the right container-color mapping", () => {
+test("Alert renders a declarative, persistent m3e-snackbar with the right container-color mapping", () => {
   const errorHtml = render(h(Alert, { variant: "error" }, "e"));
   expect(errorHtml).toContain("<m3e-snackbar");
   expect(errorHtml).not.toContain("<div");
   expect(errorHtml).toContain("open");
-  expect(errorHtml).toContain("dismissible");
   expect(errorHtml).toContain('duration="0"');
+  // Deliberately NOT dismissible — see alert.tsx's header comment: the
+  // component's own close button has no way to route back to the caller's
+  // error state, and two consumers already supply their own working one.
+  expect(errorHtml).not.toContain("dismissible");
   expect(errorHtml).toContain("--m3e-snackbar-container-color:var(--md-sys-color-error)");
 
   const warningHtml = render(h(Alert, { variant: "warning" }, "w"));

@@ -17,8 +17,10 @@ import { Alert, Button, Tabs } from "@silverbulletmd/silverbullet/ui";
 import type { TabId } from "../types.ts";
 // `Button` renders `m3e-button` — see plug-api/ui/button.tsx's doc comment
 // on why this side-effect import belongs at each DOM-side consumer, not the
-// kit file itself.
+// kit file itself. `Alert` renders `m3e-snackbar` (plug-api/ui/alert.tsx,
+// Task D) — same convention.
 import "@m3e/web/button";
+import "@m3e/web/snackbar";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "configuration", label: "Configuration" },

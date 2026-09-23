@@ -78,33 +78,11 @@ async function openSearchSheet(page: Page): Promise<void> {
   await expect(page.locator("#sb-search-sheet")).toHaveAttribute("open", "");
 }
 
-// The mode picker is the search bar's single leading icon button — the
-// open/closed-leading slot split (and so the `:visible` disambiguation this
-// helper used to need) existed only for `m3e-search-view`'s internal states,
-// and the search-view is gone.
-function modeTrigger(page: Page) {
-  return page.locator(
-    '#sb-search-sheet m3e-icon-button[title="Change search mode"]',
-  );
-}
-
-async function switchMode(
-  page: Page,
-  mode: "Search" | "Open" | "Run",
-): Promise<void> {
-  await modeTrigger(page).click();
-  // The picker is an `m3e-list` of `m3e-list-item`s split by `m3e-divider`s
-  // (search_sheet.tsx), replacing the `m3e-menu` this helper used to drive.
-  // It is rendered ONLY while open, so plain visibility is the readiness
-  // signal — there is no `isOpen` property to poll, because there is no
-  // component owning the open state any more.
-  const list = page.locator("#sb-search-sheet-mode-list");
-  await expect(list).toBeVisible();
-  await list.locator("m3e-list-item", { hasText: mode }).click();
-  // Picking unmounts the picker; wait for that so the screenshots this file
-  // takes can never catch a half-torn-down popover.
-  await expect(list).toHaveCount(0);
-}
+// 2026-09-22 (Task C): the mode picker (and Open/Run modes themselves) are
+// gone — this sheet is search-only now, so there is no mode to switch.
+// `modeTrigger`/`switchMode` (the search bar's leading icon button + its
+// m3e-list/m3e-divider popup) are deleted along with the feature they
+// drove, not left as dead helpers.
 
 async function openNavigationSheet(page: Page): Promise<void> {
   await page
@@ -128,7 +106,7 @@ async function seedLiveState(page: Page, sbServer: { url: string }) {
   await gotoSilverBulletPage(page, sbServer as any, "Epsilon");
 
   await openSearchSheet(page);
-  await switchMode(page, "Search");
+  // Search is the only mode now (Task C) — no mode switch needed.
   // A term matching no seeded page — activateSearchOption's opt-undefined
   // branch records the term then closes the sheet deterministically (same
   // technique search-sheet.test.ts's own recordSearchTerm test uses).
@@ -180,7 +158,13 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
       );
     });
 
-    await test.step("2. search sheet + mode menu: 3 radios, checked reflects mode, live row-count update", async () => {
+    // 2026-09-22 (Task C): renumbered from "search sheet + mode menu" — the
+    // mode menu itself is gone (search-only sheet, no Open/Run modes to
+    // pick between). What's left of this check: recent-search history shows
+    // on open, live row-count updates as you type, and — the load-bearing
+    // NEGATIVE half of Task C — no mode-picker chrome exists anywhere in
+    // the sheet at all.
+    await test.step("2. search sheet: recent-search history, live row-count update, NO mode picker", async () => {
       await openSearchSheet(page);
       const rows = page.locator(
         "#sb-search-sheet .sb-search-sheet-list .sb-name",
@@ -188,49 +172,21 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
       const historyCount = await rows.count();
       expect(
         historyCount,
-        "Open-mode history should be seeded/non-empty",
+        "recent-search history should be seeded/non-empty",
       ).toBeGreaterThan(0);
       await page.screenshot({ path: `${dir}/02a-search-sheet-history.png` });
 
-      await modeTrigger(page).click();
-      // The picker is an `m3e-list` of `m3e-list-item`s split by
-      // `m3e-divider`s (search_sheet.tsx), replacing the `m3e-menu` this block
-      // used to assert against. It exists only while open, so visibility is
-      // the readiness signal rather than a component `isOpen` property.
-      const picker = page.locator("#sb-search-sheet-mode-list");
-      await expect(picker).toBeVisible();
-
-      const rowsInPicker = picker.locator("m3e-list-item");
-      await expect(rowsInPicker).toHaveCount(3);
-      await expect(rowsInPicker).toContainText(["Search", "Open", "Run"]);
-      // Dividers separate the rows and never trail the last one.
-      await expect(picker.locator("m3e-divider")).toHaveCount(2);
-      // Default mode is Open (search_sheet.tsx's DEFAULT_MODE). Selection is
-      // carried by listbox/option ARIA now, not a component's `checked`
-      // attribute — plain `m3e-list-item` has no selection of its own.
-      await expect(rowsInPicker.filter({ hasText: "Open" })).toHaveAttribute(
-        "aria-selected",
-        "true",
-      );
-      await expect(rowsInPicker.filter({ hasText: "Search" })).toHaveAttribute(
-        "aria-selected",
-        "false",
-      );
-      await expect(rowsInPicker.filter({ hasText: "Run" })).toHaveAttribute(
-        "aria-selected",
-        "false",
+      // No mode-picker trigger, popup, or chrome from any earlier attempt
+      // (m3e-list/m3e-divider picker, m3e-menu, floating toolbar) survives.
+      await expect(
+        page.locator('#sb-search-sheet m3e-icon-button[title="Change search mode"]'),
+      ).toHaveCount(0);
+      await expect(page.locator("#sb-search-sheet-mode-list")).toHaveCount(0);
+      await expect(page.locator("#sb-search-sheet m3e-menu")).toHaveCount(0);
+      await expect(page.locator("#sb-search-sheet m3e-divider")).toHaveCount(
+        0,
       );
 
-      await page.screenshot({ path: `${dir}/02b-mode-picker-open.png` });
-      await assertNoOverlap(
-        page,
-        ["#sb-search-sheet-mode-list m3e-list-item"],
-        "mode picker rows",
-      );
-
-      // Dismiss the popover by clicking the input (outside the picker), then
-      // type — proving the list live-updates, not a static snapshot.
-      await page.locator("#sb-search-sheet-input").click();
       await page.locator("#sb-search-sheet-input").fill("Alpha");
       const typedCount = await rows.count();
       expect(
