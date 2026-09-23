@@ -919,7 +919,7 @@ export class MainUI {
               (now non-sticky, per L8/L9) app bar, above the editor host, in
               document order. */}
           <div id={PAGE_SCROLL_CONTAINER_ID}>
-            <FrontMatterPanel client={client} />
+            <FrontMatterPanel client={client} readOnly={isReadOnly} />
             <TopBar
               pageName={
                 !viewState.current

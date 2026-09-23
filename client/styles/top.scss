@@ -302,10 +302,13 @@ m3e-snackbar {
   // longer forcing a stop on every ordinary scroll.
 }
 
-// Front-matter property list (client/components/front_matter_panel.tsx),
+// Front-matter card (client/components/front_matter_panel.tsx). Originally
 // ported from the mockup's `.sb-property-list`/`.sb-property-row`
-// (`/tmp/sb-appbar-mockups/v5b.html:146-179`) onto the class names the real
-// component renders.
+// (`/tmp/sb-appbar-mockups/v5b.html:146-179`); redesigned 2026-09-22 per
+// Jack's direct "readonly → non-interactive row list, editable → just the
+// raw YAML in a card" split (front_matter_panel.tsx's own file-header
+// comment has the full rationale). `.sb-fm-panel` is the shared outer card
+// both `FrontMatterReadOnlyList` and `FrontMatterEditableCard` render into.
 .sb-fm-panel {
   margin: 20px 20px 0;
   border: 1px solid var(--md-sys-color-outline-variant);
@@ -314,6 +317,8 @@ m3e-snackbar {
   overflow: hidden;
 }
 
+// Read-only row list only (FrontMatterReadOnlyList) — the editable card is
+// just one textarea, no rows.
 .sb-fm-row {
   display: flex;
   align-items: center;
@@ -343,55 +348,34 @@ m3e-snackbar {
   flex: 1;
   min-width: 0;
   color: var(--md-sys-color-on-surface);
-  border-bottom: 1px dashed var(--md-sys-color-outline-variant);
-  cursor: text;
 }
 
-// Block-shaped fields (sequences/mappings/scalars, L4.3) — the structured
-// editors that render below a row rather than replacing its value span.
-.sb-fm-block-sequence,
-.sb-fm-block-mapping,
-.sb-fm-block-scalar {
-  padding: 0 14px 9px 14px;
-  border-bottom: 1px solid var(--md-sys-color-outline-variant);
-
-  &:last-child {
-    border-bottom: none;
-  }
+// Block-shaped fields (sequences/mappings/block-scalars) in the read-only
+// list render their raw multi-line YAML text as-is (front_matter_panel.tsx's
+// `FrontMatterReadOnlyRow`) — a plain `<span>` collapses newlines/leading-
+// space by default, so this is the one property that needs restoring for
+// them to actually look multi-line instead of running together.
+.sb-fm-value-multiline {
+  display: block;
+  white-space: pre-wrap;
 }
 
-.sb-fm-seq-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 0;
-}
-
-.sb-fm-seq-item-input {
-  flex: 1;
-  min-width: 0;
-}
-
-.sb-fm-block-mapping-textarea,
-.sb-fm-block-scalar-textarea {
-  width: 100%;
-}
-
-.sb-fm-remove,
-.sb-fm-edit-as-yaml {
-  flex: none;
-}
-
-.sb-fm-add-property {
+// The editable card's single whole-block raw-YAML textarea
+// (FrontMatterEditableCard). No click-to-edit affordance/border needed
+// (unlike the old per-field `.sb-fm-value`) — the whole card IS the editor
+// now.
+.sb-fm-yaml-textarea {
   display: block;
   width: 100%;
-  text-align: left;
-  padding: 9px 14px;
-  color: var(--md-sys-color-on-surface-variant);
+  padding: 14px;
+  border: 0;
+  outline: none;
+  resize: none;
   background: none;
-  border: none;
-  cursor: pointer;
-  font: var(--md-sys-typescale-body-medium-font);
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--editor-font);
+  font-size: 0.9em;
+  line-height: 1.5;
 }
 
 // ---------------------------------------------------------------------------

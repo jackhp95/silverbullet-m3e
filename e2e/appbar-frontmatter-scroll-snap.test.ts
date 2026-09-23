@@ -85,9 +85,21 @@ test.use({
 
 /** A `.sb-fm-row` located by its exact `.sb-fm-key` text — `:text-is()` (not
  * substring `text=`) so a key like "date" can't accidentally match "date"
- * inside a longer, unrelated key elsewhere in the panel. */
+ * inside a longer, unrelated key elsewhere in the panel. Only meaningful in
+ * READ-ONLY mode (front_matter_panel.tsx's `FrontMatterReadOnlyList`) —
+ * editable mode has no rows at all, just one raw-YAML textarea
+ * (`fmYamlTextarea` below). */
 function fmRow(page: Page, key: string) {
   return page.locator(`.sb-fm-row:has(.sb-fm-key:text-is("${key}"))`);
+}
+
+/** The editable card's single whole-block raw-YAML textarea
+ * (front_matter_panel.tsx's `FrontMatterEditableCard`) — what the panel
+ * renders in non-read-only mode (2026-09-22, readonly-gated raw-YAML-card
+ * task, superseding the earlier per-field structured editor this spec used
+ * to exercise). */
+function fmYamlTextarea(page: Page) {
+  return page.locator(".sb-fm-panel .sb-fm-yaml-textarea");
 }
 
 /** `#sb-page-scroll` (`PAGE_SCROLL_CONTAINER_ID`, client/editor_ui.tsx) is
@@ -151,19 +163,6 @@ async function waitForServerContent(
   return readServerFile(sbServer, pagePath);
 }
 
-/** The inverse of `waitForServerContent` — polls until a substring that was
- * present has been removed (e.g. a deleted list item). */
-async function waitForServerContentGone(
-  sbServer: SBServer,
-  pagePath: string,
-  goneSubstring: string,
-): Promise<string> {
-  await expect
-    .poll(() => readServerFile(sbServer, pagePath), { timeout: 10_000 })
-    .not.toContain(goneSubstring);
-  return readServerFile(sbServer, pagePath);
-}
-
 test("large app bar renders breadcrumb + headline + subtitle, rests snapped to the top, and pull-reveals the front-matter panel", async ({
   sbServer,
   page,
@@ -209,14 +208,13 @@ test("large app bar renders breadcrumb + headline + subtitle, rests snapped to t
     })
     .toBeGreaterThanOrEqual(0);
 
-  // Item 3 (part 2): the revealed panel shows a real property list with the
-  // right key/value text.
-  await expect(fmRow(page, "tags").locator(".sb-fm-value")).toHaveText(
-    "[demo, sample]",
-  );
-  await expect(fmRow(page, "date").locator(".sb-fm-value")).toHaveText(
-    "2026-01-01",
-  );
+  // Item 3 (part 2), redesigned 2026-09-22 (readonly-gated raw-YAML-card
+  // task): the revealed panel, NOT read-only, shows the whole-block raw
+  // YAML in one textarea — the right key/value text must still be in there.
+  const yamlTextarea = fmYamlTextarea(page);
+  await expect(yamlTextarea).toBeVisible();
+  await expect(yamlTextarea).toHaveValue(/tags: \[demo, sample\]/);
+  await expect(yamlTextarea).toHaveValue(/date: 2026-01-01/);
 
   // Item 2: every trailing control present + functional.
   const appBar = page.locator("m3e-app-bar");
@@ -229,7 +227,9 @@ test("large app bar renders breadcrumb + headline + subtitle, rests snapped to t
 
   // Read-only toggle actually toggles read-only (not just the icon/title —
   // the real CodeMirror `EditorState.readOnly` facet, per
-  // client/codemirror/editor_state.ts).
+  // client/codemirror/editor_state.ts) AND, per Jack's direct ask, flips
+  // the front-matter panel from the editable raw-YAML textarea over to the
+  // non-interactive row list.
   expect(
     await page.evaluate(() =>
       (globalThis as any).client.editorView.state.readOnly
@@ -244,8 +244,21 @@ test("large app bar renders breadcrumb + headline + subtitle, rests snapped to t
       )
     )
     .toBe(true);
+
+  await expect(fmYamlTextarea(page)).toHaveCount(0);
+  await expect(fmRow(page, "tags").locator(".sb-fm-value")).toHaveText(
+    "[demo, sample]",
+  );
+  await expect(fmRow(page, "date").locator(".sb-fm-value")).toHaveText(
+    "2026-01-01",
+  );
+
   await readOnlyButton.click(); // restore, for hygiene
   await expect(readOnlyButton).toHaveAttribute("title", "Enable read-only");
+
+  // Back to the editable card once read-only is off again.
+  await expect(fmYamlTextarea(page)).toBeVisible();
+  await expect(page.locator(".sb-fm-row")).toHaveCount(0);
 
   // Kebab opens its menu.
   const menu = page.locator("#sb-app-bar-menu");
@@ -263,7 +276,73 @@ test("a page with no frontmatter renders no front-matter panel at all", async ({
   await expect(page.locator(".sb-fm-panel")).toHaveCount(0);
 });
 
-test("inline edit writeback: scalar + flow values commit, Enter-then-blur commits exactly once, invalid YAML is rejected leaving the doc unchanged", async ({
+/** Front matter is folded/hidden until the panel + CM sync extension have
+ * both settled after a fresh navigation — waiting for the editable card's
+ * textarea to actually be present avoids racing that. */
+async function waitEditorReadyAndPanel(page: Page): Promise<void> {
+  await waitForEditorReady(page);
+  await expect(fmYamlTextarea(page)).toBeVisible({ timeout: 10_000 });
+}
+
+// 2026-09-22 (readonly-gated raw-YAML-card task, direct from Jack —
+// supersedes the earlier per-field "inline edit writeback"/"block-style
+// inline editing" tests this spec used to run, which exercised the
+// structured scalar/flow/block-sequence/block-mapping/block-scalar editors
+// that front_matter_panel.tsx no longer has). Editable mode is now one
+// whole-block raw-YAML textarea — there's only one commit path (blur) and
+// one span (the whole block), so the old per-field misattribution and
+// Enter-then-blur double-commit races this used to specifically guard
+// against aren't reachable code paths here anymore by construction.
+test("whole-block raw-YAML edit commits every shape (scalar/flow/block-sequence/block-mapping/block-scalar) at once, leaving the rest of the doc untouched", async ({
+  sbServer,
+  page,
+}) => {
+  await gotoSilverBulletPage(page, sbServer, "BlockShapesPage");
+  await scrollTo(page, 0);
+  await waitEditorReadyAndPanel(page);
+
+  const textarea = fmYamlTextarea(page);
+  await expect(textarea).toHaveValue(/tags:\n\s*- journal\n\s*- retro/);
+  await expect(textarea).toHaveValue(/notes: \|\n\s*line one\n\s*line two/);
+  await expect(textarea).toHaveValue(/author: Jack/);
+
+  await textarea.click();
+  await textarea.fill(
+    [
+      "tags:",
+      "  - journal-edited",
+      "  - added-item",
+      "notes: |",
+      "  line one",
+      "  line two",
+      "  line three",
+      "author: Jack",
+      "status: published",
+    ].join("\n"),
+  );
+  await textarea.blur();
+
+  const content = await waitForServerContent(
+    sbServer,
+    "BlockShapesPage.md",
+    "line three",
+  );
+  expect(content).toMatch(/tags:\n\s*-\s*journal-edited\n\s*-\s*added-item/);
+  expect(content).not.toContain("retro");
+  expect(content).toMatch(/notes: \|\n\s*line one\n\s*line two\n\s*line three/);
+  expect(content).toContain("author: Jack");
+  expect(content).toContain("status: published");
+  expect(content).toContain("Some body content."); // body untouched
+
+  // Reload and confirm the edit persisted.
+  await gotoSilverBulletPage(page, sbServer, "BlockShapesPage");
+  await scrollTo(page, 0);
+  await waitEditorReadyAndPanel(page);
+  await expect(fmYamlTextarea(page)).toHaveValue(/journal-edited/);
+  await expect(fmYamlTextarea(page)).toHaveValue(/line three/);
+});
+
+test("invalid YAML on blur is rejected — doc unchanged, error toast shown", async ({
   sbServer,
   page,
 }) => {
@@ -271,180 +350,23 @@ test("inline edit writeback: scalar + flow values commit, Enter-then-blur commit
   await scrollTo(page, 0);
   await waitEditorReadyAndPanel(page);
 
-  // --- Scalar edit (status): commit via Enter, then let the browser's own
-  // automatic blur (fired when the input unmounts post-commit — the exact
-  // race fixed in commit 26774192) fire too. Must commit exactly once, not
-  // duplicate.
-  const statusValue = fmRow(page, "status").locator(".sb-fm-value");
-  await statusValue.click();
-  const statusInput = fmRow(page, "status").locator(
-    "input.sb-fm-value-input",
-  );
-  await statusInput.fill("published");
-  await statusInput.press("Enter");
-  // A follow-up click elsewhere is a real, additional blur-target change —
-  // exercising the same "commit already happened, a later blur must be a
-  // no-op" path the fix guards, on top of the automatic unmount-blur.
-  await page.locator("#sb-editor .cm-content").click();
-
-  let content = await waitForServerContent(
-    sbServer,
-    "StatusPage.md",
-    "status: published",
-  );
-  expect(content).not.toContain("publishedpublished");
-  expect(content).not.toContain("published published");
-  // Exactly one occurrence of the committed value.
-  expect(content.match(/published/g)?.length).toBe(1);
-
-  // --- Flow edit (tags): re-derive the row after the status commit
-  // re-rendered the panel.
-  const tagsValue = fmRow(page, "tags").locator(".sb-fm-value");
-  await tagsValue.click();
-  const tagsInput = fmRow(page, "tags").locator("input.sb-fm-value-input");
-  await tagsInput.fill("[journal, verified]");
-  await tagsInput.press("Enter");
-  await page.locator("#sb-editor .cm-content").click();
-
-  content = await waitForServerContent(
-    sbServer,
-    "StatusPage.md",
-    "tags: [journal, verified]",
-  );
-  expect(content).not.toContain("tags: [journal, retro]");
-
-  // --- Invalid-YAML edit rejected, doc unchanged. The scalar/flow writeback
-  // path (`serializeYamlValue`) safely re-quotes any string a user types, so
-  // it can't actually be driven into producing broken YAML from those
-  // controls — the block-mapping textarea (`owner`) is the one control that
-  // validates the user's RAW text directly (`YAML.load`, before any
-  // safe-dumping), so it's the genuine way to reproduce a rejected edit.
-  const beforeInvalid = content;
-  const ownerTextarea = fmRow(page, "owner").locator(
-    "textarea.sb-fm-block-mapping-textarea",
-  );
-  await ownerTextarea.click();
-  await ownerTextarea.fill("name: [Jack"); // unbalanced flow bracket -> invalid YAML
-  await page.locator("#sb-editor .cm-content").click();
+  const beforeInvalid = await readServerFile(sbServer, "StatusPage.md");
+  const textarea = fmYamlTextarea(page);
+  await textarea.click();
+  await textarea.fill("status: [unterminated"); // invalid YAML
+  await page.locator("#sb-editor .cm-content").click(); // blur elsewhere
 
   const snackbar = page.locator("m3e-snackbar");
   await snackbar.waitFor({ state: "attached", timeout: 10_000 });
-  await expect(snackbar).toContainText('Couldn\'t save "owner" — invalid YAML');
+  await expect(snackbar).toContainText(
+    "Couldn't save front matter — invalid YAML",
+  );
 
   // Give any (incorrect) writeback a moment to land, then confirm nothing
   // changed.
   await page.waitForTimeout(500);
   const afterInvalid = await readServerFile(sbServer, "StatusPage.md");
   expect(afterInvalid).toBe(beforeInvalid);
-  expect(afterInvalid).toContain("name: Jack");
-  expect(afterInvalid).toContain("email: j@x.com");
-
-  // Reload (full navigation) and confirm the two valid writes persisted.
-  await gotoSilverBulletPage(page, sbServer, "StatusPage");
-  await scrollTo(page, 0);
-  await waitEditorReadyAndPanel(page);
-  await expect(fmRow(page, "status").locator(".sb-fm-value")).toHaveText(
-    "published",
-  );
-  await expect(fmRow(page, "tags").locator(".sb-fm-value")).toHaveText(
-    "[journal, verified]",
-  );
-});
-
-/** Front matter is folded/hidden until the panel + CM sync extension have
- * both settled after a fresh navigation — waiting for the panel's rows to
- * actually be present avoids racing that. */
-async function waitEditorReadyAndPanel(page: Page): Promise<void> {
-  await waitForEditorReady(page);
-  await expect(page.locator(".sb-fm-panel .sb-fm-row").first()).toBeVisible({
-    timeout: 10_000,
-  });
-}
-
-test("block-style inline editing: a block-sequence field (tags) and a literal block-scalar field (notes) both write back correctly, leaving sibling keys untouched", async ({
-  sbServer,
-  page,
-}) => {
-  await gotoSilverBulletPage(page, sbServer, "BlockShapesPage");
-  await scrollTo(page, 0);
-  await waitEditorReadyAndPanel(page);
-
-  // --- Block sequence (tags): edit item 0, add a new item, remove item 1
-  // (the original "retro"), in that order.
-  const tagsRow = fmRow(page, "tags");
-  const seqInputs = tagsRow.locator("input.sb-fm-seq-item-input");
-  await expect(seqInputs).toHaveCount(2);
-  await seqInputs.nth(0).fill("journal-edited");
-  await seqInputs.nth(0).blur();
-  // Let the edit land before the next one.
-  await waitForServerContent(sbServer, "BlockShapesPage.md", "journal-edited");
-
-  await tagsRow.locator(".sb-fm-seq-add").click(); // adds a trailing empty item
-  await expect(tagsRow.locator("input.sb-fm-seq-item-input")).toHaveCount(3);
-  await tagsRow.locator("input.sb-fm-seq-item-input").nth(2).fill(
-    "added-item",
-  );
-  await tagsRow.locator("input.sb-fm-seq-item-input").nth(2).blur();
-  await waitForServerContent(sbServer, "BlockShapesPage.md", "added-item");
-
-  // Remove the original second item ("retro").
-  await tagsRow.locator('m3e-icon-button[title="Remove retro"]').click();
-
-  const seqContent = await waitForServerContentGone(
-    sbServer,
-    "BlockShapesPage.md",
-    "retro",
-  );
-  expect(seqContent).toMatch(
-    /tags:\n\s*-\s*journal-edited\n\s*-\s*added-item\n/,
-  );
-  expect(seqContent).not.toContain("retro");
-  // Sibling key untouched.
-  expect(seqContent).toContain("author: Jack");
-
-  // --- Literal block scalar (notes): textarea shows DECODED lines, not the
-  // raw `|`-fenced source.
-  const notesRow = fmRow(page, "notes");
-  const notesTextarea = notesRow.locator("textarea.sb-fm-block-scalar-textarea");
-  // js-yaml's literal (`|`, clip-chomping) style keeps a single trailing
-  // newline on the parsed string — tolerate its presence or absence rather
-  // than asserting an exact byte count that depends on js-yaml's own
-  // chomping default.
-  await expect(notesTextarea).toHaveValue(/^line one\nline two\n?$/);
-
-  await notesTextarea.fill("line one\nline two\nline three");
-  await notesTextarea.blur();
-
-  const scalarContent = await waitForServerContent(
-    sbServer,
-    "BlockShapesPage.md",
-    "line three",
-  );
-  // Literal style preserved (`|`, never folded `>`) — per §4/L4.3's stated
-  // round-trip-fidelity rule, the chomping indicator suffix (bare `|` vs
-  // `|-`/`|+`) is NOT guaranteed identical to the original (js-yaml infers
-  // it from the edited value's own trailing-whitespace content), only the
-  // literal-vs-folded style itself is.
-  expect(scalarContent).toMatch(
-    /notes: \|[+-]?\n\s*line one\n\s*line two\n\s*line three\n/,
-  );
-  expect(scalarContent).not.toMatch(/notes: >/);
-  // Every other key still present and unchanged.
-  expect(scalarContent).toContain("author: Jack");
-  expect(scalarContent).toMatch(
-    /tags:\n\s*-\s*journal-edited\n\s*-\s*added-item\n/,
-  );
-
-  // Reload and confirm both edits persisted in the panel.
-  await gotoSilverBulletPage(page, sbServer, "BlockShapesPage");
-  await scrollTo(page, 0);
-  await waitEditorReadyAndPanel(page);
-  await expect(
-    fmRow(page, "tags").locator("input.sb-fm-seq-item-input"),
-  ).toHaveCount(2);
-  await expect(
-    fmRow(page, "notes").locator("textarea.sb-fm-block-scalar-textarea"),
-  ).toHaveValue(/^line one\nline two\nline three\n?$/);
 });
 
 test("navigating to a second page also rests snapped to the app bar (decision #3 fires on every navigation)", async ({

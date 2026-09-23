@@ -58,12 +58,17 @@ test.describe("Guide: Journaling", () => {
     await runJournalToday(sbPage);
 
     // Frontmatter is folded out of the editor and rendered in the
-    // front-matter property panel above the app bar (the appbar/frontmatter
+    // front-matter panel above the app bar (the appbar/frontmatter
     // redesign — see docs/plans/2026-09-22-appbar-large-frontmatter-scroll-snap.md),
     // so the `tags: journal` set by the built-in template
     // (Library/Std/Journal/Template) now surfaces there, not as raw text in
-    // `.cm-content`.
-    await expect(sbPage.locator(".sb-fm-panel")).toContainText("journal");
+    // `.cm-content`. 2026-09-22 (readonly-gated raw-YAML-card task): the
+    // panel's default (non-read-only) rendering is a `<textarea>` holding
+    // the raw YAML — a controlled textarea's displayed value isn't part of
+    // its `textContent`, so this must assert `toHaveValue`, not
+    // `toContainText`, against `.sb-fm-yaml-textarea` specifically.
+    await expect(sbPage.locator(".sb-fm-panel .sb-fm-yaml-textarea"))
+      .toHaveValue(/journal/);
   });
 
   test("created journal page is tagged journal on disk", async ({
