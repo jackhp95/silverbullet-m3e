@@ -320,7 +320,7 @@ export function SearchSheet({
           primitive here). `m3e-search-bar` has no state machine and no
           built-in leading icon, so the input is its only slotted content now
           that the mode-picker button is gone. */}
-      <m3e-search-bar class="sb-search-sheet-bar">
+      <m3e-search-bar class="sb-search-sheet-bar sticky top-0 z-[1] pb-3">
         <m3e-icon slot="leading" name="search"></m3e-icon>
         <Input
           bare

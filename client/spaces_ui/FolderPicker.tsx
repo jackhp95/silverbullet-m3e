@@ -153,11 +153,11 @@ export function FolderPicker({
         placeholder={placeholder}
         onInput={(e) => onChange(e.currentTarget.value)}
       />
-      <div class="sb-folder-picker-status">
+      <div class="sb-folder-picker-status flex items-center gap-3 mt-1">
         {statusLine()}
         <button
           type="button"
-          class="sb-link-button"
+          class="sb-link-button bg-transparent border-none shadow-none p-0 underline cursor-pointer hover:bg-transparent focus:outline-none focus:shadow-none focus-visible:outline-offset-2 focus-visible:rounded-sm"
           onClick={() => {
             setBrowsing((b) => !b);
             const start = (browseStart ?? value).replace(/\/+$/, "");
@@ -168,7 +168,7 @@ export function FolderPicker({
         </button>
       </div>
       {browsing && (
-        <div class="sb-folder-browser">
+        <div class="sb-folder-browser mt-2 py-2 px-3">
           <m3e-breadcrumb class="block mb-2" aria-label="Folder path" wrap>
             {crumbsFor(browsePath).map((c, i, crumbs) => (
               <m3e-breadcrumb-item

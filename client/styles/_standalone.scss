@@ -43,18 +43,9 @@ body.sb-standalone {
     margin-top: 1.75rem;
   }
 
-  details {
-    margin-top: 1rem;
-  }
-
-  // Every list on these pages is a custom `list-style: none` layout, never
-  // prose, so the UA's ~40px marker indent is pure dead space on the left.
-  // The old bundle got this from a global `* { padding: 0 }` reset; that reset
-  // is gone (it broke the editor), so state it where it actually applies.
-  ul,
-  ol {
-    padding-left: 0;
-  }
+  // details/ul/ol margin+padding migrated to Tailwind classes (mt-4, pl-0)
+  // at their one call site each (SpaceForm.tsx's <details>, SpaceList.tsx's
+  // <ul class="sb-space-list">) — no rule left here.
 
   // The component library has no Radio, so the setup wizard's hosting choice
   // uses native radios — just tint them to match .sb-checkbox.
@@ -159,26 +150,23 @@ body.sb-standalone {
   }
 }
 
-// The 720px reading column, used by the setup wizard and the Space Manager.
-// The login page opts out: it centres a card in the viewport instead.
-body.sb-standalone.sb-page {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 2rem 1rem;
-}
+// The 720px reading column (setup wizard, Space Manager) fully migrated to
+// Tailwind classes (max-w-[720px] mx-auto py-8 px-4) directly on <body> in
+// client/html/{setup,spaces}.html — the login page's body never had
+// .sb-page, so it never matched this rule (it centres a card in the
+// viewport instead). No rule left here.
 
-// The "floating island" card. On the column pages (Space Manager, setup
-// wizard) the mount point *is* the card; the login page mounts a full-viewport
-// centring wrapper instead and puts .floating-island inside it, so `#root` is
-// qualified with .sb-page to avoid drawing a second card around the first.
+// The "floating island" card. padding/margin-block moved to Tailwind (p-12
+// my-8) at both places this used to match: SpaceLogin.tsx's
+// `.floating-island` div, and client/html/{setup,spaces}.html's `#root`
+// (the mount point *is* the card on those pages). border-radius/shadow/
+// background/border (literal + theme-token mix) stay here.
 .sb-standalone .floating-island,
 .sb-standalone.sb-page #root {
-  padding: 3em;
   border-radius: 8px;
   box-shadow: rgba(0, 0, 0, 0.35) 0px 20px 20px;
   background-color: white;
   border: var(--modal-border-color) 1px solid;
-  margin-block: 2rem;
 }
 
 // .center container migrated to Tailwind utilities (`grid h-screen
@@ -201,27 +189,13 @@ body.sb-standalone.sb-page {
   color: #b00020;
 }
 
-// .checkbox-wrapper container migrated to Tailwind utilities (`flex
-// items-center gap-2 flex-row`); class kept on the element so the label
-// selector immediately below keeps matching.
-// A checkbox's label sits beside it, not above it: undo the block layout,
-// top margin and bold weight that `form label` gives the field labels, which
-// otherwise push the text out of line with the box and make every option
-// shout.
-.sb-standalone .checkbox-wrapper label,
-.sb-standalone form .checkbox-wrapper label {
-  display: inline;
-  margin: 0;
-  font-weight: normal;
-}
+// .checkbox-wrapper container migrated earlier; the label override
+// (inline/m-0/font-normal) is now also migrated, directly at LoginForm.tsx's
+// two `.checkbox-wrapper label` call sites — no rule left here.
 
-// .password-field container migrated to Tailwind utilities (`flex gap-2
-// items-center`); class kept on the element so the child selector below
-// keeps matching.
-.sb-standalone .password-field .sb-input,
-.sb-standalone .password-field m3e-form-field {
-  flex: 1;
-}
+// .password-field container migrated earlier; the child `flex:1` override is
+// now also migrated (`flex-1`) at LoginForm.tsx's call site — no rule left
+// here.
 
 
 /* Header: wordmark (+ admin tab bar) on the left, quiet log-out link on the
@@ -231,56 +205,39 @@ body.sb-standalone.sb-page {
    opened with an <h1>. Those headings are gone from the list screens (the tab
    bar names them), so 2rem left the content stranded — and on a list the first
    row adds another 0.5rem of its own padding before any text. */
+// display/align-items/justify-content/margin-bottom moved to Tailwind
+// classes at App.tsx's call site; border-bottom (literal alpha color) stays.
 .sb-standalone .sb-spaces-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   border-bottom: 1px solid #8884;
-  margin-bottom: 1rem;
 }
 
 // .sb-spaces-header-left fully migrated to Tailwind utilities (`flex
 // items-center gap-6`) at its one call site, App.tsx — no other selector
 // depends on this class, so it was dropped from the markup entirely.
 
+// display/align-items/gap moved to Tailwind classes at App.tsx's call site
+// (inline-flex items-center gap-1.5); font-size (typescale) stays.
 .sb-standalone .sb-wordmark {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4em;
   font-size: 1.1rem;
-
-  // The dock icon already carries its own rounded corners and padding, so it
-  // needs no framing here — only a size that sits with the wordmark's cap
-  // height rather than towering over it.
-  img {
-    width: 1.5em;
-    height: 1.5em;
-  }
 }
 
 /* Aligned columns: name | binding link | status | edit action. Each row is a
    subgrid so cells line up across rows while rows keep their borders.
    Non-admin rows simply leave the last column empty. */
-.sb-standalone .sb-space-list {
-  list-style: none;
-  display: grid;
-  grid-template-columns: 1fr max-content max-content max-content;
-}
-
+// Fully migrated to Tailwind classes at SpaceList.tsx's call sites: `.sb-
+// space-list` → `list-none grid grid-cols-[1fr_max-content_max-content_max-
+// content]`; its `<li>` → `grid [grid-template-columns:subgrid] col-span-
+// full items-center gap-x-4 py-2` (border-bottom, a literal alpha color,
+// stays as a rule below).
 .sb-standalone .sb-space-list li {
-  display: grid;
-  grid-template-columns: subgrid;
-  grid-column: 1 / -1;
-  align-items: center;
-  column-gap: 1rem;
-  padding: 0.5rem 0;
   border-bottom: 1px solid #8884;
 }
 
 /* Space name: opens the space itself for every account, admin or not. */
+// font-weight moved to Tailwind (font-semibold) at the call site; color
+// (theme token) stays.
 .sb-standalone .sb-space-link {
   color: var(--ui-accent-color);
-  font-weight: 600;
 }
 
 /* Admin-only per-row edit control, right-aligned at the end of the row —
@@ -290,9 +247,9 @@ body.sb-standalone.sb-page {
 /* Bottom-of-form destructive zone. Delete stays visually destructive (via
    .sb-button-danger's colour) but is sized like every other button — it
    shouldn't dominate the page. */
+// margin-top/padding-top moved to Tailwind (mt-8 pt-5) at both call sites
+// (UsersView.tsx, SpaceForm.tsx); border-top stays.
 .sb-standalone .sb-danger-zone {
-  margin-top: 2rem;
-  padding-top: 1.25rem;
   border-top: 1px solid #8884;
 }
 
@@ -302,47 +259,35 @@ body.sb-standalone.sb-page {
 }
 
 /* Server-side folder picker (client/spaces_ui/FolderPicker.tsx). */
+// display/align-items/gap/margin-top moved to Tailwind (flex items-center
+// gap-3 mt-1) at FolderPicker.tsx's call site; font-size (typescale) stays.
 .sb-standalone .sb-folder-picker-status {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-top: 0.25rem;
   font-size: 0.9em;
 }
 
+// Reset/layout properties (background/border/shadow/padding/text-decoration/
+// cursor, and their :hover/:focus counterparts) moved to Tailwind classes
+// (`bg-transparent border-none shadow-none p-0 underline cursor-pointer
+// hover:bg-transparent focus:outline-none focus:shadow-none
+// focus-visible:outline-offset-2 focus-visible:rounded-sm`) at both call
+// sites (FolderPicker.tsx, App.tsx's logout link); color/font-size/
+// font-family (theme tokens/inheritance) and the focus-visible outline
+// color stay here.
 .sb-standalone .sb-link-button {
-  background: none;
   color: var(--ui-accent-color);
-  border: none;
-  box-shadow: none;
-  padding: 0;
   font-size: inherit;
   font-family: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.sb-standalone .sb-link-button:hover {
-  background: none;
-}
-
-/* No focus ring on mouse clicks; keep a subtle one for keyboard focus. */
-.sb-standalone .sb-link-button:focus {
-  outline: none;
-  box-shadow: none;
 }
 
 .sb-standalone .sb-link-button:focus-visible {
   outline: 2px solid var(--ui-accent-color);
-  outline-offset: 2px;
-  border-radius: 2px;
 }
 
+// margin-top/padding moved to Tailwind (mt-2 py-2 px-3) at FolderPicker.tsx's
+// call site; border/radius/background (literal hex, no theme token) stay.
 .sb-standalone .sb-folder-browser {
-  margin-top: 0.5rem;
   border: 1px solid #ddd;
   border-radius: 4px;
-  padding: 0.5rem 0.75rem;
   background: #fafafa;
 }
 
@@ -359,57 +304,46 @@ body.sb-standalone.sb-page {
   font-style: italic;
 }
 
-/* Users table. */
-.sb-standalone .sb-user-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 1rem;
-}
+/* Users table. width/border-collapse/margin-top fully migrated to Tailwind
+   (w-full border-collapse mt-4) at UsersView.tsx's call site. */
 
+// text-align/font-weight/padding moved to Tailwind (text-left font-semibold
+// px-2 py-1.5); font-size/color (typescale/hand color) stay.
 .sb-standalone .sb-user-table th {
-  text-align: left;
-  font-weight: 600;
   font-size: 0.85em;
   color: #555;
-  padding: 0.35rem 0.5rem;
 }
 
+// padding/vertical-align moved to Tailwind (px-2 py-1.5 align-middle);
+// border-bottom stays.
 .sb-standalone .sb-user-table td {
-  padding: 0.35rem 0.5rem;
   border-bottom: 1px solid #8884;
-  vertical-align: middle;
 }
 
 // Name reads as the primary control; the Edit button repeats it at the row's
 // end, right-aligned like the spaces list.
+// font-weight moved to Tailwind (font-semibold) at the call site; color
+// (theme token) stays.
 .sb-standalone .sb-user-link {
   color: var(--ui-accent-color);
-  font-weight: 600;
 }
 
-.sb-standalone .sb-user-table td:last-child {
-  text-align: right;
-  width: 1%;
-  white-space: nowrap;
-}
+// Fully migrated to Tailwind (text-right w-[1%] whitespace-nowrap) at the
+// call site — no rule left here.
 
-.sb-standalone .sb-user-table label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3em;
-  margin: 0;
-  font-weight: normal;
-}
+// DEAD: `.sb-user-table label` — re-verified against current UsersView.tsx,
+// the table (line 81) has exactly one `<table>`, no `<label>` renders inside
+// it anywhere (the file's other `<label>`s all belong to unrelated forms).
+// Rule deleted, not migrated.
 
 // m3e-list-item owns its own internal row layout (headline/supporting-text/
 // trailing slots) — only the list's own container chrome is this class's
 // job now.
+// display/padding/margin moved to Tailwind (block p-2 mb-2) at UsersView.tsx's
+// call site; background/border-radius (literal hex) stay.
 .sb-standalone .sb-token-list {
-  display: block;
-  padding: 0.5rem;
   background: #f7f7f7;
   border-radius: 0.4em;
-  margin: 0 0 0.5rem;
 }
 
 // .sb-token-reveal container migrated to Tailwind utilities (`flex flex-col
@@ -420,22 +354,15 @@ body.sb-standalone.sb-page {
   font-family: monospace;
 }
 
+// padding/margin-top moved to Tailwind (py-2 px-3 mt-2) at SpaceForm.tsx's
+// call site; border/radius (literal hex) stay.
 .sb-standalone .sb-member-list {
   border: 1px solid #ddd;
   border-radius: 0.4em;
-  padding: 0.5rem 0.75rem;
-  margin-top: 0.5rem;
 }
 
-.sb-standalone .sb-member-list legend {
-  font-weight: 600;
-  padding: 0 0.3em;
-}
+// Fully migrated to Tailwind (font-semibold px-[0.3em]) at the call site —
+// no rule left here.
 
-.sb-standalone .sb-member-row {
-  display: flex;
-  align-items: center;
-  gap: 0.4em;
-  margin: 0.25rem 0;
-  font-weight: normal;
-}
+// Fully migrated to Tailwind (flex items-center gap-1 my-1 font-normal) at
+// the call site — no rule left here.

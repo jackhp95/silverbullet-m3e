@@ -135,22 +135,22 @@ export function App() {
   const onUsersTab = route.screen.startsWith("user");
   return (
     <NavigateProvider value={navigate}>
-      <div class="sb-spaces-header">
+      <div class="sb-spaces-header flex items-center justify-between mb-4">
         <div class="flex items-center gap-6">
-          <strong class="sb-wordmark">
+          <strong class="sb-wordmark inline-flex items-center gap-1.5">
             {/* The dock icon, in the small copy meant for inline use (see
                 client/images/README.md). `alt` is empty on purpose: the
                 wordmark beside it already says "SilverBullet", so a
                 description here would only make screen readers announce the
                 name twice. */}
-            <img src="assets/logo-dock-96x96.png" alt="" />
+            <img src="assets/logo-dock-96x96.png" alt="" class="size-6" />
             SilverBullet
           </strong>
           {/* The active tab is what names the current screen — the list screens
               dropped their headings rather than repeat it — so it carries
               `aria-current` and not just a highlight class. */}
           {auth.admin && (
-            <nav class="sb-tabs" aria-label="Administration">
+            <nav class="sb-tabs flex flex-wrap" aria-label="Administration">
               <a
                 class={`sb-tab ${onSpacesTab ? "sb-active" : ""}`}
                 aria-current={onSpacesTab ? "page" : undefined}
@@ -170,7 +170,7 @@ export function App() {
         </div>
         <button
           type="button"
-          class="sb-link-button sb-logout"
+          class="sb-link-button sb-logout bg-transparent border-none shadow-none p-0 underline cursor-pointer hover:bg-transparent focus:outline-none focus:shadow-none focus-visible:outline-offset-2 focus-visible:rounded-sm"
           onClick={async () => {
             try {
               await api("GET", "api/logout");

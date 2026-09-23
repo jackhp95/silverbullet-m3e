@@ -78,13 +78,13 @@ export function UserList({
       {!loaded && <p>Loading…</p>}
       {loaded && Object.keys(users).length === 0 && <p>No users yet.</p>}
       {loaded && Object.keys(users).length > 0 && (
-        <table class="sb-user-table">
+        <table class="sb-user-table w-full border-collapse mt-4">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Role</th>
+              <th class="text-left font-semibold px-2 py-1.5">Name</th>
+              <th class="text-left font-semibold px-2 py-1.5">Role</th>
               {/* Actions column; the header stays empty. */}
-              <th></th>
+              <th class="text-left font-semibold px-2 py-1.5"></th>
             </tr>
           </thead>
           <tbody>
@@ -94,14 +94,16 @@ export function UserList({
                 const href = spacesUrl(`/users/${encodeURIComponent(name)}`);
                 return (
                   <tr key={name}>
-                    <td>
-                      <a class="sb-user-link" href={href}>
+                    <td class="px-2 py-1.5 align-middle">
+                      <a class="sb-user-link font-semibold" href={href}>
                         {name}
                       </a>{" "}
                       {name === currentUsername && <Badge>you</Badge>}
                     </td>
-                    <td>{user.admin ? "admin" : "user"}</td>
-                    <td>
+                    <td class="px-2 py-1.5 align-middle">
+                      {user.admin ? "admin" : "user"}
+                    </td>
+                    <td class="px-2 py-1.5 align-middle text-right w-[1%] whitespace-nowrap">
                       {/* Same destination as the name — an explicit control
                           for anyone who doesn't read the name as clickable,
                           mirroring the spaces list. */}
@@ -319,7 +321,7 @@ export function UserDetail({
         <h2>API tokens</h2>
         {tokenNames.length === 0 && <p>No tokens.</p>}
         {tokenNames.length > 0 && (
-          <m3e-list class="sb-token-list">
+          <m3e-list class="sb-token-list block p-2 mb-2">
             {tokenNames.map((name) => (
               <m3e-list-item key={name}>
                 {name}
@@ -384,7 +386,7 @@ export function UserDetail({
           </div>
         )}
       </section>
-      <div class="sb-danger-zone">
+      <div class="sb-danger-zone mt-8 pt-5">
         <Button
           variant="danger"
           onClick={() => {

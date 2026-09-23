@@ -101,6 +101,7 @@ export function LoginForm({
             autocomplete="current-password"
             value={password}
             onInput={(event) => setPassword(event.currentTarget.value)}
+            class="flex-1"
           />
           <Button
             id="togglePassword"
@@ -118,7 +119,9 @@ export function LoginForm({
             checked={rememberMe}
             onChange={(event) => setRememberMe(event.currentTarget.checked)}
           />
-          <label for="rememberMe">Remember me ({rememberMeDays} days)</label>
+          <label for="rememberMe" class="inline m-0 font-normal">
+            Remember me ({rememberMeDays} days)
+          </label>
         </div>
       )}
       {clientEncryption && (
@@ -129,7 +132,7 @@ export function LoginForm({
               checked={encrypt}
               onChange={(event) => setEncrypt(event.currentTarget.checked)}
             />
-            <label for="clientEncryption">
+            <label for="clientEncryption" class="inline m-0 font-normal">
               Enable client encryption (e.g. when using a public computer)
             </label>
           </div>

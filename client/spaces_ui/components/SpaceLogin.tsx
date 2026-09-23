@@ -93,7 +93,7 @@ export function SpaceLogin({ config }: { config: AuthConfig }) {
 
   return (
     <div class="grid h-screen place-items-center">
-      <div class="flex flex-col justify-start flow floating-island">
+      <div class="flex flex-col justify-start flow floating-island p-12 my-8">
         <LoginForm
           title={
             <>

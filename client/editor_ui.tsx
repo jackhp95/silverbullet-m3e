@@ -897,9 +897,13 @@ export class MainUI {
           end-mode="side"
         >
           {viewState.panels.lhs.mode !== undefined && (
-            <div slot="start" id="sb-panel-lhs" className="sb-panel-drawer">
+            <div
+              slot="start"
+              id="sb-panel-lhs"
+              className="sb-panel-drawer flex flex-col h-full"
+            >
               <m3e-icon-button
-                className="sb-panel-drawer-close"
+                className="sb-panel-drawer-close self-end m-1"
                 aria-label="Close panel"
                 onClick={() => dispatch({ type: "hide-panel", id: "lhs" })}
               >
@@ -1006,9 +1010,13 @@ export class MainUI {
             <div id="sb-editor" />
           </div>
           {viewState.panels.rhs.mode !== undefined && (
-            <div slot="end" id="sb-panel-rhs" className="sb-panel-drawer">
+            <div
+              slot="end"
+              id="sb-panel-rhs"
+              className="sb-panel-drawer flex flex-col h-full"
+            >
               <m3e-icon-button
-                className="sb-panel-drawer-close"
+                className="sb-panel-drawer-close self-end m-1"
                 aria-label="Close panel"
                 onClick={() => dispatch({ type: "hide-panel", id: "rhs" })}
               >

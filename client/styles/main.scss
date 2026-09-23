@@ -186,19 +186,8 @@ body {
   flex: 1;
 }
 
-.sb-bottom-iframe {
-  width: 100%;
-  margin-top: 10px;
-  border: 1px solid var(--editor-widget-background-color);
-  border-radius: 5px;
-}
-
-.sb-top-iframe {
-  width: 100%;
-  margin-top: 10px;
-  border: 1px solid var(--editor-widget-background-color);
-  border-radius: 5px;
-}
+// DEAD: .sb-bottom-iframe/.sb-top-iframe — zero call sites anywhere in
+// client/ or plugs/ (grep-verified). Both rules deleted.
 
 // `#sb-main` is now an `m3e-drawer-container` (Phase B side-panel chrome) —
 // it manages the start/main/end row layout in its own Shadow DOM, so this
@@ -239,16 +228,9 @@ body {
 // Chrome wrapper for slotted lhs/rhs drawer content (the `start`/`end` slots
 // of `#sb-main`) — a close affordance (m3e-drawer-toggle) stacked above the
 // plug-owned Panel (panel.tsx), which is untouched.
-.sb-panel-drawer {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.sb-panel-drawer-close {
-  align-self: flex-end;
-  margin: 4px;
-}
+// .sb-panel-drawer/.sb-panel-drawer-close fully migrated to Tailwind classes
+// (flex flex-col h-full / self-end m-1) at both editor_ui.tsx call sites
+// (lhs and rhs drawers) — no rule left here.
 
 #sb-editor {
   // No longer a flex item of anything, and no longer needs to fill a box
@@ -290,43 +272,24 @@ m3e-dialog .sb-panel {
   }
 }
 
+// display/align-items/flex/text-align/padding-top/white-space moved to
+// Tailwind classes (flex items-baseline flex-none text-left pt-[3px]
+// whitespace-pre-wrap) at top_bar.tsx's call site; font-family stays
+// (content-adjacent editable/read-only cue via --chrome-font — theme.scss).
 .sb-page-prefix {
-  display: flex;
-  align-items: baseline;
-  flex: 0 0 auto;
-  text-align: left;
-  padding-top: 3px;
-  // Content-adjacent (renders the current page's own decoration icon), so it
-  // honors the editable/read-only cue via --chrome-font — see theme.scss.
   font-family: var(--chrome-font);
-  white-space: pre-wrap;
 }
 
-.sb-panel {
-  iframe {
-    background-color: var(--root-background-color);
-    border: 0;
-    width: 100%;
-    height: 100%;
-    padding: 0;
-    margin: 0;
-  }
+// border/width/height/padding/margin moved to Tailwind classes (border-0
+// w-full h-full p-0 m-0) at panel.tsx's iframe call site; background-color
+// (theme token) stays.
+.sb-panel iframe {
+  background-color: var(--root-background-color);
 }
 
-.sb-preview {
-  position: relative;
-}
-
-.sb-markdown-toolbar {
-  position: absolute;
-  opacity: 0;
-  transition: opacity 0.2s;
-  width: 100%;
-  display: flex;
-  justify-content: flex-end;
-  box-sizing: border-box;
-}
-
-.sb-markdown-toolbar:hover {
-  opacity: 1;
-}
+// DEAD: .sb-preview — zero call sites anywhere in the repo (git blame:
+// dates to the original Go-backend import, never touched since).
+//
+// DEAD: .sb-markdown-toolbar(:hover) — orphaned by a rename; the live
+// floating toolbar is .sb-floating-toolbar (top.scss), styled by
+// floating_toolbar.tsx. Both rules deleted.

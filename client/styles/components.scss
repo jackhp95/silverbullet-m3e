@@ -133,11 +133,8 @@
      padding/border-bottom below would double-paint a second indicator
      behind it. `:not(m3e-tabs)`/`:not(m3e-tab)` keep this block scoped to
      the `<a>` case. */
-.sb-tabs:not(m3e-tabs) {
-  display: flex;
-  gap: 0;
-  flex-wrap: wrap;
-}
+// Migrated to Tailwind classes at App.tsx's call site (flex flex-wrap;
+// gap:0 is the default, no class needed) — no rule left here.
 
 .sb-tab:not(m3e-tab) {
   padding: 8px 16px;
@@ -203,13 +200,13 @@
    links this stylesheet. */
 // Matches .sb-input's own surface so the affixes read as decoration on one
 // field rather than a differently-styled control sitting among the others.
+// display/align-items/overflow moved to Tailwind classes at SpaceForm.tsx's
+// call site (flex items-stretch overflow-hidden); border/radius/background
+// stay (theme-token bridge).
 .sb-url-input {
-  display: flex;
-  align-items: stretch;
   border: 0;
   border-radius: 0.5em;
   background: var(--text-field-background-color);
-  overflow: hidden;
 }
 
 .sb-url-input:focus-within {
@@ -217,28 +214,24 @@
   outline-offset: -1px;
 }
 
-.sb-url-input .sb-input {
-  border: none;
-  border-radius: 0;
-  flex: 1;
-  min-width: 0;
-  width: auto;
-  background: transparent;
-}
+// DEAD: `.sb-url-input .sb-input` — the sole `.sb-url-input` call site
+// (SpaceForm.tsx) uses `<Input>` in its default (non-`bare`) mode, which
+// never emits the `sb-input` class (plug-api/ui/input.tsx only adds it when
+// `bare` is set) — this selector never matches. Rule deleted.
 
 // The affixes are the parts you cannot type in, so they get their own darker
 // surface — the editable segment keeps the plain field background. Without
 // that contrast the whole control reads as one uniformly grey box and it stops
 // being obvious which part is the input.
+// display/align-items/white-space/user-select moved to Tailwind classes at
+// the call site (flex items-center whitespace-nowrap select-none); the rest
+// (padding is a themed em value alongside font-size, background/color are
+// theme tokens) stays.
 .sb-url-affix {
-  display: flex;
-  align-items: center;
   padding: 0.3em 0.6em;
   background: var(--subtle-background-color);
   color: var(--subtle-color);
   font-size: 0.9em;
-  white-space: nowrap;
-  user-select: none;
 }
 
 .sb-url-affix:first-child {

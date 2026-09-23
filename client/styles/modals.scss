@@ -1,52 +1,13 @@
-// Audit note (m3e/tailwind sweep): file is already disciplined — every rule
-// below is either (a) genuine M3E-token/shadow-DOM plumbing with an inline
-// rationale (see .sb-option/.sb-selected-option/.sb-hint comments), a
-// responsive @media breakpoint with no utility equivalent, or (c) already
-// migrated (.sb-dialog-actions, .sb-prompt-field, both noted in place). No
-// further conversion found; only .sb-prompt-field's `width: 100%` this pass
-// (see below) qualified as pure layout glue.
+// Re-audited 2026-09-22 (m3e/tailwind reduction pass): the base `.sb-modal-
+// box` box-chrome + `&::backdrop` + the 600px media query + `.sb-header`
+// were ALL dead — `m3e-search-view.sb-modal-box` (below) is the class's only
+// live consumer, and element+class always outranks a bare class selector,
+// so none of these ever painted. `.sb-header`/`label`/`.sb-input` matched
+// nothing at all (filter.tsx renders `.sb-header-label`/`.sb-filter-input`
+// instead — different names, feature was renamed, rules were never
+// cleaned up). All deleted, not migrated. The remaining nested rules below
+// ARE live (m3e-list-item/m3e-list children of the real element).
 .sb-modal-box {
-  margin-top: 60px;
-  padding: 0;
-  width: 700px;
-  max-width: 90%;
-  border-radius: 8px;
-  overflow: hidden;
-  box-sizing: border-box;
-
-  &::backdrop {
-    background-color: var(--modal-backdrop-color);
-  }
-
-  @media only screen and (max-width: 600px) {
-    margin-top: 8px;
-    width: 100%;
-    max-width: 100%;
-    max-height: calc(100vh - 16px);
-    border-radius: 0;
-  }
-
-  .sb-header {
-    padding: 13px 10px 10px 10px;
-    display: flex;
-
-    label {
-      margin: 3px;
-    }
-
-    .sb-input {
-      flex-grow: 1;
-      min-width: 0;
-      background-color: transparent;
-      padding: 0;
-      border-radius: 0;
-
-      &:focus {
-        box-shadow: none;
-      }
-    }
-  }
-
   .sb-help-text {
     padding: 5px;
   }
@@ -168,23 +129,9 @@ m3e-search-view.sb-modal-box {
   );
 }
 
-// The item-creation bottom sheet's body (client/components/
-// item_capture_sheet.tsx) stacks an m3e-segmented-button, an m3e-form-field,
-// and an m3e-button — plain block-level custom elements with no spacing
-// cssprop of their own between SIBLINGS (checked SegmentedButtonElement.d.ts/
-// FormFieldElement.d.ts: only internal/self padding+shape tokens, nothing for
-// gap-to-next-sibling) — so with zero app CSS they were flush against each
-// other (flagged live 2026-09-16). Layout-only concern, bottom rung of the
-// styling ladder: plain flex + gap.
-.sb-item-capture-sheet-body {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-
-  m3e-form-field {
-    width: 100%;
-  }
-}
+// DEAD: .sb-item-capture-sheet-body styled item_capture_sheet.tsx, deleted
+// wholesale in 16f27408 ("V3: delete dead nav-bar/item-capture code") —
+// zero remaining call sites anywhere in the repo. Rule deleted.
 
 // search_sheet.tsx's consolidated search bottom sheet body. Same "plain
 // flex + gap" bottom rung as .sb-item-capture-sheet-body above (no m3e
@@ -278,12 +225,13 @@ m3e-search-view.sb-modal-box {
 // to clear (verified against `.sb-search-sheet-body` below, which DOES have
 // `16px` side padding for the results list — that's the results' own
 // affordance, deliberately left alone since only the search bar was named).
+// Position/z-index/padding are layout, moved to Tailwind classes at
+// search_sheet.tsx's call site (`sticky top-0 z-[1] pb-3`). The fill itself
+// is migrated up the styling ladder from a plain `background-color` to
+// m3e-search-bar's own sanctioned cssprop (SearchBarElement.d.ts confirms
+// --m3e-search-bar-container-color is real) — this rule used to bypass it.
 .sb-search-sheet-bar {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding-bottom: 12px;
-  background-color: var(--modal-background-color);
+  --m3e-search-bar-container-color: var(--modal-background-color);
 }
 
 // No floating toolbar overlays this sheet any more (the mode picker moved

@@ -247,13 +247,15 @@ export function SpaceForm({
           onInput={setPrefix}
         />
       ) : (
-        <div class="sb-url-input">
+        <div class="sb-url-input flex items-stretch overflow-hidden">
           {/* Only the scheme is fixed, and it is always https://: SilverBullet
               requires TLS, and a host-bound space is reached through whatever
               proxy terminates it — never on this server's own listening port.
               Nothing follows the hostname, so there is no trailing affix; a
               bare "/" only added noise. */}
-          <span class="sb-url-affix">https://</span>
+          <span class="sb-url-affix flex items-center whitespace-nowrap select-none">
+            https://
+          </span>
           <Input
             id="space-bind-value"
             value={hostValue}
@@ -295,8 +297,8 @@ export function SpaceForm({
         browseStart={folderTouched ? undefined : "spaces"}
       />
       <h3>Access</h3>
-      <fieldset class="sb-member-list">
-        <legend>Members</legend>
+      <fieldset class="sb-member-list mt-2 py-2 px-3">
+        <legend class="font-semibold px-[0.3em]">Members</legend>
         {usersError && (
           <Alert variant="error">
             Could not load users —{" "}
@@ -317,7 +319,11 @@ export function SpaceForm({
         {Object.entries(users)
           .sort((a, b) => a[0].localeCompare(b[0]))
           .map(([username, u]) => (
-            <label class="sb-member-row" key={username} for={`space-member-${username}`}>
+            <label
+              class="sb-member-row flex items-center gap-1 my-1 font-normal"
+              key={username}
+              for={`space-member-${username}`}
+            >
               <Checkbox
                 id={`space-member-${username}`}
                 checked={u.admin || members.has(username)}
@@ -337,7 +343,7 @@ export function SpaceForm({
             </label>
           ))}
       </fieldset>
-      <details>
+      <details class="mt-4">
         <summary>Advanced</summary>
         <label for="space-is-public">
           <Checkbox
@@ -424,7 +430,7 @@ export function SpaceForm({
         </span>
       </div>
       {id && (
-        <div class="sb-danger-zone">
+        <div class="sb-danger-zone mt-8 pt-5">
           <Button variant="danger" onClick={() => setConfirmDelete(true)}>
             Delete space
           </Button>

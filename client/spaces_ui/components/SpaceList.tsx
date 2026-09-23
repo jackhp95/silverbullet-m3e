@@ -57,10 +57,13 @@ export function SpaceList({
             : "You don't have access to any spaces yet."}
         </p>
       )}
-      <ul class="sb-space-list">
+      <ul class="sb-space-list pl-0 list-none grid grid-cols-[1fr_max-content_max-content_max-content]">
         {spaces.map((space) => (
-          <li key={space.id}>
-            <a class="sb-space-link" href={spaceUrl(space.binding)}>
+          <li
+            key={space.id}
+            class="grid [grid-template-columns:subgrid] col-span-full items-center gap-x-4 py-2"
+          >
+            <a class="sb-space-link font-semibold" href={spaceUrl(space.binding)}>
               {space.name}
             </a>
             <a href={spaceUrl(space.binding)} target="_blank" rel="noopener">
