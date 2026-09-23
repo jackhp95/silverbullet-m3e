@@ -1,6 +1,5 @@
 import type { ComponentChildren } from "preact";
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import { Input } from "@silverbulletmd/silverbullet/ui";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { relativeTime } from "../lib/relative_time.ts";
 import { countWords, readingTimeMinutes } from "../lib/reading_time.ts";
 import "@m3e/web/app-bar";
@@ -126,24 +125,44 @@ function PageNameEditor({
   const committing = useRef(false);
   useEffect(() => setName(pageName ?? ""), [pageName]);
 
-  // 2026-09-22 (app-bar title wrap task): a real `<input>` can NEVER wrap
-  // its text onto multiple lines — that's a browser-level rendering
-  // constraint on form controls (MDN: an `<input>`'s value "is always
-  // displayed on a single line"), not something CSS `white-space`/
-  // `text-wrap` can override. A Notion-style display/edit dual-mode (plain
-  // wrapping `<span>` shown until clicked, swapping to this same `<input>`
-  // only while editing) was tried and reverted here — it breaks ~15 existing
-  // e2e specs across page-rename.test.ts, page-picker.test.ts,
-  // navigate-restore.test.ts, wiki-links.test.ts, app-bar-leading-
-  // trailing.test.ts, and others, all of which assert
-  // `#sb-current-page input.sb-input` is present and directly clickable at
-  // all times (`nameInput.click()` immediately followed by typing, with no
-  // "enter edit mode" step) — a real, load-bearing test contract, not
-  // incidental coverage. Flagged to Jack rather than landing that
-  // rearchitecture unasked. Kept as a single always-live `<input>`; the fix
-  // here is containment (ellipsis, no visual overflow past the bar) plus
-  // the responsive size-shrink below, which is what an editable native
-  // form control can actually do.
+  // 2026-09-22 (app-bar title wrap task, live report — title still didn't
+  // visibly wrap): a real `<input>` can NEVER wrap its text onto multiple
+  // lines — that's a browser-level rendering constraint (MDN: an `<input>`'s
+  // value "is always displayed on a single line"), not something CSS
+  // `white-space`/`text-wrap` can override. An earlier pass on this task
+  // tried a Notion-style display/edit dual-mode (plain wrapping `<span>`
+  // shown until clicked, swapping to an `<input>` only while editing) and
+  // reverted it — that broke ~15 e2e specs asserting the input is present
+  // and directly clickable with no separate "enter edit mode" click.
+  //
+  // Fix, confirmed with Jack: swap the single-line `<input>` for a
+  // `<textarea>` instead. A `<textarea>` wraps natively (that's its whole
+  // purpose) AND stays a single, always-live, always-clickable/typable
+  // element — same interaction model as the old input, so the "always
+  // present, no edit-mode step" contract those ~15 specs rely on still
+  // holds; only the tag name changed (input.sb-input -> textarea.sb-input
+  // under #sb-current-page — every one of those specs' selectors updated to
+  // match, see their own diffs). Auto-grow height as it wraps onto more
+  // lines is CSS `field-sizing: content` (top.scss's `#sb-current-page
+  // .sb-input`) — Baseline "Newly available" (Chrome/Edge 123+, Firefox
+  // 152+, Safari 26.2+) per the modern-web-guidance skill's
+  // `form-fields-automatically-fit-contents` guide; unsupported browsers
+  // gracefully fall back to a fixed-height, internally-scrolling textarea
+  // rather than breaking (see that CSS block's `@supports not` fallback).
+  //
+  // The app-bar's own vendor CSS already line-clamps the slotted title to 2
+  // lines by default (`--m3e-app-bar-{large,medium}-title-max-lines`,
+  // decompiled app-bar.js: `-webkit-line-clamp: 2` on the shadow `.title`
+  // that wraps our slotted content) — so the previous custom `barSize`
+  // measurement effect (shrinking `size="large"` -> `"medium"` to avoid a
+  // single-line overflow) is no longer needed at all: with real wrapping,
+  // a long title just flows onto its 2nd line instead of overflowing
+  // horizontally, and the vendor's own clamp caps it beyond that. Removed
+  // that whole effect/ResizeObserver/mirror-span subsystem below along with
+  // it — simpler, and it was also the source of the earlier infinite
+  // grow/shrink jitter bug, so removing it outright (rather than patching
+  // it again) matches Jack's own "maybe it should just always be [one
+  // size]" suggestion from that report.
   const commit = (newName: string) => {
     if (committing.current) {
       return;
@@ -161,15 +180,28 @@ function PageNameEditor({
   };
 
   return (
-    <Input
-      // Inline page-title text, not a boxed Material field — see the
-      // `bare` prop's doc comment on plug-api/ui/input.tsx.
-      bare
-      class="sb-page-name-editor"
+    <textarea
+      class="sb-input sb-page-name-editor"
+      rows={1}
       value={name}
       readOnly={readOnly}
       onInput={(e) => setName(e.currentTarget.value)}
-      onConfirm={(value) => commit(value)}
+      onKeyDown={(e) => {
+        // IME composition guard (CJK candidate confirmation etc.) — same
+        // rule plug-api/ui/input.tsx's `Input` uses, so a half-composed
+        // value can't be submitted by its own confirming Enter.
+        if (e.isComposing) {
+          return;
+        }
+        // A textarea's native Enter behavior is "insert a newline" — titles
+        // are single logical strings (just visually wrapped), so Enter here
+        // means "commit", exactly like the old input's onConfirm.
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit(e.currentTarget.value);
+          e.currentTarget.blur();
+        }
+      }}
       onBlur={(e) => commit(e.currentTarget.value)}
     />
   );
@@ -274,61 +306,20 @@ export function TopBar({
     M3eSnackbar.open(isOnline ? "Back online" : "You're offline");
   }, [isOnline]);
 
-  // 2026-09-22 (app-bar title wrap task): drop from `size="large"` to
-  // `size="medium"` (both real values — AppBarSize.d.ts: "small" | "medium"
-  // | "large") whenever the title, at the large-size title font
-  // (Display Small), would be wider than the space actually available —
-  // the case that used to visibly overflow the bar. `size` is a plain
-  // reflected JS/attribute property on `m3e-app-bar` (AppBarElement.d.ts),
-  // not a CSS-stylable token, so a container query alone can't flip it — a
-  // CSS container query can't set an attribute on any element, full stop,
-  // regardless of component. A hidden same-font mirror span
-  // (`titleMirrorRef`, rendered inside the real title slot so it inherits
-  // the exact same `--m3e-app-bar-*-title-text-font-*` cascade) reports the
-  // title's true natural (unwrapped) width via `scrollWidth`; `titleRef`'s
-  // `clientWidth` reports the width actually available. The visible
-  // `<input>` itself can't be measured this way while focused/mid-edit (its
-  // own scrollWidth reflects the caret's scroll position, not the full
-  // value), which is exactly why this uses a separate mirror instead.
-  //
-  // 2026-09-22 (jitter fix — live report): the original version of this
-  // wrapped the same measurement in a persistent `ResizeObserver` watching
-  // `titleRef`. That was a real feedback loop, not a one-off flake: the
-  // mirror's font cascades from `m3e-app-bar`'s OWN `size` attribute
-  // (--m3e-app-bar-large/medium-title-text-font-*), i.e. from `barSize`
-  // itself — so the very act of setting `barSize` to "medium" shrinks the
-  // mirror's own `scrollWidth`, which can make it fit again, flipping back
-  // to "large", which grows the font back out, overflowing again... forever.
-  // `titleRef`'s own box can also shift size when the bar's `size` changes
-  // (different icon/slot metrics per size), which re-fires the observer on
-  // every single one of those self-inflicted layout changes. Two different
-  // feedback paths into the same setState — textbook infinite-loop plumbing.
-  //
-  // Fixed contract, matching what Jack asked for exactly: this measures
-  // ONCE per title change (still keyed on [pageName, pageNamePrefix] below —
-  // "pageload or input change", never on the bar's own resulting layout
-  // shift), via `useLayoutEffect` so the DOM mutation + re-render happen
-  // before the browser paints (no visible frame at the wrong size), and
-  // there is no persistent observer left running afterward to re-trigger
-  // itself — so there is nothing left that CAN oscillate. A later real
-  // window resize (not caused by this effect) is deliberately NOT re-
-  // measured until the next title change; if Jack wants viewport-resize
-  // responsiveness back, that needs a debounced, mirror-pinned-to-large-
-  // font remeasure, not this loop, and should be its own follow-up.
-  const titleRef = useRef<HTMLElement>(null);
-  const titleMirrorRef = useRef<HTMLSpanElement>(null);
-  const [barSize, setBarSize] = useState<"large" | "medium">("large");
-  useLayoutEffect(() => {
-    const el = titleRef.current;
-    const mirror = titleMirrorRef.current;
-    if (!el || !mirror) {
-      return;
-    }
-    const available = el.clientWidth;
-    const needed = mirror.scrollWidth;
-    const overflows = available > 0 && needed > available;
-    setBarSize(overflows ? "medium" : "large");
-  }, [pageName, pageNamePrefix]);
+  // 2026-09-22 (app-bar title wrap task — superseded, see PageNameEditor's
+  // comment): this used to hold a `barSize` state ("large"/"medium") plus a
+  // hidden measurement mirror + ResizeObserver, shrinking the whole app bar
+  // to avoid a single-line `<input>` overflowing horizontally. Removed
+  // entirely now that the title editor is a real wrapping `<textarea>`: a
+  // long title just flows onto a 2nd line instead of overflowing, and the
+  // app bar's own vendor CSS already line-clamps the slotted title to 2
+  // lines by default (`--m3e-app-bar-large-title-max-lines`, decompiled
+  // app-bar.js), so there's nothing left for a custom shrink effect to do.
+  // That effect was also the exact source of the earlier infinite
+  // grow/shrink jitter bug (two feedback paths into the same setState, both
+  // rooted in measuring against the bar's own current `size`) — deleting
+  // the whole subsystem instead of patching it again removes that failure
+  // mode by construction. `size` is always `"large"` now.
 
   return (
     <div
@@ -338,7 +329,7 @@ export function TopBar({
     >
       {lhs}
       <div className="main">
-        <m3e-app-bar size={barSize}>
+        <m3e-app-bar size="large">
           {/* "asterisk" verified as a real glyph in the bundled font
               subset — client/fonts/MaterialSymbolsOutlined.woff2 decompiled
               (fontTools) and its glyph order literally contains "asterisk"
@@ -378,7 +369,7 @@ export function TopBar({
               </m3e-breadcrumb-item>
             ))}
           </m3e-breadcrumb>
-          <span slot="title" className="sb-page-title" ref={titleRef}>
+          <span slot="title" className="sb-page-title">
             <span className="sb-page-prefix flex items-baseline flex-none text-left pt-[3px] whitespace-pre-wrap">
               {pageNamePrefix}
             </span>
@@ -391,12 +382,6 @@ export function TopBar({
                 readOnly={readOnly}
                 onRename={onRename}
               />
-            </span>
-            {/* Invisible, same-font natural-width probe for the responsive
-                size-shrink effect above — never shown, `aria-hidden` so it's
-                not read out twice alongside the real title. */}
-            <span className="sb-page-title-mirror" aria-hidden="true" ref={titleMirrorRef}>
-              {pageNamePrefix}{pageName}
             </span>
           </span>
           <span slot="subtitle">

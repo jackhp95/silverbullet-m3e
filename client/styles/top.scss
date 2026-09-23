@@ -43,71 +43,45 @@
 
   .sb-page-title {
     display: flex;
-    align-items: baseline;
+    // 2026-09-22 (app-bar title wrap task, textarea leaf): was
+    // `align-items: baseline` for the old single-line `<input>` (prefix and
+    // value both sat on one text baseline). The title editor is now a
+    // wrapping `<textarea>` that can grow to a 2nd line — `baseline`
+    // alignment would anchor the prefix to the textarea's LAST line's
+    // baseline as it grows, drifting the prefix down. `flex-start` keeps the
+    // prefix pinned to the first line, matching where reading starts.
+    align-items: flex-start;
     min-width: 0;
     width: 100%;
     // No manual font-size override here on purpose (2026-09-15, still true
     // post-V5b): leaving this unset lets m3e's own app-bar title token
-    // cascade in through the slot instead of a hardcoded value — now the
+    // cascade in through the slot instead of a hardcoded value — the
     // `size="large"` token (--m3e-app-bar-large-title-text-font-size,
-    // Material's "Display Small" scale) rather than the old `size="small"`
-    // one (2026-09-22 V5b/L8/L9) — still legible, editable, and rename-able.
-    // The `size` itself now also responds to available width — see
-    // top_bar.tsx's `barSize` effect — shrinking to "medium" before a long
-    // title would overflow.
-    position: relative;
-
-    // 2026-09-22 (app-bar title wrap task): natural-width probe used by
-    // top_bar.tsx's one-shot layout-effect to decide whether the title
-    // needs the smaller bar size. Absolutely positioned (out of flow,
-    // doesn't affect layout/height) but NOT `display:none` — `scrollWidth`
-    // of a non-rendered element is always 0, so it must actually be laid
-    // out to measure real text width.
-    //
-    // 2026-09-22 (jitter fix): font pinned explicitly to the `size="large"`
-    // title tokens, NOT left to cascade from the slot (which used to track
-    // whichever `size` the app-bar currently happens to be in). The old
-    // cascaded version made the mirror's own measured width depend on
-    // `barSize` — the exact state the measurement is supposed to decide —
-    // which was one of two feedback paths into top_bar.tsx's old
-    // ResizeObserver-driven infinite grow/shrink loop (see that file's
-    // comment). Pinning to "large" always answers the same question,
-    // "would this title overflow at the large size", independent of
-    // whatever size the bar happened to be in on a previous title.
-    .sb-page-title-mirror {
-      position: absolute;
-      top: 0;
-      left: 0;
-      visibility: hidden;
-      white-space: pre;
-      pointer-events: none;
-      font-size: var(--m3e-app-bar-large-title-text-font-size);
-      font-weight: var(--m3e-app-bar-large-title-text-font-weight);
-      line-height: var(--m3e-app-bar-large-title-text-line-height);
-    }
+    // Material's "Display Small" scale). `size` is a fixed `"large"` now
+    // (top_bar.tsx) — see #sb-current-page below for why a responsive
+    // shrink-to-"medium" effect is no longer needed once the title wraps.
   }
 
   #sb-current-page {
     flex: 1;
     min-width: 0;
-
-    overflow: hidden;
-    white-space: nowrap;
     text-align: left;
     display: block;
 
     -webkit-app-region: drag;
 
-    // A native `<input>` can never wrap its text onto multiple lines
-    // (browser-level constraint — see PageNameEditor's comment in
-    // top_bar.tsx for why a display/edit dual-mode that WOULD wrap was
-    // reverted). The best containment an always-live, always-clickable
-    // input can offer is: never visually escape the bar. `text-overflow:
-    // ellipsis` (the input itself already has `overflow-x: hidden` below)
-    // makes a truncated title read as "here's more, cut off" instead of the
-    // old bare clip, which is the "doesn't overflow" half of the ask; the
-    // responsive size-shrink (top_bar.tsx `barSize`) handles the other half
-    // by making more titles fit in the first place.
+    // 2026-09-22 (app-bar title wrap task, textarea leaf — live report:
+    // "still doesn't appear that the title text wraps"). The title editor
+    // is a `<textarea>` now (top_bar.tsx's PageNameEditor), not a single-
+    // line `<input>` — textareas wrap natively, which is the actual fix;
+    // no `white-space`/`overflow`/`text-overflow` trickery needed or wanted
+    // here anymore (a wrapped textarea has no horizontal overflow to hide).
+    // The app bar's own vendor CSS still caps it at 2 lines
+    // (`--m3e-app-bar-large-title-max-lines`, default 2, decompiled
+    // app-bar.js's `-webkit-line-clamp` on the shadow `.title` wrapping our
+    // slotted content) — that's the "doesn't grow forever" half; this
+    // block's `field-sizing: content` + `max-block-size: 2lh` below is the
+    // "actually grows to fit, up to that cap" half.
     .sb-input {
       // The page-title/name editor — the clearest "am I looking at editable
       // content" cue there is, so it honors --chrome-font (theme.scss)
@@ -115,23 +89,38 @@
       font-family: var(--chrome-font);
       font-size: inherit;
       // Match the line box the old CodeMirror title used so the text stays
-      // vertically centred in its row (a native input defaults to a shorter
-      // `line-height: normal`, which pulls the title upward). Must still fit
-      // the app bar's own title row at whatever font-size the app-bar's own
-      // title token resolves to (see .sb-page-title above, now the
-      // `size="large"` token per V5b/L8/L9) — check visually after any
+      // vertically centred in its row (a plain textarea defaults to a
+      // shorter `line-height: normal`, which pulls the title upward). Must
+      // still fit the app bar's own title row at whatever font-size the
+      // app-bar's own title token resolves to (see .sb-page-title above,
+      // the `size="large"` token per V5b/L8/L9) — check visually after any
       // token/size change.
       line-height: 1.35;
       color: inherit;
       background-color: transparent;
       padding: 0;
-      width: 100%;
       border: 0;
       border-radius: 0;
       outline: none;
-      overflow-x: hidden;
-      text-overflow: ellipsis;
+      resize: none;
       caret-color: var(--editor-caret-color);
+      overflow: hidden;
+
+      // Auto-grow to fit the wrapped content, per the modern-web-guidance
+      // skill's `form-fields-automatically-fit-contents` guide: `width` is
+      // pinned explicitly (not `field-sizing`'s own horizontal auto-size —
+      // that would jarringly shrink/grow the textarea's WIDTH as the user
+      // types, per the guide's own textarea caveat) so only the HEIGHT
+      // auto-sizes as text wraps onto more lines. `max-block-size: 2lh`
+      // caps growth at the same 2 lines the app bar's own vendor CSS
+      // clamps to (`.sb-page-title` comment above) — beyond that the
+      // textarea scrolls internally rather than fighting the outer clamp
+      // for space. Baseline "Newly available" (not yet Baseline widely
+      // available) — Chrome/Edge 123+, Firefox 152+, Safari 26.2+.
+      field-sizing: content;
+      width: 100%;
+      min-block-size: 1lh;
+      max-block-size: 2lh;
 
       &:focus {
         box-shadow: none;
@@ -302,12 +291,22 @@ m3e-snackbar {
 
 #sb-top {
   scroll-snap-align: start;
-  // Safety net against a hard fling skipping past the app bar on first
-  // load/fast scroll: `proximity` only opts in when the browser is already
-  // going to rest nearby, so without this a high-velocity pull from the very
-  // top straight into the body could glide past the bar's snap position
-  // entirely. `scroll-snap-stop: always` forces at least one stop AT the bar.
-  scroll-snap-stop: always;
+  // 2026-09-22 (live report: "the scroll snap is too aggressive"). This
+  // used to carry `scroll-snap-stop: always` — meant as a safety net
+  // against a hard fling skipping past the app bar on first load/fast
+  // scroll, but its actual effect was much bigger than that: `always`
+  // forces the scroll container to stop AT the bar on every single pass
+  // through it, even mid-fling, so a normal continuous scroll down the page
+  // got yanked to a hard stop at the app bar every time instead of gliding
+  // past — that's the aggressiveness being reported. Dropped back to the
+  // default (`normal`, i.e. unset): `scroll-snap-type: y proximity`
+  // (#sb-page-scroll below) already only engages when the browser's own
+  // heuristic finds the resting position close to a snap point, which is
+  // the actual "gentle" behavior this section's own top comment describes
+  // wanting — `scroll-snap-stop: always` was overriding that intent for
+  // this one element. The original one-line, rare "skips past on a very
+  // fast fling from the very top" edge case is an acceptable trade for no
+  // longer forcing a stop on every ordinary scroll.
 }
 
 // Front-matter property list (client/components/front_matter_panel.tsx),
