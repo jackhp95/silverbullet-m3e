@@ -59,7 +59,13 @@ export function fencedCodePlugin(client: Client) {
             widgets.push(invisibleDecoration.range(lastLine.from, lastLine.to));
             widgets.push(
               Decoration.line({
-                class: "sb-fenced-code-iframe",
+                // background-color moved to a Tailwind utility — see
+                // editor.scss's audit note. The `iframe` descendant rule
+                // stays: it targets widget_sandbox_iframe.ts's shared
+                // `createWidgetSandboxIFrame`, also used by lua_widget.ts
+                // for a differently-styled iframe context (grep-verified),
+                // so this file can't safely fork that element's styling.
+                class: "sb-fenced-code-iframe bg-transparent",
               }).range(firstLine.from),
             );
             widgets.push(
@@ -134,7 +140,13 @@ export function fencedCodePlugin(client: Client) {
             widgets.push(invisibleDecoration.range(lastLine.from, lastLine.to));
             widgets.push(
               Decoration.line({
-                class: "sb-fenced-code-iframe",
+                // background-color moved to a Tailwind utility — see
+                // editor.scss's audit note. The `iframe` descendant rule
+                // stays: it targets widget_sandbox_iframe.ts's shared
+                // `createWidgetSandboxIFrame`, also used by lua_widget.ts
+                // for a differently-styled iframe context (grep-verified),
+                // so this file can't safely fork that element's styling.
+                class: "sb-fenced-code-iframe bg-transparent",
               }).range(firstLine.from),
             );
             widgets.push(

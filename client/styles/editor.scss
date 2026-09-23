@@ -1,10 +1,22 @@
-// Audit note (m3e/tailwind sweep): this file is almost entirely category
-// (a) — every rule targets CodeMirror's own `.cm-*` class contract (or
-// `.sb-line-*`/`.sb-*` classes CM6 decorations attach to those lines), which
-// tailwind utilities/<m3e-*> components cannot express or safely replace.
-// Per the task's explicit conservative directive, nothing here was touched:
-// guessing wrong on a CM selector risks silently breaking editor rendering
-// with no compile-time signal.
+// Audit note (m3e/tailwind sweep, re-derived 2026-09-22): the prior
+// "almost entirely must-stay" verdict on this file was NOT re-derived
+// block-by-block — it was a blanket assumption. Re-audit found real
+// migratable surface: several `.sb-*` widget classes below are created
+// exclusively by our own client/codemirror/*.ts widgets (grep-verified, one
+// creator each), so their static box-model rules have been moved to
+// Tailwind utility classes set directly on the widget elements at creation
+// time, and the corresponding SCSS declarations removed (search this file
+// for "moved to Tailwind utility classes" to find each one + its consumer).
+// Two dead-CSS blocks (superseded by a same-day widget removal) were also
+// deleted outright. What remains genuinely irreducible falls into three
+// buckets, each documented at its own rule: (1) CodeMirror's own `.cm-*`
+// DOM, whose classNames CM assigns itself — we don't control the element
+// or its class list; (2) selectors reachable from TWO OR MORE independent
+// creation sites (one of which is often arbitrary rendered-markdown HTML we
+// don't control per-node), so no single Tailwind class-list edit could
+// cover them; (3) classes driven by client/style.ts's shared
+// HighlightStyle tag→class map, which every stylesheet in the app consumes
+// — out of this single file's scope to fork.
 .cm-focused {
   outline: none !important;
 }
@@ -139,12 +151,15 @@
     padding-left: 3ch;
   }
 
-  .cm-list-bullet {
-    color: var(--editor-list-bullet-color, inherit);
-    white-space: nowrap; // Prevent bullet from being a line-wrap opportunity (fixes #1829)
-  }
+  // .cm-list-bullet color/white-space moved to Tailwind utility classes set
+  // on the bullet span in client/codemirror/list.ts (sole creator).
 
-  .cm-task-checked,
+  // .cm-task-checked's own text-decoration moved to a Tailwind utility set
+  // in client/codemirror/task.ts. This rule stays scoped to the sibling
+  // selector alone: a structural `:has()` reach into a wiki-link rendered
+  // by a wholly different widget (wiki_link_processor.ts) — no single
+  // widget's classList edit can express "strike through this OTHER
+  // element when a sibling condition holds."
   .sb-line-task:has(.cm-task-checked) .sb-wiki-link {
     text-decoration: line-through !important;
   }
@@ -238,18 +253,13 @@
     }
   }
 
-  .sb-checkbox {
+  // .sb-checkbox box layout moved to Tailwind utility classes set on the
+  // widget's wrapper span in client/codemirror/task.ts (only creator of
+  // `.sb-checkbox` — verified via grep; markdown_render.ts's generic
+  // renderer emits a bare, unwrapped `<input type="checkbox">`).
 
-    display: inline-block;
-    text-align: center;
-    width: 3ch;
-    // Stop the inherited negative text-indent on list-item lines from
-    // dragging the inner <input> out of the checkbox's own box.
-    text-indent: 0;
-    line-height: 1;
-  }
-
-  // Replace the native <input type=checkbox> with a CSS-drawn box. Safari
+  // Irreducible: replace the native <input type=checkbox> with a CSS-drawn
+  // box. Safari
   // renders the native control at a fixed ~13px regardless of CSS `width`,
   // leaving a wide visual gap between the glyph and the task text inside
   // the 3ch column. A custom box fills the column predictably across
@@ -333,66 +343,39 @@
     cursor: pointer;
   }
 
-  .sb-lua-directive-inline {
-    display: inline;
-    padding: 2px;
-  }
+  // .sb-lua-directive-inline/-block's own display/padding moved to
+  // Tailwind utility classes appended in client/codemirror/lua_widget.ts
+  // (sole owner of these two classes). The shared border/min-height chrome
+  // these classes ALSO get, further down, stays in CSS — see that rule's
+  // own note.
 
-  .sb-lua-directive-block {
-    display: block;
-  }
+  // .sb-loading-widget/-block/.sb-loading-spinner layout, color and
+  // animation moved to Tailwind utility classes set on the widget's spans
+  // in client/codemirror/loading_widget.ts (sole creator). The spinner's
+  // `animate-[spin_0.8s_linear_infinite]` reuses Tailwind's own built-in
+  // `spin` @keyframes (tailwindcss/theme.css) at the original 0.8s
+  // duration, so the custom `sb-loading-spin` keyframes were deleted as
+  // redundant rather than migrated.
 
-  .sb-loading-widget {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4em;
-    color: var(--top-loading-color, #888);
-    opacity: 0.7;
-    vertical-align: middle;
-  }
+  // .sb-widget-array flex layout moved to Tailwind utility classes set on
+  // the widget's div in client/codemirror/top_bottom_panels.ts.
 
-  .sb-loading-widget-block {
-    display: flex;
-    padding: 0.2em 0;
-  }
+  // .sb-task-dropdown layout moved to Tailwind utility classes set on the
+  // widget's span in client/codemirror/task.ts.
 
-  .sb-loading-spinner {
-    display: inline-block;
-    width: 0.9em;
-    height: 0.9em;
-    border: 2px solid currentColor;
-    border-top-color: transparent;
-    border-radius: 50%;
-    animation: sb-loading-spin 0.8s linear infinite;
-    box-sizing: border-box;
-  }
-
-  @keyframes sb-loading-spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  .sb-widget-array {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .sb-task-dropdown {
-    cursor: pointer;
-    opacity: 0.4;
-    user-select: none;
-
-    &:hover {
-      opacity: 1;
-    }
-  }
-
+  // Irreducible: `.sb-task-deadline` comes from client/style.ts's shared
+  // HighlightStyle tag→class map (`{ tag: ct.TaskDeadlineTag, class:
+  // "sb-task-deadline" }`), applied by CodeMirror to every deadline token
+  // in the document and consumed by every stylesheet, not just this one —
+  // out of this file's single-file scope to fork.
   .sb-task-deadline {
     background-color: rgba(22, 22, 22, 0.07);
   }
 
-  .sb-line-frontmatter-outside,
+  // `sb-line-frontmatter-outside` dropped from this selector list: dead —
+  // the line-decoration branch that produced it was removed outright (see
+  // client/codemirror/frontmatter.ts's "V5b (2026-09-22)" comment);
+  // grep-verified nothing in client/ sets that class anymore.
   .sb-line-code-outside {
     .sb-meta {
       color: transparent;
@@ -423,25 +406,11 @@
   }
 
 
-  .sb-table-widget {
-    display: inline-block;
-    vertical-align: top;
-    width: 100%;
-    font-weight: normal;
-    overflow: auto;
-  }
+  // .sb-table-widget layout moved to Tailwind utility classes set directly
+  // on the widget's span in client/codemirror/table.ts (dom.classList.add).
 
-  .sb-html-widget {
-    font-weight: normal;
-  }
-
-  .sb-html-widget-inline {
-    display: inline;
-  }
-
-  div.sb-html-widget {
-    display: block;
-  }
+  // .sb-html-widget/-inline layout moved to Tailwind utility classes set
+  // directly on the widget's root element in client/codemirror/html_widget.ts.
 
   table {
     width: 100%;
@@ -579,31 +548,20 @@
   }
 
   // No padding of our own here: `m3e-card`'s `content` slot already applies
-  // `--m3e-card-padding` around whatever is slotted in.
-  .sb-lua-card-content {
-    max-height: 500px;
-    overflow-y: auto;
-
-    &[hidden] {
-      display: none;
-    }
+  // `--m3e-card-padding` around whatever is slotted in. max-height/overflow
+  // moved to Tailwind utility classes in client/codemirror/lua_widget.ts
+  // (sole owner). `[hidden]` stays: defensive against `m3e-card`'s own slot
+  // styling potentially overriding the native hidden-attribute default —
+  // an m3e-component interaction, not a plain layout property.
+  .sb-lua-card-content[hidden] {
+    display: none;
   }
 
-  .sb-markdown-top-widget h1,
-  .sb-markdown-bottom-widget h1 {
-    margin: 0 0 5px 0;
-    padding: 10px !important;
-    background-color: var(--editor-widget-background-color);
-    font-size: 1.2em;
-  }
-
-  .sb-markdown-top-widget:has(*) {
-    margin-bottom: 10px;
-  }
-
-  .sb-markdown-bottom-widget {
-    margin-top: 10px;
-  }
+  // `.sb-markdown-top-widget`/`.sb-markdown-bottom-widget` h1/margin rules
+  // deleted outright: dead. Grep-verified zero creators of either class
+  // remain anywhere in the repo — the "markdown widget" system these
+  // styled has been fully superseded by the lua widget system
+  // (client/codemirror/lua_widget.ts + top_bottom_panels.ts).
 
   .sb-lua-top-widget .content,
   .sb-lua-bottom-widget .content {
@@ -630,21 +588,21 @@
     border-top: 1px solid var(--editor-widget-background-color);
   }
 
-  .sb-markdown-top-widget:has(*) .content {
-    max-height: 500px;
-  }
+  // `.sb-markdown-top-widget:has(*) .content` (+ its max-height-1000px
+  // media variant) deleted outright: dead, same "markdown widget" system
+  // as above.
 
-  @media screen and (max-height: 1000px) {
-    .sb-markdown-top-widget:has(*) .content {
-      max-height: 300px;
-    }
-  }
-
-  .sb-markdown-widget,
+  // `.sb-markdown-widget`, `.sb-markdown-top-widget:has(*)`,
+  // `.sb-markdown-bottom-widget:has(*)` dropped from this selector list:
+  // dead, same system. `.sb-lua-directive-block`/`-inline` are the only
+  // live classes left here (top_bottom_panels.ts / lua_widget.ts). The
+  // block body stays: it styles arbitrary rendered-markdown children
+  // (ul/li bullets, `a.wiki-link`, `tt`, bare `button`, `.button-bar`
+  // hover chrome) inside a lua directive's output — content this file's
+  // consumer doesn't control per-node, so no Tailwind class list can
+  // reach it.
   .sb-lua-directive-block,
-  .sb-lua-directive-inline,
-  .sb-markdown-top-widget:has(*),
-  .sb-markdown-bottom-widget:has(*) {
+  .sb-lua-directive-inline {
     border: 1px solid var(--editor-widget-background-color);
     border-radius: 5px;
     white-space: normal;
@@ -762,40 +720,50 @@
     border-radius: 0;
   }
 
+  // Irreducible: `>div>.content>*` reaches into the generic widget-content
+  // renderer shared across every `sb-*-widget` type (lua_widget.ts's
+  // `.content` div convention, same shared pipeline as the TOP/BOTTOM
+  // widget block below) — the grandchildren aren't per-instance authored
+  // markup this file's own consumer controls.
   .sb-inline-content>div>.content>* {
     max-width: 100%;
     display: block;
   }
 
-  .sb-inline-content {
-    margin: 0;
-    overflow: hidden;
-  }
+  // .sb-inline-content's own margin/overflow moved to Tailwind utility
+  // classes set in the `cssClasses` array in
+  // client/codemirror/inline_content.ts (sole producer of this class).
 
-  .sb-fenced-code-iframe {
-    background-color: transparent;
-
-    iframe {
-      border: 0;
-      width: 100%;
-      max-width: 100%;
-      padding: 0;
-      margin: 0 0 -2ch 0;
-      border: 1px solid var(--editor-widget-background-color);
-      border-radius: 5px;
-    }
+  // .sb-fenced-code-iframe's own background-color moved to a Tailwind
+  // utility set on the line decoration in client/codemirror/fenced_code.ts.
+  //
+  // Irreducible: the nested `iframe` rule targets
+  // widget_sandbox_iframe.ts's `createWidgetSandboxIFrame`, a creator
+  // shared with lua_widget.ts for a differently-styled iframe context
+  // (grep-verified) — moving these classes onto the shared function would
+  // change that other, unrelated widget's styling too.
+  .sb-fenced-code-iframe iframe {
+    border: 0;
+    width: 100%;
+    max-width: 100%;
+    padding: 0;
+    margin: 0 0 -2ch 0;
+    border: 1px solid var(--editor-widget-background-color);
+    border-radius: 5px;
   }
 
   .sb-line-blockquote.sb-line-ul.sb-line-li>.sb-quote.sb-meta:first-child {
     margin-left: -1ch;
   }
 
-  .sb-admonition {
-    border-left-width: 4px !important;
-    border-left-style: solid;
-    padding-left: 5px;
-  }
+  // .sb-admonition border/padding moved to Tailwind utility classes set on
+  // the line decoration in client/codemirror/admonition.ts.
 
+  // Irreducible: `--admonition-icon` is a per-admonition-type CSS custom
+  // property defined by attribute selectors in theme.scss (`[admonition]
+  // { --admonition-icon: url('data:image/svg+xml,...'); }` per type) — no
+  // M3E component or Tailwind utility can express a vendor-prefixed `mask`
+  // driven by a companion file's per-type token definitions.
   .sb-admonition-type::before {
     content: "";
     mask: var(--admonition-icon) no-repeat;
@@ -811,19 +779,12 @@
     vertical-align: middle;
   }
 
-  .sb-frontmatter-marker {
-    cursor: pointer;
-    float: right;
-    font-size: 80%;
-    opacity: 0.8;
-    padding-right: 7px;
-    user-select: none;
-  }
-
-  .sb-frontmatter-marker:hover,
-  .sb-frontmatter-marker:focus-visible {
-    opacity: 1;
-  }
+  // `.sb-frontmatter-marker` (+ :hover/:focus-visible) deleted outright:
+  // dead CSS. Styled the "▾/◂ frontmatter" `FrontmatterMarkerWidget` banner,
+  // which client/codemirror/frontmatter.ts's "V5b (2026-09-22)" comment
+  // documents as removed outright (superseded by frontmatter_folding.ts's
+  // auto-fold + placeholder); grep-verified no `sb-frontmatter-marker`
+  // string remains anywhere under client/.
 
   .cm-scroller {
     // Give some breathing space at the bottom of the screen

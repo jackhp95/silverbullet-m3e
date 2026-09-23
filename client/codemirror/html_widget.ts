@@ -46,9 +46,13 @@ class HtmlWidget extends WidgetType {
 
   toDOM(): HTMLElement {
     const dom = document.createElement(this.inline ? "span" : "div");
-    dom.classList.add("sb-html-widget");
+    // font-normal/display moved here as Tailwind utilities — see
+    // editor.scss's audit note.
+    dom.classList.add("sb-html-widget", "font-normal");
     if (this.inline) {
-      dom.classList.add("sb-html-widget-inline");
+      dom.classList.add("sb-html-widget-inline", "inline");
+    } else {
+      dom.classList.add("block");
     }
 
     void expandMarkdown(

@@ -140,14 +140,18 @@ export function inlineContentPlugin(client: Client) {
                   return {
                     _isWidget: true,
                     display: "block",
-                    cssClasses: ["sb-inline-content"],
+                    // margin/overflow moved to Tailwind utilities — see
+                    // editor.scss's audit note.
+                    cssClasses: ["sb-inline-content", "m-0", "overflow-hidden"],
                     ...content,
                   };
                 } catch (e: any) {
                   return {
                     _isWidget: true,
                     display: "block",
-                    cssClasses: ["sb-inline-content"],
+                    // margin/overflow moved to Tailwind utilities — see
+                    // editor.scss's audit note.
+                    cssClasses: ["sb-inline-content", "m-0", "overflow-hidden"],
                     markdown: `**Error:** ${e.message}`,
                   };
                 }

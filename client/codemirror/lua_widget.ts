@@ -224,7 +224,8 @@ export class LuaWidget extends WidgetType {
     // Explicit opt-in: when `sandbox` is true, render html+script inside a
     // sandbox iframe (the script, if any, runs there).
     if (wc.sandbox) {
-      div.className += " sb-lua-directive-block";
+      // display moved to a Tailwind utility — see editor.scss's audit note.
+      div.className += " sb-lua-directive-block block";
       const iframeContent = {
         html: typeof wc.html === "string" ? wc.html : "",
         script: typeof wc.script === "string" ? wc.script : "",
@@ -286,9 +287,12 @@ export class LuaWidget extends WidgetType {
 
       block = wc.display === "block";
       if (block) {
-        div.className += " sb-lua-directive-block";
+        // display moved to a Tailwind utility — see editor.scss's audit note.
+        div.className += " sb-lua-directive-block block";
       } else {
-        div.className += " sb-lua-directive-inline";
+        // display/padding moved to Tailwind utilities — see editor.scss's
+        // audit note.
+        div.className += " sb-lua-directive-inline inline p-[2px]";
       }
     }
     // `markdown` is only used for display when there is no `html` to show; when
@@ -330,9 +334,12 @@ export class LuaWidget extends WidgetType {
         (wc._isWidget && wc.display === "block") ||
         isBlockMarkdown(trimmedMarkdown);
       if (block) {
-        div.className += " sb-lua-directive-block";
+        // display moved to a Tailwind utility — see editor.scss's audit note.
+        div.className += " sb-lua-directive-block block";
       } else {
-        div.className += " sb-lua-directive-inline";
+        // display/padding moved to Tailwind utilities — see editor.scss's
+        // audit note.
+        div.className += " sb-lua-directive-inline inline p-[2px]";
       }
 
       mdTree = await this.parseAndExpandCustomSyntax(
@@ -568,7 +575,11 @@ export class LuaWidget extends WidgetType {
     // with the in-page button-bar chrome below and carries its own
     // padding/max-height rules that would double up with m3e-card's own
     // padded `content` slot.
-    content.className = "sb-lua-card-content";
+    // max-height/overflow moved to Tailwind utilities — see editor.scss's
+    // audit note. The `[hidden]` display:none override stays in CSS: it's
+    // defensive against m3e-card's own slot styling on this `content`-slot
+    // element, not a plain layout property.
+    content.className = "sb-lua-card-content max-h-[500px] overflow-y-auto";
     content.appendChild(html);
 
     const collapseButton = document.createElement("m3e-icon-button");

@@ -32,7 +32,8 @@ class ArrayWidget extends WidgetType {
     activeWidgets.add(this);
 
     const div = document.createElement("div");
-    div.className = "sb-widget-array";
+    // Layout moved to Tailwind utilities — see editor.scss's audit note.
+    div.className = "sb-widget-array flex flex-col";
 
     // Reserve vertical space from the cached height so layout doesn't
     // shift when async render fills in content (see lua_widget.ts for why

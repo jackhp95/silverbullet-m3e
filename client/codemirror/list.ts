@@ -55,7 +55,11 @@ class ListBulletWidget extends WidgetType {
   toDOM(): HTMLElement {
     const listBullet = document.createElement("span");
     listBullet.textContent = "•"; // U+2022 BULLET
-    listBullet.className = "cm-list-bullet";
+    // Color/white-space moved to Tailwind utilities — see editor.scss's
+    // audit note. white-space:nowrap prevents the bullet from being a
+    // line-wrap opportunity (fixes #1829).
+    listBullet.className =
+      "cm-list-bullet text-[color:var(--editor-list-bullet-color,inherit)] whitespace-nowrap";
     return listBullet;
   }
 }

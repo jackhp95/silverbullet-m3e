@@ -25,7 +25,18 @@ class CheckboxWidget extends WidgetType {
 
   toDOM(): HTMLElement {
     const wrap = document.createElement("span");
-    wrap.classList.add("sb-checkbox");
+    // Layout moved to Tailwind utilities here — see editor.scss's audit
+    // note. Only this widget ever wraps a checkbox in `.sb-checkbox`
+    // (markdown_render.ts's generic renderer emits a bare, unwrapped
+    // `<input type="checkbox">`), so this class is safe to fully migrate.
+    wrap.classList.add(
+      "sb-checkbox",
+      "inline-block",
+      "text-center",
+      "w-[3ch]",
+      "indent-0",
+      "leading-none",
+    );
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = this.checked;
@@ -95,7 +106,9 @@ class TaskDropdownWidget extends WidgetType {
 
   toDOM(): HTMLElement {
     const span = document.createElement("span");
-    span.className = "sb-task-dropdown";
+    // Layout moved to Tailwind utilities — see editor.scss's audit note.
+    span.className =
+      "sb-task-dropdown cursor-pointer opacity-40 select-none hover:opacity-100";
     span.textContent = "\u25BE"; // Black Down-Pointing Small Triangle
     span.addEventListener("mousedown", (e) => {
       e.preventDefault();
@@ -160,7 +173,14 @@ export function taskListPlugin({
             widgets.push(
               Decoration.mark({
                 tagName: "span",
-                class: "cm-task-checked",
+                // text-decoration moved to a Tailwind utility — see
+                // editor.scss's audit note. The companion
+                // `.sb-line-task:has(.cm-task-checked) .sb-wiki-link` rule
+                // stays in editor.scss: it reaches into a *different*
+                // widget's element (wiki_link_processor.ts's independently
+                // rendered `.sb-wiki-link`) via a structural `:has()`
+                // relationship this decoration has no way to express.
+                class: "cm-task-checked line-through!",
               }).range(strikeFrom, to),
             );
           }
