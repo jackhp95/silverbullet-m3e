@@ -25,7 +25,7 @@ class InlineFootnoteWidget extends WidgetType {
 
   toDOM(): HTMLElement {
     const span = document.createElement("span");
-    span.className = "sb-footnote-ref";
+    span.className = FOOTNOTE_REF_LAYOUT_CLASSES;
     span.textContent = "…";
     return span;
   }
@@ -36,6 +36,12 @@ class InlineFootnoteWidget extends WidgetType {
     );
   }
 }
+
+// Layout/shape (border-width, radius, padding, font-size, flex, cursor) —
+// see client/styles/colors.scss's `.sb-footnote-ref` comment; the theme-var
+// colors stay in that SCSS rule.
+const FOOTNOTE_REF_LAYOUT_CLASSES =
+  "sb-footnote-ref border rounded-[3px] px-0.5 text-[0.75em] inline-flex items-center align-middle cursor-pointer";
 
 class FootnoteRefWidget extends WidgetType {
   constructor(
@@ -49,8 +55,8 @@ class FootnoteRefWidget extends WidgetType {
   toDOM(): HTMLElement {
     const span = document.createElement("span");
     span.className = this.resolved
-      ? "sb-footnote-ref"
-      : "sb-footnote-ref sb-footnote-ref-unresolved";
+      ? FOOTNOTE_REF_LAYOUT_CLASSES
+      : `${FOOTNOTE_REF_LAYOUT_CLASSES} sb-footnote-ref-unresolved`;
     span.textContent = "…";
     // Use mousedown to intercept before CodeMirror moves the cursor
     // (which would remove the widget via isCursorInRange)

@@ -76,30 +76,20 @@
 // portal-rendered `.sb-notifications`/`.sb-notification-*` toast — it ships
 // its own Material container styling, so those rules are gone, not moved.
 
+// box-model (size/border/margin/padding/cursor) moved to Tailwind classes
+// at the raw-DOM call site (client/codemirror/code_copy.ts); only the
+// theme-var colors are left here.
 .sb-actions button {
-  width: 28px;
-  height: 28px;
-  border: 0;
-  margin: 2px;
-  margin-top: 6px;
-  padding: 5px;
   background-color: var(--action-button-background-color);
   color: var(--action-button-color);
-  cursor: pointer;
 }
 
-.sb-actions button.sb-enabled {
-  background-color: var(--top-border-color);
-  border-radius: 5px;
-}
+// DEAD: .sb-enabled and .expander are never applied by any consumer
+// (client/codemirror/code_copy.ts is the only .sb-actions call site, and it
+// never sets either class) — both rules deleted.
 
 .sb-actions button:hover {
   color: var(--action-button-hover-color);
-}
-
-// Only color the expander button, when the hamburger menu is open
-.sb-actions:not(.open) button.expander:hover {
-  color: var(--action-button-color);
 }
 
 /* Modal boxes */
@@ -198,23 +188,9 @@
   }
 }
 
-// search_sheet.tsx's mode picker — an `m3e-list` popup whose active row is
-// driven by us rather than by a selection-capable component (see that file's
-// mode-model comment). It marks the active row with the SAME
-// `.sb-selected-option` class and the SAME --modal-* tokens as every other
-// list in this app, so "selected" looks identical everywhere and no fourth
-// palette appears. Split out from the rule below only because the picker is a
-// top-layer popover and therefore not a descendant of `.sb-search-sheet-list`.
-.sb-search-sheet-mode-list {
-  .sb-selected-option {
-    --m3e-list-item-container-color: var(
-      --modal-selected-option-background-color
-    );
-    --m3e-list-item-label-text-color: var(--modal-selected-option-color);
-    --m3e-list-item-leading-color: var(--modal-selected-option-color);
-    --m3e-list-item-trailing-color: var(--modal-selected-option-color);
-  }
-}
+// DEAD: .sb-search-sheet-mode-list (the mode picker) was removed —
+// search_sheet.test.ts's "Task C: no mode picker" asserts the class string
+// never appears in rendered HTML. Rule deleted, not just unused.
 
 // search_sheet.tsx's result/history list — not a .sb-modal-box (it's a
 // bottom sheet, not a <dialog>), so it needs its own selector root, but
@@ -239,28 +215,10 @@
   }
 }
 
-// Nav "Search" destination panel's result/history list (leaf N7,
-// client/components/nav_views/search.tsx) — relocated out of
-// .sb-search-sheet-result-list's `.sb-nav-panel` host, same --modal-*
-// tokens as the block above, no third palette.
-.sb-nav-search-result-list {
-  .sb-hint {
-    color: var(--modal-hint-color);
-    background-color: var(--modal-hint-background-color);
-  }
-
-  --m3e-list-item-supporting-text-color: var(--modal-description-color);
-
-  .sb-selected-option {
-    --m3e-list-item-container-color: var(
-      --modal-selected-option-background-color
-    );
-    --m3e-list-item-label-text-color: var(--modal-selected-option-color);
-    --m3e-list-item-supporting-text-color: var(
-      --modal-selected-option-description-color
-    );
-  }
-}
+// DEAD: .sb-nav-search-result-list referenced client/components/nav_views/
+// search.tsx, which no longer exists (deleted along with the rest of
+// nav_views/{recent,search,run,notifications}.tsx) — zero remaining
+// consumers anywhere in client/ or plugs/. Rule deleted.
 
 /* Editor */
 
@@ -470,14 +428,13 @@ tbody tr:nth-of-type(even) {
   color: var(--editor-code-color);
 }
 
+// font-weight: bold moved to a Tailwind class in style.ts's tag map.
 .sb-directive-mark {
   color: var(--editor-directive-mark-color);
-  font-weight: bold;
 }
 
 .sb-directive {
   color: var(--editor-directive-color);
-  font-weight: bold;
 }
 
 .sb-highlight {
@@ -563,23 +520,9 @@ tbody tr:nth-of-type(even) {
   color: var(--editor-frontmatter-marker-color);
 }
 
-.sb-emphasis {
-  font-style: italic;
-}
-
-.sb-strong {
-  font-weight: 900;
-}
-
-.sb-sub {
-  vertical-align: sub;
-  font-size: smaller;
-}
-
-.sb-sup {
-  vertical-align: super;
-  font-size: smaller;
-}
+// .sb-emphasis/.sb-strong/.sb-sub/.sb-sup: var-free typography, migrated to
+// Tailwind classes on style.ts's tag map (italic/font-black/align-*/text-
+// [smaller]) — no rules left here, only the tag-map class strings remain.
 
 .sb-line-code-outside .sb-code-info {
   color: var(--editor-code-info-color);
@@ -626,21 +569,17 @@ a.sb-wiki-link-invalid,
   color: var(--editor-task-state-color);
 }
 
-.sb-footnote-def-line {
-  font-size: 80%;
-}
+// .sb-footnote-def-line's font-size:80% moved to a Tailwind class at
+// footnote.ts's call site — no rule left here.
 
+// Layout/shape (border-width, radius, padding, font-size, flex, cursor)
+// moved to Tailwind classes at footnote.ts's call site; color-bearing
+// declarations (including the un-themed #f3eeee background — a pre-existing
+// dark-mode bug, left as-is, out of scope for this pass) stay here.
 .sb-footnote-ref {
   color: var(--meta-subtle-color);
-  border: 1px solid var(--meta-subtle-color);
-  border-radius: 3px;
-  padding: 0 2px;
-  font-size: 0.75em;
+  border-color: var(--meta-subtle-color);
   background-color: #f3eeee;
-  display: inline-flex;
-  align-items: center;
-  vertical-align: middle;
-  cursor: pointer;
 }
 
 .sb-footnote-ref-unresolved {

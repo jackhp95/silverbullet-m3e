@@ -1,12 +1,17 @@
 @use "tokens";
 
-// Audit note (m3e/tailwind sweep): this entire file is category (a) — it IS
-// the theme, defining/bridging the app's own `--*-color` custom properties
-// (and the read-only-mode font swap + admonition icon data-URIs below) across
-// light/dark `html[data-theme]`; there is no tailwind utility or <m3e-*>
-// component that can replace a token *definition* site, so nothing here
-// migrates — only consumers of these tokens elsewhere are migration
-// candidates.
+// Re-audited 2026-09-22 (m3e/tailwind reduction pass), not just re-stated:
+// the bulk of this file IS a genuine token-definition site (`--*-color`
+// custom-property generation across light/dark `html[data-theme]`), and that
+// part is correctly irreducible — no tailwind utility or <m3e-*> component
+// replaces a token *definition* site. But the file was NOT audited
+// block-by-block before this pass: it also carried 16 dead custom-property
+// pairs (32 lines, zero consumers anywhere in client/plugs — deleted), one
+// redundant --ui-accent-color redeclaration (deleted, see dark block), 4x
+// duplicated admonition width/display logic (collapsed to one shared
+// selector list below), and one smuggled var-free layout rule
+// (html[data-markdown-syntax-rendering="on"]'s .sb-lua-directive-block
+// margin-top, left in place — see its own comment for why).
 html {
   --ui-accent-text-color: var(--ui-accent-color);
   --highlight-color: rgba(255, 255, 0, 0.5);
@@ -62,12 +67,6 @@ html {
   --modal-description-color: #6b6b6b;
   --modal-selected-option-description-color: #e6e6e6;
 
-  --notifications-background-color: inherit;
-  --notifications-border-color: rgb(41, 41, 41);
-  --notification-info-background-color: rgb(187, 221, 247);
-  --notification-error-background-color: rgb(255, 84, 84);
-  --notification-warning-background-color: rgb(255, 213, 79);
-
   --button-background-color: #eee;
   --button-hover-background-color: #e0e0e0;
   --button-color: black;
@@ -90,19 +89,15 @@ html {
   --action-button-background-color: transparent;
   --action-button-color: #292929;
   --action-button-hover-color: #0772be;
-  --action-button-active-color: #0772be;
 
   --editor-caret-color: black;
   --editor-selection-background-color: #d7e1f6;
   --editor-panels-bottom-color: inherit;
   --editor-panels-bottom-background-color: #e1e1e1;
   --editor-panels-bottom-border-color: #cacaca;
-  --editor-completion-detail-color: #555;
-  --editor-completion-detail-selected-color: #d2d2d2;
   --editor-list-bullet-color: rgb(150, 150, 150);
   --editor-heading-color: #333;
   --editor-heading-meta-color: var(--meta-subtle-color);
-  --editor-hashtag-background-color: #002b6aad;
   --editor-hashtag-color: #e2e9ff;
   --editor-hashtag-border-color: #0120416b;
   --editor-ruler-color: rgb(76, 75, 75);
@@ -115,12 +110,6 @@ html {
   --editor-wiki-link-page-color: var(--link-color);
   --editor-wiki-link-page-missing-color: var(--link-missing-color);
   --editor-wiki-link-page-invalid-color: var(--link-invalid-color);
-  --editor-wiki-link-color: #8f96c2;
-  --editor-command-button-color: inherit;
-  --editor-command-button-background-color: #e3dfdf;
-  --editor-command-button-hover-background-color: inherit;
-  --editor-command-button-meta-color: var(--meta-subtle-color);
-  --editor-command-button-border-color: gray;
   --editor-line-meta-color: var(--meta-subtle-color);
   --editor-meta-color: var(--meta-color);
   --editor-table-head-background-color: #333;
@@ -188,7 +177,6 @@ html {
   /* Shared component tokens */
   --danger-color: #dc3545;
   --danger-contrast-color: #fff;
-  --success-color: #16a34a;
   --badge-background-color: #e8e8ff;
   --badge-color: #464cfc;
 }
@@ -200,7 +188,10 @@ html[data-theme="light"] {
 html[data-theme="dark"] {
   color-scheme: dark;
 
-  --ui-accent-color: #464cfc;
+  // --ui-accent-color intentionally NOT redeclared here: _tokens.scss's
+  // unconditional html-scope value (#464cfc) is byte-identical, so this
+  // selector's higher specificity would have won with the same value — pure
+  // noise, deleted.
   --ui-accent-text-color: var(--ui-accent-color);
   --ui-accent-text-color: color-mix(
     in srgb,
@@ -381,6 +372,13 @@ html[data-markdown-syntax-rendering="on"] {
   --editor-meta-color: unset;
   --editor-directive-mark-color: unset;
 
+  // NOT migrated: var-free layout (margin-top), so mechanically Tailwind's
+  // domain, but the selector is state-conditional (ancestor data-attribute)
+  // + sibling-exclusion (:not() x3) on a class lua_widget.ts applies
+  // unconditionally. A correct Tailwind equivalent needs an arbitrary
+  // variant encoding the same ancestor+:not() combination at the className
+  // call site — deferred rather than risk the silent-breakage failure mode
+  // (plan doc D.5) from an imprecise selector translation. 10 lines.
   #sb-main
     .cm-editor
     .sb-lua-directive-block:not(
@@ -394,62 +392,37 @@ html[data-markdown-syntax-rendering="on"] {
   }
 }
 
-.sb-admonition[admonition="note" i] {
-  .sb-admonition-type {
-    &::before {
-      width: var(--admonition-width) !important;
-    }
-
-    * {
-      display: none;
-    }
+// Admonition width-toggle + child-hide is identical across all 4 types
+// (was duplicated verbatim per type); only --admonition-icon/-color differ.
+.sb-admonition[admonition="note" i] .sb-admonition-type,
+.sb-admonition[admonition="warning" i] .sb-admonition-type,
+.sb-admonition[admonition="danger" i] .sb-admonition-type,
+.sb-admonition[admonition="success" i] .sb-admonition-type {
+  &::before {
+    width: var(--admonition-width) !important;
   }
 
+  * {
+    display: none;
+  }
+}
+
+.sb-admonition[admonition="note" i] {
   --admonition-icon: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>');
   --admonition-color: #00b8d4;
 }
 
 .sb-admonition[admonition="warning" i] {
-  .sb-admonition-type {
-    &::before {
-      width: var(--admonition-width) !important;
-    }
-
-    * {
-      display: none;
-    }
-  }
-
   --admonition-icon: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>');
   --admonition-color: #ff9100;
 }
 
 .sb-admonition[admonition="danger" i] {
-  .sb-admonition-type {
-    &::before {
-      width: var(--admonition-width) !important;
-    }
-
-    * {
-      display: none;
-    }
-  }
-
   --admonition-icon: url('data:image/svg+xml,<svg  width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-x-octagon"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>');
   --admonition-color: #d50000;
 }
 
 .sb-admonition[admonition="success" i] {
-  .sb-admonition-type {
-    &::before {
-      width: var(--admonition-width) !important;
-    }
-
-    * {
-      display: none;
-    }
-  }
-
   --admonition-icon: url('data:image/svg+xml,<svg  width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-check-circle"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>');
   --admonition-color: #00c853;
 }
