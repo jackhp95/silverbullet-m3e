@@ -247,70 +247,69 @@ m3e-snackbar {
 
 // ---------------------------------------------------------------------------
 // 2026-09-22 V5b (docs/plans/2026-09-22-appbar-large-frontmatter-scroll-snap.md
-// §1.5/§3/L9) — scroll-snap container + front-matter property-list styling.
+// §1.5/§3/L9) — front-matter property-list/card styling. NO CSS scroll-snap
+// here anymore (`scroll-snap-type`/`-align`/`-stop` all removed) — see the
+// dated note right below for why, after two live reports and three attempts
+// at tuning it.
 //
-// The app bar is no longer sticky chrome above a separately-scrolling editor
-// — it's ordinary content inside `#sb-page-scroll` (client/editor_ui.tsx),
-// scrolling past like anything else. `#sb-top` (this file's outer wrapper,
-// still the identity-stable element across the L8 restructuring) just needs
-// the two snap properties below; `position: sticky`/`top: 0` themselves were
-// inline styles on `m3e-app-bar` in top_bar.tsx, removed there in L8.
-//
-// `scroll-snap-type: y proximity` (not `mandatory`) is a deliberate choice
-// carried over from the mockup's own comment (`/tmp/sb-appbar-mockups/
-// v5b.html`): the real page body below the app bar is unbounded in length
-// and carries no snap-align of its own, so a `mandatory` config would yank
-// the reader's scroll position back up to the app bar after every pause deep
-// in the body — the opposite of "the bar is the default rest point, then you
-// scroll the body freely." `proximity` only engages when the browser's own
-// heuristic finds the resting position already close to a snap point (i.e.
-// right at the front-matter/app-bar boundary).
+// `#sb-top` (this file's outer wrapper, still the identity-stable element
+// across the L8 restructuring) no longer needs any snap properties either;
+// `position: sticky`/`top: 0` themselves were inline styles on `m3e-app-bar`
+// in top_bar.tsx, removed there in L8.
 // NOTE: `height: 100%; overflow-y: auto;` for `#sb-page-scroll` already live
 // in main.scss (§2/L5, pulled forward early as commit bbbc6515) — this rule
-// adds only scroll-snap + cosmetics on top of that, not a duplicate box.
+// adds only cosmetics on top of that, not a duplicate box.
 #sb-page-scroll {
   // Moved from `.cm-scroller` (client/styles/editor.scss) — L6 configured
   // CodeMirror for auto-height/"page scrolls" mode, so `.cm-scroller` no
   // longer scrolls at all; `#sb-page-scroll` is the one real scrolling
   // ancestor now, so the layout-shift-avoidance property belongs here.
   scrollbar-gutter: stable;
-  scroll-snap-type: y proximity;
   -webkit-overflow-scrolling: touch;
 }
 
+// 2026-09-22, CSS scroll-snap removed entirely (three attempts, two live
+// reports, in order):
+//  1. Originally `scroll-snap-type: y proximity` on `#sb-page-scroll` +
+//     `scroll-snap-align: start` on BOTH `#sb-top` and `.sb-fm-panel`, plus
+//     `#sb-top`'s own `scroll-snap-stop: always` — meant as a safety net
+//     against a hard fling skipping past the app bar on first load/fast
+//     scroll. Report 1 ("the scroll snap is too aggressive"): `always`
+//     forced a hard stop at the bar on every pass through it, even
+//     mid-fling — dropped to `normal`.
+//  2. Report 2 ("scroll snap grabs the top of the frontmatter card, it
+//     should be able to stop at the top of the page"): even at `normal`,
+//     the two remaining snap points (`#sb-top` and `.sb-fm-panel`, ~136px
+//     apart) created a watershed partway between them (measured live:
+//     ~68px) — any wheel/trackpad gesture settling within that zone (which
+//     ordinary slow/discrete scrolling does, repeatedly) got pulled back to
+//     whichever point it started closer to. Once resting at the app bar,
+//     that meant slow scroll-up gestures kept getting sucked right back to
+//     it instead of ever reaching the true top where the card is fully
+//     visible — a real, reproducible trap (live-measured: seven consecutive
+//     -50px wheel steps from the app bar's snap point never moved past it).
+//     Tried removing just ONE of the two competing points (first `#sb-top`,
+//     then `.sb-fm-panel`) to leave a single, non-competing snap target.
+//  3. BOTH single-point configurations still trapped slow scrolling near
+//     whatever point remained (live-verified for both directions) — a
+//     `proximity` snap point is sticky against slow/discrete scroll input on
+//     its own, with or without a second point to create a watershed; CSS
+//     gives no way to tune or disable that stickiness for one direction of
+//     travel only. Since the decision-#3 "rests at the app bar by default"
+//     behavior was NEVER actually produced by this CSS in the first place —
+//     it's `snapToAppBar()` (client/lib/scroll_snap.ts), an explicit
+//     one-shot `scrollIntoView({block:"start"})` JS call fired on cold boot
+//     and every navigation, completely independent of scroll-snap — the
+//     correct fix is dropping scroll-snap here altogether: the JS call still
+//     produces the exact same default-rest position on load/navigation, and
+//     with no CSS magnetism left anywhere near the top, ordinary scrolling
+//     (however slow) can freely reach and rest anywhere, including the true
+//     top where the front-matter card is fully visible.
+//
+// `.sb-fm-panel`'s own `margin` (below) is the requested "a bit of margin
+// atop/below the card" breathing room at that now-freely-reachable position.
 .sb-fm-panel {
-  scroll-snap-align: start;
-}
-
-#sb-top {
-  scroll-snap-align: start;
-  // 2026-09-22 (live report: "the scroll snap is too aggressive"). This
-  // used to carry `scroll-snap-stop: always` — meant as a safety net
-  // against a hard fling skipping past the app bar on first load/fast
-  // scroll, but its actual effect was much bigger than that: `always`
-  // forces the scroll container to stop AT the bar on every single pass
-  // through it, even mid-fling, so a normal continuous scroll down the page
-  // got yanked to a hard stop at the app bar every time instead of gliding
-  // past — that's the aggressiveness being reported. Dropped back to the
-  // default (`normal`, i.e. unset): `scroll-snap-type: y proximity`
-  // (#sb-page-scroll below) already only engages when the browser's own
-  // heuristic finds the resting position close to a snap point, which is
-  // the actual "gentle" behavior this section's own top comment describes
-  // wanting — `scroll-snap-stop: always` was overriding that intent for
-  // this one element. The original one-line, rare "skips past on a very
-  // fast fling from the very top" edge case is an acceptable trade for no
-  // longer forcing a stop on every ordinary scroll.
-}
-
-// Front-matter card (client/components/front_matter_panel.tsx). Originally
-// ported from the mockup's `.sb-property-list`/`.sb-property-row`
-// (`/tmp/sb-appbar-mockups/v5b.html:146-179`); redesigned 2026-09-22 per
-// Jack's direct "readonly → non-interactive row list, editable → just the
-// raw YAML in a card" split (front_matter_panel.tsx's own file-header
-// comment has the full rationale). `.sb-fm-panel` is the shared outer card
-// both `FrontMatterReadOnlyList` and `FrontMatterEditableCard` render into.
-.sb-fm-panel {
-  margin: 20px 20px 0;
+  margin: 20px;
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: 16px;
   background: var(--md-sys-color-surface-container-lowest);

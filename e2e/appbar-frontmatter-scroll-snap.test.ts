@@ -267,6 +267,53 @@ test("large app bar renders breadcrumb + headline + subtitle, rests snapped to t
   await expect.poll(() => menu.evaluate((el: any) => el.isOpen)).toBe(true);
 });
 
+// 2026-09-22 (live report: "scroll snap grabs the top of the frontmatter
+// card, it should be able to stop at the top of the page"). Regression lock
+// for the actual bug, not just the end-to-end "jump straight to 0 and check
+// it landed" case above (item 5 in the previous test, which — jumping
+// directly via `scrollTop = 0` rather than gradually — never actually
+// exercised the sticky-snap-point trap: CSS scroll-snap only pulls a
+// SETTLED scroll position back toward a nearby snap point, so a single
+// programmatic jump straight past the whole ~136px danger zone never gave
+// the browser a chance to re-engage it mid-way). This test instead starts
+// resting exactly at the decision-#3 default (the app bar's position — what
+// used to be a `scroll-snap-align: start` point) and nudges scrollTop by
+// small increments toward the true top, the same way an ordinary slow
+// wheel/trackpad gesture does — each nudge settles, giving any remaining
+// scroll-snap CSS every chance to pull it back. It must not.
+test("scrolling up in small steps from the app-bar's resting position reaches the true top, not trapped partway (regression lock)", async ({
+  sbServer,
+  page,
+}) => {
+  await gotoSilverBulletPage(page, sbServer, "RevealPage");
+  await waitSnappedToTop(page);
+
+  const restingTop = await scrollTopOf(page);
+  expect(restingTop).toBeGreaterThan(0); // sanity: really resting past 0
+
+  // Nudge upward in small (well under the ~136px danger zone) increments,
+  // letting each settle — exactly the shape of input that used to trigger
+  // the trap.
+  let current = restingTop;
+  while (current > 0) {
+    const next = Math.max(0, current - 20);
+    await scrollTo(page, next);
+    await page.waitForTimeout(60); // let any scroll-snap correction apply
+    current = await scrollTopOf(page);
+    // Never pulled back UP past where we just nudged it to (a strict
+    // decrease, or a hard floor at 0) — that's what "trapped" would mean.
+    expect(current).toBeLessThanOrEqual(next + 1);
+  }
+
+  expect(await scrollTopOf(page)).toBe(0);
+  const fmPanel = page.locator(".sb-fm-panel");
+  await expect(fmPanel).toBeVisible();
+  const fmBox = (await fmPanel.boundingBox())!;
+  // The requested "a bit of margin atop/below the card" — visible breathing
+  // room above the card at true rest, not flush against the viewport edge.
+  expect(fmBox.y).toBeGreaterThan(0);
+});
+
 test("a page with no frontmatter renders no front-matter panel at all", async ({
   sbServer,
   page,
