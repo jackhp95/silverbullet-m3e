@@ -146,6 +146,7 @@ export function frontmatterPlugin(client: Client) {
           }
         }
 
+        // Render links inside frontmatter code as clickable anchors (external and wiki links)
         if (node.name === "FrontMatterCode") {
           const oFrom = node.from;
           const oTo = node.to;
@@ -157,6 +158,7 @@ export function frontmatterPlugin(client: Client) {
             const to = from + oMatch[0].length;
             const text = state.sliceDoc(from, to);
 
+            // 1) External links: http(s), <scheme>:// URLs
             frontmatterUrlRegex.lastIndex = 0;
             let match: RegExpExecArray | null;
             while ((match = frontmatterUrlRegex.exec(text)) !== null) {
@@ -183,6 +185,7 @@ export function frontmatterPlugin(client: Client) {
                     from: mFrom,
                     callback: (e) => {
                       if (e.altKey) {
+                        // Move cursor into the link
                         client.editorView.dispatch({
                           selection: { anchor: mFrom },
                         });
@@ -207,6 +210,7 @@ export function frontmatterPlugin(client: Client) {
               );
             }
 
+            // 2) Internal links: WikiLinks [[...]] (make navigable)
             frontmatterWikiLinkRegex.lastIndex = 0;
             let wMatch: RegExpExecArray | null;
             while ((wMatch = frontmatterWikiLinkRegex.exec(text)) !== null) {
@@ -234,6 +238,7 @@ export function frontmatterPlugin(client: Client) {
                 state,
                 callback: (e, ref) => {
                   if (e.altKey) {
+                    // Move cursor into the link's content
                     client.editorView.dispatch({
                       selection: {
                         anchor: mFrom + wikiLinkMatch.leadingTrivia.length,
@@ -249,6 +254,7 @@ export function frontmatterPlugin(client: Client) {
               widgets.push(...decorations);
             }
 
+            // 3) mailto:... links
             frontmatterMailtoRegex.lastIndex = 0;
             let mMatch: RegExpExecArray | null;
             while ((mMatch = frontmatterMailtoRegex.exec(text)) !== null) {
@@ -276,6 +282,7 @@ export function frontmatterPlugin(client: Client) {
                     from: mFrom,
                     callback: (e) => {
                       if (e.altKey) {
+                        // Move cursor into the link
                         client.editorView.dispatch({
                           selection: { anchor: mFrom },
                         });

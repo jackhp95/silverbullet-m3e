@@ -104,7 +104,11 @@ export function attachWidgetEventHandlers(
     });
   }
 
-  div.querySelectorAll("a[data-ref]").forEach((el_) => {
+  // Override wiki links with local navigate (faster). Tag pills render as
+  // `m3e-assist-chip[data-ref]` (see markdown_render.ts's Hashtag case and
+  // codemirror/hashtag.ts), not a real `<a>`, so both selectors are needed
+  // here.
+  div.querySelectorAll("a[data-ref], m3e-assist-chip[data-ref]").forEach((el_) => {
     const el = el_ as HTMLElement;
     // Ctrl/meta-click navigates in a new window: we can't rely on the
     // browser's native "open in new tab" for the anchor's href, because

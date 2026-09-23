@@ -1,5 +1,15 @@
 import { closeSearchPanel } from "@codemirror/search";
 import { runScopeHandlers } from "@codemirror/view";
+// Global custom-element registration for `<m3e-assist-chip>` (tag pills, both
+// in the live CodeMirror editor via codemirror/hashtag.ts, and in rendered
+// markdown/widgets via markdown_renderer/markdown_render.ts's Hashtag case).
+// This is the browser-only app root, so one side-effect import here covers
+// every module that renders the tag — those modules can't import it
+// themselves because they're also loaded by plain-Node vitest unit tests
+// with no DOM (see frontmatter_folding.test.ts's `domTest` guard; a
+// LitElement class throws immediately at import time without a global
+// `HTMLElement`).
+import "@m3e/web/chips";
 import { getNameFromPath } from "@silverbulletmd/silverbullet/lib/ref";
 import type {
   FilterOption,
