@@ -1,0 +1,21 @@
+/*
+ * Layer 0 — SEED tokens.
+ *
+ * Two seeds drive the entire palette derivation in src/ref/palette.css:
+ *
+ *   --md-seed-primary: hue/chroma for primary, secondary, tertiary, neutral,
+ *                       and neutral-variant palettes. Each derivation in
+ *                       Layer 1 transforms this seed (chroma adjust, hue rotate,
+ *                       chroma collapse).
+ *
+ *   --md-seed-error:   independent — error palette uses M3's spec-fixed hue
+ *                       and chroma. Override if your design system needs a
+ *                       different error tone.
+ *
+ * Override at this layer to rebrand the whole app with one var change.
+ */
+
+:where(:root) {
+  --md-seed-primary: #6750a4;
+  --md-seed-error: #b3261e;
+}

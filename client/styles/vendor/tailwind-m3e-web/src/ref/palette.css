@@ -1,0 +1,106 @@
+/*
+ * Layer 1 — REF PALETTE tonal scales.
+ *
+ * Each --md-ref-palette-<palette>-<tone> resolves via oklch(from <seed> …):
+ *
+ *   primary         = full chroma, seed hue
+ *   secondary       = primary with chroma reduced to ~33%
+ *   tertiary        = primary with hue rotated +60°
+ *   neutral         = chroma collapsed near 0
+ *   neutral-variant = light chroma retained for tonal variation
+ *   error           = independent seed; spec-fixed
+ *
+ * L per tone comes from the calibrated table (_tone-table.css) — NOT
+ * a 1:1 mapping with the tone number, since OKLCH L doesn't perfectly
+ * match M3's HCT tone.
+ *
+ * Browser support: oklch(from …) — Chrome 119+, Safari 16.4+, Firefox 128+.
+ */
+
+@import "./_tone-table.css";
+
+:where(:root) {
+  /* ── primary — chroma-rich, seed hue ── */
+  --md-ref-palette-primary-10: oklch(from var(--md-seed-primary) var(--_m3e-tone-10-rich) c h);
+  --md-ref-palette-primary-20: oklch(from var(--md-seed-primary) var(--_m3e-tone-20-rich) c h);
+  --md-ref-palette-primary-30: oklch(from var(--md-seed-primary) var(--_m3e-tone-30-rich) c h);
+  --md-ref-palette-primary-40: oklch(from var(--md-seed-primary) var(--_m3e-tone-40-rich) c h);
+  --md-ref-palette-primary-50: oklch(from var(--md-seed-primary) var(--_m3e-tone-50-rich) c h);
+  --md-ref-palette-primary-60: oklch(from var(--md-seed-primary) var(--_m3e-tone-60-rich) c h);
+  --md-ref-palette-primary-70: oklch(from var(--md-seed-primary) var(--_m3e-tone-70-rich) c h);
+  --md-ref-palette-primary-80: oklch(from var(--md-seed-primary) var(--_m3e-tone-80-rich) c h);
+  --md-ref-palette-primary-90: oklch(from var(--md-seed-primary) var(--_m3e-tone-90-rich) c h);
+  --md-ref-palette-primary-95: oklch(from var(--md-seed-primary) var(--_m3e-tone-95-rich) c h);
+  --md-ref-palette-primary-99: oklch(from var(--md-seed-primary) var(--_m3e-tone-99-rich) c h);
+  --md-ref-palette-primary-100: oklch(from var(--md-seed-primary) var(--_m3e-tone-100-rich) c h);
+
+  /* ── secondary — primary with chroma * 0.33 ── */
+  --md-ref-palette-secondary-10: oklch(from var(--md-seed-primary) var(--_m3e-tone-10-rich) calc(c * 0.33) h);
+  --md-ref-palette-secondary-20: oklch(from var(--md-seed-primary) var(--_m3e-tone-20-rich) calc(c * 0.33) h);
+  --md-ref-palette-secondary-30: oklch(from var(--md-seed-primary) var(--_m3e-tone-30-rich) calc(c * 0.33) h);
+  --md-ref-palette-secondary-40: oklch(from var(--md-seed-primary) var(--_m3e-tone-40-rich) calc(c * 0.33) h);
+  --md-ref-palette-secondary-50: oklch(from var(--md-seed-primary) var(--_m3e-tone-50-rich) calc(c * 0.33) h);
+  --md-ref-palette-secondary-60: oklch(from var(--md-seed-primary) var(--_m3e-tone-60-rich) calc(c * 0.33) h);
+  --md-ref-palette-secondary-70: oklch(from var(--md-seed-primary) var(--_m3e-tone-70-rich) calc(c * 0.33) h);
+  --md-ref-palette-secondary-80: oklch(from var(--md-seed-primary) var(--_m3e-tone-80-rich) calc(c * 0.33) h);
+  --md-ref-palette-secondary-90: oklch(from var(--md-seed-primary) var(--_m3e-tone-90-rich) calc(c * 0.33) h);
+  --md-ref-palette-secondary-95: oklch(from var(--md-seed-primary) var(--_m3e-tone-95-rich) calc(c * 0.33) h);
+  --md-ref-palette-secondary-99: oklch(from var(--md-seed-primary) var(--_m3e-tone-99-rich) calc(c * 0.33) h);
+  --md-ref-palette-secondary-100: oklch(from var(--md-seed-primary) var(--_m3e-tone-100-rich) calc(c * 0.33) h);
+
+  /* ── tertiary — primary with hue + 60° ── */
+  --md-ref-palette-tertiary-10: oklch(from var(--md-seed-primary) var(--_m3e-tone-10-rich) c calc(h + 60));
+  --md-ref-palette-tertiary-20: oklch(from var(--md-seed-primary) var(--_m3e-tone-20-rich) c calc(h + 60));
+  --md-ref-palette-tertiary-30: oklch(from var(--md-seed-primary) var(--_m3e-tone-30-rich) c calc(h + 60));
+  --md-ref-palette-tertiary-40: oklch(from var(--md-seed-primary) var(--_m3e-tone-40-rich) c calc(h + 60));
+  --md-ref-palette-tertiary-50: oklch(from var(--md-seed-primary) var(--_m3e-tone-50-rich) c calc(h + 60));
+  --md-ref-palette-tertiary-60: oklch(from var(--md-seed-primary) var(--_m3e-tone-60-rich) c calc(h + 60));
+  --md-ref-palette-tertiary-70: oklch(from var(--md-seed-primary) var(--_m3e-tone-70-rich) c calc(h + 60));
+  --md-ref-palette-tertiary-80: oklch(from var(--md-seed-primary) var(--_m3e-tone-80-rich) c calc(h + 60));
+  --md-ref-palette-tertiary-90: oklch(from var(--md-seed-primary) var(--_m3e-tone-90-rich) c calc(h + 60));
+  --md-ref-palette-tertiary-95: oklch(from var(--md-seed-primary) var(--_m3e-tone-95-rich) c calc(h + 60));
+  --md-ref-palette-tertiary-99: oklch(from var(--md-seed-primary) var(--_m3e-tone-99-rich) c calc(h + 60));
+  --md-ref-palette-tertiary-100: oklch(from var(--md-seed-primary) var(--_m3e-tone-100-rich) c calc(h + 60));
+
+  /* ── neutral — chroma collapsed to ~0.01 oklch ── */
+  --md-ref-palette-neutral-10: oklch(from var(--md-seed-primary) var(--_m3e-tone-10-neutral) 0.01 h);
+  --md-ref-palette-neutral-20: oklch(from var(--md-seed-primary) var(--_m3e-tone-20-neutral) 0.01 h);
+  --md-ref-palette-neutral-30: oklch(from var(--md-seed-primary) var(--_m3e-tone-30-neutral) 0.01 h);
+  --md-ref-palette-neutral-40: oklch(from var(--md-seed-primary) var(--_m3e-tone-40-neutral) 0.01 h);
+  --md-ref-palette-neutral-50: oklch(from var(--md-seed-primary) var(--_m3e-tone-50-neutral) 0.01 h);
+  --md-ref-palette-neutral-60: oklch(from var(--md-seed-primary) var(--_m3e-tone-60-neutral) 0.01 h);
+  --md-ref-palette-neutral-70: oklch(from var(--md-seed-primary) var(--_m3e-tone-70-neutral) 0.01 h);
+  --md-ref-palette-neutral-80: oklch(from var(--md-seed-primary) var(--_m3e-tone-80-neutral) 0.01 h);
+  --md-ref-palette-neutral-90: oklch(from var(--md-seed-primary) var(--_m3e-tone-90-neutral) 0.01 h);
+  --md-ref-palette-neutral-95: oklch(from var(--md-seed-primary) var(--_m3e-tone-95-neutral) 0.01 h);
+  --md-ref-palette-neutral-99: oklch(from var(--md-seed-primary) var(--_m3e-tone-99-neutral) 0.01 h);
+  --md-ref-palette-neutral-100: oklch(from var(--md-seed-primary) var(--_m3e-tone-100-neutral) 0.01 h);
+
+  /* ── neutral-variant — slight chroma retained ── */
+  --md-ref-palette-neutral-variant-10: oklch(from var(--md-seed-primary) var(--_m3e-tone-10-neutral) 0.025 h);
+  --md-ref-palette-neutral-variant-20: oklch(from var(--md-seed-primary) var(--_m3e-tone-20-neutral) 0.025 h);
+  --md-ref-palette-neutral-variant-30: oklch(from var(--md-seed-primary) var(--_m3e-tone-30-neutral) 0.025 h);
+  --md-ref-palette-neutral-variant-40: oklch(from var(--md-seed-primary) var(--_m3e-tone-40-neutral) 0.025 h);
+  --md-ref-palette-neutral-variant-50: oklch(from var(--md-seed-primary) var(--_m3e-tone-50-neutral) 0.025 h);
+  --md-ref-palette-neutral-variant-60: oklch(from var(--md-seed-primary) var(--_m3e-tone-60-neutral) 0.025 h);
+  --md-ref-palette-neutral-variant-70: oklch(from var(--md-seed-primary) var(--_m3e-tone-70-neutral) 0.025 h);
+  --md-ref-palette-neutral-variant-80: oklch(from var(--md-seed-primary) var(--_m3e-tone-80-neutral) 0.025 h);
+  --md-ref-palette-neutral-variant-90: oklch(from var(--md-seed-primary) var(--_m3e-tone-90-neutral) 0.025 h);
+  --md-ref-palette-neutral-variant-95: oklch(from var(--md-seed-primary) var(--_m3e-tone-95-neutral) 0.025 h);
+  --md-ref-palette-neutral-variant-99: oklch(from var(--md-seed-primary) var(--_m3e-tone-99-neutral) 0.025 h);
+  --md-ref-palette-neutral-variant-100: oklch(from var(--md-seed-primary) var(--_m3e-tone-100-neutral) 0.025 h);
+
+  /* ── error — independent seed ── */
+  --md-ref-palette-error-10: oklch(from var(--md-seed-error) var(--_m3e-tone-10-rich) c h);
+  --md-ref-palette-error-20: oklch(from var(--md-seed-error) var(--_m3e-tone-20-rich) c h);
+  --md-ref-palette-error-30: oklch(from var(--md-seed-error) var(--_m3e-tone-30-rich) c h);
+  --md-ref-palette-error-40: oklch(from var(--md-seed-error) var(--_m3e-tone-40-rich) c h);
+  --md-ref-palette-error-50: oklch(from var(--md-seed-error) var(--_m3e-tone-50-rich) c h);
+  --md-ref-palette-error-60: oklch(from var(--md-seed-error) var(--_m3e-tone-60-rich) c h);
+  --md-ref-palette-error-70: oklch(from var(--md-seed-error) var(--_m3e-tone-70-rich) c h);
+  --md-ref-palette-error-80: oklch(from var(--md-seed-error) var(--_m3e-tone-80-rich) c h);
+  --md-ref-palette-error-90: oklch(from var(--md-seed-error) var(--_m3e-tone-90-rich) c h);
+  --md-ref-palette-error-95: oklch(from var(--md-seed-error) var(--_m3e-tone-95-rich) c h);
+  --md-ref-palette-error-99: oklch(from var(--md-seed-error) var(--_m3e-tone-99-rich) c h);
+  --md-ref-palette-error-100: oklch(from var(--md-seed-error) var(--_m3e-tone-100-rich) c h);
+}

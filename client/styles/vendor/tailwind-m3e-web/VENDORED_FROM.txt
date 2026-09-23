@@ -1,0 +1,45 @@
+jackhp95/tailwind-m3e-web (PRIVATE repo, not on npm) — vendored CSS only. version 0.1.0
+
+Upstream:  https://github.com/jackhp95/tailwind-m3e-web
+Commit:    a3414c3  ("Merge branch 'fix-root-vs-html-specificity'")
+Vendored:  2026-09-19
+
+Same pattern as the two other consumers on this machine:
+  - compass-social/web/vendor-web/tailwind-m3e-web/
+  - buildoc/frontend/vendor-css-tailwind-m3e-web/
+
+The package is private and unpublished (`npm view tailwind-m3e-web` → 404),
+so vendoring the CSS is the only way to consume it. `src/` and `generated/`
+are the two published-file trees; the generator scripts, tests, CI and drift
+gate stay upstream.
+
+
+REGENERATED, NOT COPIED
+-----------------------
+`generated/utilities.css` and `generated/CSS_CUSTOM_PROPERTIES.md` are NOT
+the upstream committed artifacts. Upstream generated them against
+@m3e/web 2.5.14; this repo pins @m3e/web ^2.7.12. That drift is real and was
+measured, not assumed:
+
+    2.5.14 → 2254 @utility rules
+    2.7.12 → 2362 @utility rules   (+108 rules, 124 changed lines)
+
+So the two files here were regenerated in place by running upstream's own
+`bin/generate-component-utilities.mjs` against this repo's installed
+`node_modules/@m3e/web@2.7.12/dist/custom-elements.json` — the exact input
+the script expects. The generator is deterministic (re-running on the same
+manifest is byte-identical), so this stays reproducible.
+
+`src/` IS an unmodified upstream copy. Upstream's peer range is
+`@m3e/web ^2.5.0 <3`, which 2.7.12 satisfies, and the token layer does not
+depend on the manifest at all.
+
+TO RE-SYNC after an upstream change or an @m3e/web bump:
+  1. Pull upstream tailwind-m3e-web.
+  2. Point its node_modules/@m3e/web at this repo's installed copy.
+  3. `node bin/generate-component-utilities.mjs`
+  4. Copy `src/` verbatim and the two regenerated `generated/` files here.
+  5. Update the commit hash and rule count above.
+
+Ideally step 3 happens upstream and is committed there, so upstream's own
+drift gate (`bin/check-drift.mjs`) stays meaningful for all consumers.
