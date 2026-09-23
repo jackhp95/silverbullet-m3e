@@ -24,6 +24,14 @@ import {
   Input,
   Progress,
 } from "@silverbulletmd/silverbullet/ui";
+// `Button`/`Input` render `m3e-button`/`m3e-form-field` — see
+// plug-api/ui/button.tsx's doc comment on why these side-effect imports
+// belong at each DOM-side consumer, not the kit files themselves.
+import "@m3e/web/button";
+import "@m3e/web/form-field";
+import "@m3e/web/chips";
+// `Alert` renders `m3e-snackbar` (plug-api/ui/alert.tsx, Task D).
+import "@m3e/web/snackbar";
 
 function openPage(name: string) {
   void (async () => {

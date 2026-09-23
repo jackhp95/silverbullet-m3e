@@ -39,7 +39,17 @@ class TableViewWidget extends WidgetType {
 
   toDOM(): HTMLElement {
     const dom = document.createElement("span");
-    dom.classList.add("sb-table-widget");
+    // Layout lives here as Tailwind utilities now — see editor.scss's audit
+    // note; `sb-table-widget` itself stays as a stable hook for click
+    // handling above and any external selectors.
+    dom.classList.add(
+      "sb-table-widget",
+      "inline-block",
+      "align-top",
+      "w-full",
+      "font-normal",
+      "overflow-auto",
+    );
     dom.addEventListener("click", (e) => {
       const dataAttributes = (e.target as any).dataset;
       const fallbackPos = this.client.editorView.posAtDOM(dom, 0);

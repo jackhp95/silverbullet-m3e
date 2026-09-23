@@ -4,6 +4,8 @@ import {
   prefixFromName,
   slugify,
 } from "@silverbulletmd/silverbullet/ui";
+// Alert renders `m3e-snackbar` (plug-api/ui/alert.tsx, Task D).
+import "@m3e/web/snackbar";
 import type { FieldError } from "./types.ts";
 
 /**

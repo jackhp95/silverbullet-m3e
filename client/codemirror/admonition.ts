@@ -121,7 +121,11 @@ export function admonitionPlugin() {
             widgets.push(
               Decoration.line({
                 attributes: { admonition: admonitionType },
-                class: "sb-admonition",
+                // Border/padding moved to Tailwind utilities — see
+                // editor.scss's audit note. `!` forces !important to match
+                // the prior rule's specificity guarantee against CM's own
+                // line-decoration classes.
+                class: "sb-admonition border-l-4! border-solid pl-[5px]",
               }).range(fromOffset),
             );
           });

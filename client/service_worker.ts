@@ -509,6 +509,55 @@ self.addEventListener("activate", (event: any) => {
   );
 });
 
+// Web Push (spec §5, §5.1). The sidecar's `push/send` (a separate repo,
+// `knowledge-substrate`, built by a sibling leaf) delivers `{title, body,
+// url}` as the push message's JSON payload — this just renders it and
+// routes a click on the resulting notification back into the app. The
+// one-time subscribe flow that registers for push in the first place lives
+// client-side in `client/lib/push_subscribe.ts`, wired up from
+// `client/editor_ui.tsx`'s floating-toolbar toggle; nothing about that
+// subscribe step happens here.
+self.addEventListener("push", (event: any) => {
+  let payload: { title?: string; body?: string; url?: string } = {};
+  try {
+    payload = event.data?.json() ?? {};
+  } catch (e) {
+    // Not JSON (or no data at all) — fall back to a generic notification
+    // rather than dropping the push silently.
+    console.warn("Push event had no parseable JSON payload", e);
+  }
+  const title = payload.title || "SilverBullet";
+  event.waitUntil(
+    // @ts-expect-error: service worker API
+    self.registration.showNotification(title, {
+      body: payload.body,
+      data: { url: payload.url || "/" },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event: any) => {
+  event.notification.close();
+  const url: string = event.notification.data?.url || "/";
+  event.waitUntil(
+    (async () => {
+      // @ts-expect-error: service worker API
+      const allClients: any[] = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      const targetHref = new URL(url, self.location.origin).href;
+      const existing = allClients.find((c) => c.url === targetHref);
+      if (existing) {
+        await existing.focus();
+        return;
+      }
+      // @ts-expect-error: service worker API
+      await self.clients.openWindow(url);
+    })(),
+  );
+});
+
 console.log("Service worker loaded");
 
 function isConfigured() {

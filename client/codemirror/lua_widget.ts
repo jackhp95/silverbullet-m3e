@@ -216,7 +216,8 @@ export class LuaWidget extends WidgetType {
     }
 
     if (wc.sandbox) {
-      div.className += " sb-lua-directive-block";
+      // display moved to a Tailwind utility — see editor.scss's audit note.
+      div.className += " sb-lua-directive-block block";
       const iframeContent = {
         html: typeof wc.html === "string" ? wc.html : "",
         script: typeof wc.script === "string" ? wc.script : "",
@@ -275,9 +276,12 @@ export class LuaWidget extends WidgetType {
 
       block = wc.display === "block";
       if (block) {
-        div.className += " sb-lua-directive-block";
+        // display moved to a Tailwind utility — see editor.scss's audit note.
+        div.className += " sb-lua-directive-block block";
       } else {
-        div.className += " sb-lua-directive-inline";
+        // display/padding moved to Tailwind utilities — see editor.scss's
+        // audit note.
+        div.className += " sb-lua-directive-inline inline p-[2px]";
       }
     }
     if (!html && wc.markdown) {
@@ -316,9 +320,12 @@ export class LuaWidget extends WidgetType {
         (wc._isWidget && wc.display === "block") ||
         isBlockMarkdown(trimmedMarkdown);
       if (block) {
-        div.className += " sb-lua-directive-block";
+        // display moved to a Tailwind utility — see editor.scss's audit note.
+        div.className += " sb-lua-directive-block block";
       } else {
-        div.className += " sb-lua-directive-inline";
+        // display/padding moved to Tailwind utilities — see editor.scss's
+        // audit note.
+        div.className += " sb-lua-directive-inline inline p-[2px]";
       }
 
       mdTree = await this.parseAndExpandCustomSyntax(
@@ -381,6 +388,15 @@ export class LuaWidget extends WidgetType {
     if (!isBlock) {
       return html;
     }
+
+    // TOP/BOTTOM array widgets (Linked Mentions, TOC, Linked Tasks, …) get
+    // the real m3e-card chrome; in-page query/directive widgets keep the
+    // hand-built button-bar below untouched (spec: toolbar-search-feedback,
+    // item 7 — scoped to avoid touching the in-page rendering path).
+    if (!this.opts.inPage) {
+      return this.wrapHtmlAsCard(html, copyContent);
+    }
+
     const container = document.createElement("div");
     const buttonBar = document.createElement("div");
     buttonBar.className = "button-bar";
@@ -506,6 +522,130 @@ export class LuaWidget extends WidgetType {
     container.appendChild(content);
 
     return container;
+  }
+
+  /**
+   * TOP/BOTTOM array-widget chrome: `m3e-card variant="outlined"` with a
+   * nested `m3e-app-bar` header (leading collapse toggle, hoisted title,
+   * trailing Reload/Copy `m3e-icon-button`s) instead of the hand-built
+   * button-bar. Only reached when `!this.opts.inPage` (see `wrapHtml`).
+   */
+  private wrapHtmlAsCard(
+    html: HTMLElement,
+    copyContent: string | undefined,
+  ): HTMLElement {
+    // Hoist the rendered markdown's leading `<h1>` as the header title, so
+    // this generalizes to any widget using this chrome (Linked Mentions,
+    // Linked Tasks, …), not just the one with this literal heading. Widgets
+    // with no leading `<h1>` (e.g. the TOC widget's `<details>` html) simply
+    // get no title.
+    let title: string | undefined;
+    const leading = html.firstElementChild;
+    if (leading?.tagName === "H1") {
+      title = leading.textContent?.trim() || undefined;
+      leading.remove();
+    }
+
+    const card = document.createElement("m3e-card");
+    card.setAttribute("variant", "outlined");
+    card.className = "sb-lua-card";
+
+    const appBar = document.createElement("m3e-app-bar");
+    appBar.slot = "header";
+    appBar.setAttribute("size", "small");
+
+    const content = document.createElement("div");
+    content.slot = "content";
+    // Deliberately not the legacy `.content` class: that name is shared
+    // with the in-page button-bar chrome below and carries its own
+    // padding/max-height rules that would double up with m3e-card's own
+    // padded `content` slot.
+    // max-height/overflow moved to Tailwind utilities — see editor.scss's
+    // audit note. The `[hidden]` display:none override stays in CSS: it's
+    // defensive against m3e-card's own slot styling on this `content`-slot
+    // element, not a plain layout property.
+    content.className = "sb-lua-card-content max-h-[500px] overflow-y-auto";
+    content.appendChild(html);
+
+    const collapseButton = document.createElement("m3e-icon-button");
+    collapseButton.slot = "leading";
+    const collapseIcon = document.createElement("m3e-icon");
+    collapseButton.appendChild(collapseIcon);
+    const setCollapsed = (collapsed: boolean) => {
+      content.toggleAttribute("hidden", collapsed);
+      collapseIcon.setAttribute(
+        "name",
+        collapsed ? "expand_more" : "expand_less",
+      );
+      const label = collapsed ? "Expand" : "Collapse";
+      collapseButton.setAttribute("title", label);
+      collapseButton.setAttribute("aria-label", label);
+    };
+    setCollapsed(false);
+    collapseButton.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setCollapsed(!content.hasAttribute("hidden"));
+    });
+    appBar.appendChild(collapseButton);
+
+    if (title) {
+      const titleEl = document.createElement("span");
+      titleEl.slot = "title";
+      titleEl.textContent = title;
+      appBar.appendChild(titleEl);
+    }
+
+    const createTrailingButton = ({
+      label,
+      icon,
+      listener,
+    }: {
+      label: string;
+      icon: string;
+      listener: (event: MouseEvent) => void;
+    }) => {
+      const button = document.createElement("m3e-icon-button");
+      button.slot = "trailing";
+      button.setAttribute("title", label);
+      button.setAttribute("aria-label", label);
+      button.setAttribute("data-button", label.toLowerCase());
+      const iconEl = document.createElement("m3e-icon");
+      iconEl.setAttribute("name", icon);
+      button.appendChild(iconEl);
+      button.addEventListener("click", listener);
+      return button;
+    };
+
+    appBar.appendChild(
+      createTrailingButton({
+        label: "Reload",
+        icon: "refresh",
+        listener: (e) => {
+          e.stopPropagation();
+          this.opts.client.clientSystem
+            .localSyscall("system.invokeFunction", ["index.refreshWidgets"])
+            .catch(console.error);
+        },
+      }),
+    );
+
+    if (copyContent) {
+      appBar.appendChild(
+        createTrailingButton({
+          label: "Copy",
+          icon: "content_copy",
+          listener: (e) => {
+            e.stopPropagation();
+            this.opts.client.clientSystem
+              .localSyscall("editor.copyToClipboard", [copyContent])
+              .catch(console.error);
+          },
+        }),
+      );
+    }
+
+    card.append(appBar, content);
+    return card;
   }
 
   override eq(other: WidgetType): boolean {

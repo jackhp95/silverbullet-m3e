@@ -5,6 +5,8 @@ import { useShortcuts } from "../editors_context.tsx";
 import { ChordChips, cls } from "./chord_display.tsx";
 import { RecordingChord } from "./recording_chord.tsx";
 import { Input } from "@silverbulletmd/silverbullet/ui";
+// `Input` renders `m3e-form-field` — see plug-api/ui/input.tsx's doc comment.
+import "@m3e/web/form-field";
 
 type RecordingTarget = { name: string; slot: number } | null;
 

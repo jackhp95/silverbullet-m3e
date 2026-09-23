@@ -1,6 +1,8 @@
 import { syscall } from "@silverbulletmd/silverbullet/syscall";
 import { editor } from "@silverbulletmd/silverbullet/syscalls";
 import { Checkbox, Input } from "@silverbulletmd/silverbullet/ui";
+// `Input` renders `m3e-form-field` — see plug-api/ui/input.tsx's doc comment.
+import "@m3e/web/form-field";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
   defaultForceSettings,

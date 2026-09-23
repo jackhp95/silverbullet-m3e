@@ -416,10 +416,16 @@ function render(t: ParseTree, options: MarkdownRenderOptions = {}): Tag | null {
       const tagName = extractHashtag(tagText);
       const link =
         options.resolveTagHref?.(tagName) ?? TagConstants.tagPrefix + tagName;
+      // m3e-assist-chip (registered globally via editor_ui.tsx's
+      // `@m3e/web/chips` import), not a plain `<a>` — see hashtag.ts's
+      // identical rationale. `data-ref` is what
+      // codemirror/widget_util.ts's `attachWidgetEventHandlers` keys its
+      // click-to-navigate override on for tag pills rendered inside
+      // widgets (tables, html/lua widgets).
       return {
-        name: "a",
+        name: "m3e-assist-chip",
         attrs: {
-          class: "hashtag sb-hashtag",
+          variant: "outlined",
           "data-tag-name": tagName,
           href: `/${encodePageURI(link)}`,
           "data-ref": link,

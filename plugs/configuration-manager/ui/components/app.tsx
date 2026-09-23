@@ -1,5 +1,7 @@
 import { useCallback, useState } from "preact/hooks";
 import { X } from "preact-feather";
+// Tabs renders <m3e-tabs>/<m3e-tab> — see plug-api/ui/tabs.tsx.
+import "@m3e/web/tabs";
 import * as editor from "../../../../plug-api/syscalls/editor.ts";
 import { useCfg } from "../cfg_context.tsx";
 import { EditorsContext } from "../editors_context.tsx";
@@ -13,6 +15,12 @@ import { ShortcutsTab } from "./shortcuts_tab.tsx";
 import { LibrariesTab } from "./libraries_tab.tsx";
 import { Alert, Button, Tabs } from "@silverbulletmd/silverbullet/ui";
 import type { TabId } from "../types.ts";
+// `Button` renders `m3e-button` — see plug-api/ui/button.tsx's doc comment
+// on why this side-effect import belongs at each DOM-side consumer, not the
+// kit file itself. `Alert` renders `m3e-snackbar` (plug-api/ui/alert.tsx,
+// Task D) — same convention.
+import "@m3e/web/button";
+import "@m3e/web/snackbar";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "configuration", label: "Configuration" },

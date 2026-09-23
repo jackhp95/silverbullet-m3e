@@ -134,6 +134,7 @@ function IFramePanel({
   return (
     <div className="sb-panel" style={{ flex: config.mode }}>
       <iframe
+        className="border-0 w-full h-full p-0 m-0"
         srcDoc={html}
         ref={iFrameRef}
         data-slot={slot}
