@@ -1,7 +1,58 @@
-import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 import * as sass from "sass";
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Compile `client/styles/tailwind.css` with the Tailwind v4 CLI and return
+ * the generated CSS.
+ *
+ * WHY THE CLI AND NOT POSTCSS
+ * ---------------------------
+ * Tailwind v4 offers three integration surfaces: a Vite plugin, a PostCSS
+ * plugin (`@tailwindcss/postcss`), and this standalone CLI
+ * (`@tailwindcss/cli`). This repo has neither Vite nor PostCSS — the entire
+ * client CSS build is the bespoke `sass.compileString()` loop below, and the
+ * wider build is already a hand-sequenced series of discrete steps (esbuild,
+ * file copies, bundle string-patching).
+ *
+ * Choosing the PostCSS plugin would mean adding PostCSS itself, wiring a
+ * processor, and maintaining a second plugin pipeline — a whole toolchain
+ * introduced solely as a host for one plugin, with no other consumer in the
+ * repo. The CLI needs none of that: it is one devDependency whose input is a
+ * CSS file and whose output is a CSS file, which is exactly the shape of the
+ * existing Sass step it sits beside. It is also the surface Tailwind
+ * documents for precisely this case (a project with no supported bundler).
+ *
+ * The cost is a subprocess per build. That is already the norm here (see
+ * build/version.ts, which spawns `git`), and it is a few hundred ms on a
+ * build that runs esbuild over the whole client.
+ *
+ * `--output -` would be the natural choice, but the CLI writes its banner to
+ * stdout too, so we go through a file in the dist dir and read it back.
+ */
+async function buildTailwind(dist: string): Promise<string> {
+  const out = `${dist}/.tailwind.tmp.css`;
+  await execFileAsync(
+    process.execPath,
+    [
+      "node_modules/@tailwindcss/cli/dist/index.mjs",
+      "--input",
+      "client/styles/tailwind.css",
+      "--output",
+      out,
+      "--minify",
+    ],
+    { cwd: process.cwd() },
+  );
+  const css = await readFile(out, "utf-8");
+  await rm(out, { force: true });
+  return css;
+}
 
 import { patchBundledJS } from "../client/plugos/plug_compile.ts";
 
@@ -129,7 +180,32 @@ async function copyAssets(dist: string) {
   // Avoid loading the 405 KB original for a ~26 CSS px wordmark.
   await cp("client/images/logo-dock-96x96.png", `${dist}/logo-dock-96x96.png`);
 
-  // Keep components.css's name: panelStyles() and plug documentation rely on it.
+  // Three stylesheets, all compiled from the same partials so they cannot
+  // drift: main.css for the editor, app.css for the standalone pages (login,
+  // setup wizard, Space Manager) and components.css for plug panel iframes —
+  // the last kept under that name because `panelStyles()` and the plug docs
+  // reference it.
+  // Tailwind v4 runs as a separate pass (see buildTailwind above for why it
+  // cannot go through Sass) and its output is appended to the bundles that
+  // have authored, scannable markup behind them.
+  //
+  // Appended, not prepended, but the order is not what decides the cascade:
+  // everything Tailwind emits is inside `@layer theme/utilities`, and layered
+  // rules always lose to unlayered ones regardless of source order. Every
+  // rule in the SCSS bundles is unlayered. That is the safety property that
+  // makes this drop-in: adding Tailwind cannot outrank a single existing
+  // rule, so an unconverted `.sb-*` rule keeps winning until the day it is
+  // deleted. It also means a Phase 2 conversion is only complete when the
+  // SCSS rule is removed — leaving both in place silently keeps the old one.
+  const tailwindCss = await buildTailwind(dist);
+  const withTailwind = new Set([
+    "main.css", // editor surface
+    "app.css", // standalone pages (login, setup wizard, Space Manager)
+    // NOT components.css — plug-panel iframes render HTML authored outside
+    // this repo, so its classes can never be scanned. See the @source note
+    // in client/styles/tailwind.css.
+  ]);
+
   for (const [entry, output] of [
     ["main.scss", "main.css"],
     ["app.scss", "app.css"],
@@ -140,13 +216,43 @@ async function copyAssets(dist: string) {
       loadPaths: ["client/styles"],
       style: "compressed",
     });
-    await writeFile(`${dist}/${output}`, compiled.css, "utf-8");
+    const css = withTailwind.has(output)
+      ? `${compiled.css}\n${tailwindCss}`
+      : compiled.css;
+    await writeFile(`${dist}/${output}`, css, "utf-8");
   }
 
   // HACK: Patch the JS by removing an invalid regex
   let bundleJs = await readFile(`${dist}/client.js`, "utf-8");
   bundleJs = patchBundledJS(bundleJs);
+  bundleJs = patchPushConfig(bundleJs);
   await writeFile(`${dist}/client.js`, bundleJs, "utf-8");
+}
+
+// Web Push (spec §5.1): fill in the `{{VAPID_PUBLIC_KEY}}` /
+// `{{PUSH_SIDECAR_URL}}` placeholders `augmentBootConfig` (client/boot.ts)
+// stamps into BootConfig, same technique as `patchServiceWorker`'s
+// `{{CACHE_NAME}}`/`{{PRECACHE_FILES}}` below — neither value is known at
+// dispatch/authoring time (the sidecar, built in parallel in a different
+// repo, hasn't reported its real VAPID key or port yet), so both come from
+// env vars read at build time and default to "" when unset. An unset key
+// means the push toggle renders as "not configured" instead of guessing.
+//
+// PUSH_SIDECAR_URL should be set to a relative same-origin proxy path, e.g.
+// `/.proxy/localhost:8791`, NOT an absolute `http://localhost:8791`. The
+// sidecar has no CORS headers, so an absolute cross-origin URL makes the
+// browser preflight the POST, the sidecar 404s the OPTIONS, and the
+// subscribe call fails with "Failed to fetch" (this bit a live deploy — the
+// bundle baked the absolute form while the page was served cross-origin).
+// Routing through this server's own `/.proxy/{*path}` handler
+// (`server/src/handlers/proxy.rs`) is same-origin, so no preflight happens;
+// see `client/lib/push_subscribe.ts` for the corresponding
+// `X-Proxy-Header-Content-Type` header rewrite that proxy requires. An
+// absolute URL is still supported for a sidecar with its own CORS handling.
+function patchPushConfig(code: string): string {
+  return code
+    .replaceAll("{{VAPID_PUBLIC_KEY}}", process.env.VAPID_PUBLIC_KEY ?? "")
+    .replaceAll("{{PUSH_SIDECAR_URL}}", process.env.PUSH_SIDECAR_URL ?? "");
 }
 
 // Shells and bundles for the server-level surfaces (Space Manager at /.spaces,

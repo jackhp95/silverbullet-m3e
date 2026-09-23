@@ -67,6 +67,12 @@ async function findEncryptionKey(
   });
 }
 
+if (!crypto.subtle) {
+  alert(
+    "You are likely accessing SilverBullet via HTTP (rather than HTTPS or localhost), this is not a supported configuration. See https://silverbullet.md/TLS",
+  );
+}
+
 safeRun(async () => {
   if (!(await waitForLogout())) return;
   const clientReady = Promise.withResolvers<Client>();
@@ -187,6 +193,46 @@ safeRun(async () => {
     await flushCachesAndUnregisterServiceWorker();
   }
   if (!isHeadless && !swDisabled && navigator.serviceWorker) {
+    // A deploy lands a new service worker while this tab stays open: install
+    // + activate (skipWaiting/clients.claim, both already wired above and in
+    // service_worker.ts) happen in the background, but nothing used to force
+    // this tab to pick up the result, so the *next* reload was still served
+    // by the OLD worker and only the reload *after that* showed the new
+    // version. `controllerchange` fires the moment a new worker actually
+    // takes control of this page, so reloading there — once — closes the gap
+    // in exactly one reload instead of two.
+    //
+    // `hadControllerAtBoot` is snapshotted now, before registration can
+    // possibly resolve. This app's `activate` handler always calls
+    // `clients.claim()` (service_worker.ts), even on a brand new install —
+    // so a completely fresh load (no prior service worker at all) fires
+    // `controllerchange` too, going from "no controller" to "a controller".
+    // That first transition must NOT reload (there's no stale version to
+    // recover from); every transition after it means an *already-active*
+    // controller just got replaced by a newer one, which is exactly the
+    // "the page you're looking at is stale" case that should reload.
+    //
+    // A single one-time boolean isn't enough to tell those apart: it must
+    // only excuse the first transition of a controller-less page load, not
+    // every transition for the rest of that page's life — otherwise a real
+    // update later in the same session would be silently swallowed too.
+    const hadControllerAtBoot = !!navigator.serviceWorker.controller;
+    let sawControllerChange = false;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      const isFirstTransitionOfAControllerlessLoad =
+        !sawControllerChange && !hadControllerAtBoot;
+      sawControllerChange = true;
+      if (isFirstTransitionOfAControllerlessLoad || reloading) {
+        return;
+      }
+      reloading = true;
+      console.log(
+        "New service worker took control, reloading to pick up the update",
+      );
+      location.reload();
+    });
+
     const workerURL = new URL("service_worker.js", document.baseURI);
     const configureWorker = async (registration: ServiceWorkerRegistration) => {
       const worker = registration.active;
@@ -312,6 +358,18 @@ async function augmentBootConfig(bootConfig: BootConfig, config: Config) {
   if (urlParams.has("resetClient")) {
     bootConfig.performReset = true;
   }
+
+  // Web Push config (spec §5.1) — build-time-only, not server-provided.
+  // These two string literals are placeholders patched by
+  // `build/build_client.ts`'s `patchPushConfig()` from the `VAPID_PUBLIC_KEY`
+  // / `PUSH_SIDECAR_URL` env vars at `npm run build` time; unset envs patch
+  // to "". Left as literals (not an esbuild `define`) to match this file's
+  // existing `{{CACHE_NAME}}`-style placeholder convention (see
+  // client/service_worker.ts). Must stay in this entry file (boot.ts), not a
+  // shared/split chunk, so the patch step's plain string search reliably
+  // finds them.
+  bootConfig.vapidPublicKey = "{{VAPID_PUBLIC_KEY}}";
+  bootConfig.pushSidecarUrl = "{{PUSH_SIDECAR_URL}}";
 }
 
 if (!globalThis.indexedDB) {

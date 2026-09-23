@@ -176,6 +176,12 @@ export type BootConfig = {
   revisions?: "managed" | "unmanaged" | "disabled";
   /** Every other space root on this origin, e.g. ["/private", "/work"]. */
   spacePrefixes?: string[];
+
+  // Web Push config (spec §5.1), populated at build time by
+  // `build/build_client.ts`'s `patchPushConfig()` — see `augmentBootConfig`
+  // in `client/boot.ts`. Empty string means "not configured".
+  vapidPublicKey?: string;
+  pushSidecarUrl?: string;
 };
 
 /**
