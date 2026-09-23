@@ -229,26 +229,19 @@
 // placement CSS needed here, unlike the old portal-rendered
 // `.sb-notifications` this replaced.
 //
-// 2026-09-22 (read-only-toggle full-width snackbar report). Live-verified
-// (Playwright, chromium, against both the demo fixture server and the
-// running :3111/tailscale deployments) that the read-only-toggle snackbar
-// already renders content-sized today — `getComputedStyle` on the live
-// element: `width: 344px; min-width: 344px; max-width: min(672px, 100% -
-// 48px)`, centered via the vendor's own global `margin-inline: auto` rule
-// (SnackbarElement's `--m3e-snackbar-min-width`/`--m3e-snackbar-max-width`
-// cssprop defaults, node_modules/@m3e/web/dist/src/snackbar/*.d.ts). No app
-// rule anywhere in client/styles/*.scss targets `m3e-snackbar` or
-// `.sb-alert` with a width/inset override — grepped clean. The full-width
-// toast reported live almost certainly came from a browser tab that was
-// still running the OLD hand-rolled `.sb-notifications` portal div (pre-
-// e91f0119 migration) via a stale service-worker cache (confirmed a SW
-// registration exists, client/service_worker/util.ts) — not a live code
-// defect. Pinned explicitly below anyway, at the correct app-side layer:
-// depending on an unstated vendor default for something this visible is
-// fragile — a future @m3e/web bump could silently change it back. This is
-// the durable fix; e2e/snackbar-intrinsic-width.test.ts locks it down.
+// 2026-09-22 (Jack, live): the prior pin below (`--m3e-snackbar-min-width:
+// 344px`) was WRONG — it was mistaken for "the real M3 minimum" but is
+// actually just the vendor's own unstyled-fallback default
+// (`var(--m3e-snackbar-min-width, 344px)`, SnackbarElement's `:host` CSS,
+// node_modules/@m3e/web/dist/snackbar.js). Pinning it to that same 344px
+// forces every short message onto a 344px floor instead of letting the
+// `:host { display: inline-flex }` box hug its actual text. Jack wants
+// intrinsic sizing: the box should be exactly as wide as its content, up to
+// the `--m3e-snackbar-max-width` cap (kept, so long messages still wrap via
+// `.supporting-text`'s line-clamp instead of growing unbounded). Setting
+// the min-width to 0 removes the floor entirely; `max-width` still applies.
 m3e-snackbar {
-  --m3e-snackbar-min-width: 344px;
+  --m3e-snackbar-min-width: 0;
   --m3e-snackbar-max-width: min(672px, 100% - 48px);
 }
 

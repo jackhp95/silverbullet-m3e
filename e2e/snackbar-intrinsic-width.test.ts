@@ -1,59 +1,107 @@
 import { expect, gotoSilverBulletPage, test } from "./fixtures.ts";
 
-// 2026-09-22 (Task B — snackbar full-width investigation). Repro'd against
-// both a fresh fixture server and the already-running live demo server: in
-// both, the read-only-toggle snackbar already renders at its intrinsic
-// `min-width: 344px` (SnackbarElement.d.ts's `--m3e-snackbar-min-width`
-// default), not full viewport width — the bug does not currently
-// reproduce. Root cause of the ORIGINAL report: the full-width toast was
-// the old hand-rolled `.sb-notifications` portal-rendered <div> (see
-// editor_ui.tsx's `flashNotification` comment), which the real
-// `m3e-snackbar` migration (git commit e91f0119, already on this branch,
-// well before this leaf) replaced — that migration fixed this as a side
-// effect, but nothing locked it down with a regression test. This spec is
-// that lock: it fails loudly if the snackbar's box is ever stretched to
-// (or near) the viewport width again.
-test("read-only-toggle snackbar sizes to its intrinsic content width, not the full viewport", async ({
+// 2026-09-22 (Jack, live report — snackbar wider than its content). Prior
+// version of this spec locked in `--m3e-snackbar-min-width: 344px`
+// (client/styles/top.scss) as "the real M3 minimum" — that was wrong. 344px
+// is just the vendor's unstyled-fallback default (`var(--m3e-snackbar-min-
+// width, 344px)`, node_modules/@m3e/web/dist/snackbar.js's `:host` CSS), and
+// pinning the app's own CSS var to that same value forced every short
+// message onto a 344px floor instead of letting the `:host { display:
+// inline-flex }` box hug its text. The fix sets `--m3e-snackbar-min-width:
+// 0` so nothing stops the host from shrinking to content width; `--m3e-
+// snackbar-max-width` is unchanged, so long messages still cap and wrap.
+// This spec now asserts CONTENT-HUGGING (width scales with message length,
+// stays well under the old 344px floor) instead of the floor itself.
+
+test("short-message snackbar hugs its content width, not a fixed floor", async ({
   sbServer,
   page,
 }) => {
   await gotoSilverBulletPage(page, sbServer);
 
+  // A very short message, opened directly via the vendor's own documented
+  // imperative API (Snackbar.d.ts `M3eSnackbar.open(message, options)`) —
+  // the same call `editor_ui.tsx`'s `flashNotification` makes internally,
+  // just with full control over message text/length for this assertion.
+  await page.evaluate(() => {
+    globalThis.M3eSnackbar.open("Hi", { duration: 0 });
+  });
+
+  const snackbar = page.locator("m3e-snackbar");
+  await snackbar.waitFor({ state: "attached", timeout: 5000 });
+  await expect(snackbar).toContainText("Hi");
+
+  const shortBox = (await snackbar.boundingBox())!;
+
+  // No app-side floor left: verify the CSS var itself, not just the visual
+  // effect — fails if a future edit reintroduces a pinned min-width.
+  const minWidth = await snackbar.evaluate((el) => getComputedStyle(el).minWidth);
+  expect(minWidth).toBe("0px");
+
+  // Clearly under the old 344px floor this bug produced.
+  expect(shortBox.width).toBeLessThan(200);
+
+  await page.evaluate(() => globalThis.M3eSnackbar.dismiss());
+
+  // A longer (but still one-line) message via the app's real production
+  // path (editor.ui.flashNotification, exercised through the read-only
+  // toggle) must render WIDER than the 2-character message above — proof
+  // the box scales with content instead of sitting on a shared floor.
   const readOnlyButton = page.locator(
     'm3e-icon-button[title="Enable read-only"], m3e-icon-button[title="Disable read-only"]',
   );
   await readOnlyButton.click();
 
-  const snackbar = page.locator("m3e-snackbar");
   await snackbar.waitFor({ state: "attached", timeout: 5000 });
   await expect(snackbar).toContainText("Read-only mode enabled");
 
-  const box = (await snackbar.boundingBox())!;
+  const longerShortBox = (await snackbar.boundingBox())!;
 
-  // Real M3 snackbar minimum (SnackbarElement.d.ts default) — the floor,
-  // not the bug. Tightened from a loose "< 60% of viewport" bound (which
-  // at a 1280px default viewport allowed up to 768px — wide enough to hide
-  // a real regression) to the actual contract: this one-line message must
-  // stay near its intrinsic content width, and can never exceed the
-  // library's own 672px hard cap (client/styles/top.scss's explicit
-  // `--m3e-snackbar-max-width` pin, `min(672px, 100% - 48px)`) regardless
-  // of viewport size. The bug would be the box stretching out to (near)
-  // the full viewport width for a one-line message.
-  expect(box.width).toBeGreaterThanOrEqual(300);
-  expect(box.width).toBeLessThanOrEqual(400);
-  expect(box.width).toBeLessThanOrEqual(672);
-
-  // Exercises the explicit app-side CSS pin directly, not just its visual
-  // effect — fails if the top.scss `m3e-snackbar { --m3e-snackbar-max-
-  // width: ... }` rule is ever removed or a selector typo stops it from
-  // matching.
-  const maxWidth = await snackbar.evaluate((el) =>
-    getComputedStyle(el).maxWidth
-  );
-  expect(maxWidth).toContain("672px");
+  expect(longerShortBox.width).toBeGreaterThan(shortBox.width);
+  // Still clearly under the old fixed floor.
+  expect(longerShortBox.width).toBeLessThan(344);
 
   // Restore read-only state for hygiene.
   await readOnlyButton.click();
+});
+
+test("long-message snackbar caps at max-width and wraps instead of growing unbounded", async ({
+  sbServer,
+  page,
+}) => {
+  await gotoSilverBulletPage(page, sbServer);
+
+  const longMessage =
+    "This is a deliberately long snackbar message intended to exceed the " +
+    "672 pixel maximum width so the box must cap out and the supporting " +
+    "text must wrap onto a second line instead of growing past the cap.";
+
+  await page.evaluate((msg) => {
+    globalThis.M3eSnackbar.open(msg, { duration: 0 });
+  }, longMessage);
+
+  const snackbar = page.locator("m3e-snackbar");
+  await snackbar.waitFor({ state: "attached", timeout: 5000 });
+  await expect(snackbar).toContainText("deliberately long");
+
+  const box = (await snackbar.boundingBox())!;
+
+  // Hard cap from `--m3e-snackbar-max-width: min(672px, 100% - 48px)`.
+  expect(box.width).toBeLessThanOrEqual(672);
+
+  const maxWidth = await snackbar.evaluate((el) => getComputedStyle(el).maxWidth);
+  expect(maxWidth).toContain("672px");
+
+  // Wrapped: `.supporting-text` (line-clamp: 2) must be taller than a
+  // single text line for a message this long.
+  const supportingText = snackbar.locator(".supporting-text");
+  const textBox = (await supportingText.boundingBox())!;
+  const lineHeight = await supportingText.evaluate((el) =>
+    parseFloat(getComputedStyle(el).lineHeight)
+  );
+  expect(textBox.height).toBeGreaterThan(lineHeight * 1.3);
+
+  await page.evaluate(() => globalThis.M3eSnackbar.dismiss());
 });
 
 test("read-only-toggle snackbar stays content-sized even on a narrow (mobile-width) viewport", async ({
@@ -72,12 +120,13 @@ test("read-only-toggle snackbar stays content-sized even on a narrow (mobile-wid
   await snackbar.waitFor({ state: "attached", timeout: 5000 });
 
   const box = (await snackbar.boundingBox())!;
-  // At 375px, Material's own 344px minimum legitimately fills most of the
-  // width (that's spec, not the bug) — the real regression signature is
-  // literally full-bleed (0 margin both sides). Assert a visible margin
-  // survives on both edges.
+  // Content-hugging box for this short message must sit well inside a
+  // 375px viewport with visible margin on both edges — the regression
+  // signature would be literally full-bleed (0 margin both sides) or
+  // pinned to the old 344px floor.
   expect(box.x).toBeGreaterThan(4);
   expect(box.x + box.width).toBeLessThan(375 - 4);
+  expect(box.width).toBeLessThan(344);
 
   await readOnlyButton.click();
 });
