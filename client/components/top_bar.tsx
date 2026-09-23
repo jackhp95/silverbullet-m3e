@@ -1,5 +1,5 @@
 import type { ComponentChildren } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { Input } from "@silverbulletmd/silverbullet/ui";
 import { relativeTime } from "../lib/relative_time.ts";
 import { countWords, readingTimeMinutes } from "../lib/reading_time.ts";
@@ -282,42 +282,52 @@ export function TopBar({
   // reflected JS/attribute property on `m3e-app-bar` (AppBarElement.d.ts),
   // not a CSS-stylable token, so a container query alone can't flip it — a
   // CSS container query can't set an attribute on any element, full stop,
-  // regardless of component. This is the "measured JS fallback" the task
-  // calls for: a hidden same-font mirror span (`titleMirrorRef`, rendered
-  // inside the real title slot so it inherits the exact same
-  // `--m3e-app-bar-*-title-text-font-*` cascade) reports the title's true
-  // natural (unwrapped) width via `scrollWidth`; a `ResizeObserver` on the
-  // title slot itself reports the width actually available. Comparing the
-  // two reacts correctly to viewport width, window resize, AND title text
-  // length alike, without hardcoding a breakpoint. The visible `<input>`
-  // itself can't be measured this way while focused/mid-edit (its own
-  // scrollWidth reflects the caret's scroll position, not the full value),
-  // which is exactly why this uses a separate mirror instead.
+  // regardless of component. A hidden same-font mirror span
+  // (`titleMirrorRef`, rendered inside the real title slot so it inherits
+  // the exact same `--m3e-app-bar-*-title-text-font-*` cascade) reports the
+  // title's true natural (unwrapped) width via `scrollWidth`; `titleRef`'s
+  // `clientWidth` reports the width actually available. The visible
+  // `<input>` itself can't be measured this way while focused/mid-edit (its
+  // own scrollWidth reflects the caret's scroll position, not the full
+  // value), which is exactly why this uses a separate mirror instead.
+  //
+  // 2026-09-22 (jitter fix — live report): the original version of this
+  // wrapped the same measurement in a persistent `ResizeObserver` watching
+  // `titleRef`. That was a real feedback loop, not a one-off flake: the
+  // mirror's font cascades from `m3e-app-bar`'s OWN `size` attribute
+  // (--m3e-app-bar-large/medium-title-text-font-*), i.e. from `barSize`
+  // itself — so the very act of setting `barSize` to "medium" shrinks the
+  // mirror's own `scrollWidth`, which can make it fit again, flipping back
+  // to "large", which grows the font back out, overflowing again... forever.
+  // `titleRef`'s own box can also shift size when the bar's `size` changes
+  // (different icon/slot metrics per size), which re-fires the observer on
+  // every single one of those self-inflicted layout changes. Two different
+  // feedback paths into the same setState — textbook infinite-loop plumbing.
+  //
+  // Fixed contract, matching what Jack asked for exactly: this measures
+  // ONCE per title change (still keyed on [pageName, pageNamePrefix] below —
+  // "pageload or input change", never on the bar's own resulting layout
+  // shift), via `useLayoutEffect` so the DOM mutation + re-render happen
+  // before the browser paints (no visible frame at the wrong size), and
+  // there is no persistent observer left running afterward to re-trigger
+  // itself — so there is nothing left that CAN oscillate. A later real
+  // window resize (not caused by this effect) is deliberately NOT re-
+  // measured until the next title change; if Jack wants viewport-resize
+  // responsiveness back, that needs a debounced, mirror-pinned-to-large-
+  // font remeasure, not this loop, and should be its own follow-up.
   const titleRef = useRef<HTMLElement>(null);
   const titleMirrorRef = useRef<HTMLSpanElement>(null);
   const [barSize, setBarSize] = useState<"large" | "medium">("large");
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = titleRef.current;
     const mirror = titleMirrorRef.current;
-    if (!el || !mirror || typeof ResizeObserver === "undefined") {
+    if (!el || !mirror) {
       return;
     }
-
-    const evaluate = () => {
-      const available = el.clientWidth;
-      const needed = mirror.scrollWidth;
-      const overflows = available > 0 && needed > available;
-      setBarSize((prev) => {
-        const next = overflows ? "medium" : "large";
-        return prev === next ? prev : next;
-      });
-    };
-
-    const observer = new ResizeObserver(() => evaluate());
-    observer.observe(el);
-    evaluate();
-
-    return () => observer.disconnect();
+    const available = el.clientWidth;
+    const needed = mirror.scrollWidth;
+    const overflows = available > 0 && needed > available;
+    setBarSize(overflows ? "medium" : "large");
   }, [pageName, pageNamePrefix]);
 
   return (
@@ -369,7 +379,9 @@ export function TopBar({
             ))}
           </m3e-breadcrumb>
           <span slot="title" className="sb-page-title" ref={titleRef}>
-            <span className="sb-page-prefix">{pageNamePrefix}</span>
+            <span className="sb-page-prefix flex items-baseline flex-none text-left pt-[3px] whitespace-pre-wrap">
+              {pageNamePrefix}
+            </span>
             <span
               id="sb-current-page"
               className={pageNameClass(isLoading, unsavedChanges, cssClass)}

@@ -58,11 +58,22 @@
     position: relative;
 
     // 2026-09-22 (app-bar title wrap task): natural-width probe used by
-    // top_bar.tsx's ResizeObserver to decide whether the title needs the
-    // smaller bar size. Absolutely positioned (out of flow, doesn't affect
-    // layout/height) but NOT `display:none` — `scrollWidth` of a
-    // non-rendered element is always 0, so it must actually be laid out to
-    // measure real text width at the real cascaded font.
+    // top_bar.tsx's one-shot layout-effect to decide whether the title
+    // needs the smaller bar size. Absolutely positioned (out of flow,
+    // doesn't affect layout/height) but NOT `display:none` — `scrollWidth`
+    // of a non-rendered element is always 0, so it must actually be laid
+    // out to measure real text width.
+    //
+    // 2026-09-22 (jitter fix): font pinned explicitly to the `size="large"`
+    // title tokens, NOT left to cascade from the slot (which used to track
+    // whichever `size` the app-bar currently happens to be in). The old
+    // cascaded version made the mirror's own measured width depend on
+    // `barSize` — the exact state the measurement is supposed to decide —
+    // which was one of two feedback paths into top_bar.tsx's old
+    // ResizeObserver-driven infinite grow/shrink loop (see that file's
+    // comment). Pinning to "large" always answers the same question,
+    // "would this title overflow at the large size", independent of
+    // whatever size the bar happened to be in on a previous title.
     .sb-page-title-mirror {
       position: absolute;
       top: 0;
@@ -70,6 +81,9 @@
       visibility: hidden;
       white-space: pre;
       pointer-events: none;
+      font-size: var(--m3e-app-bar-large-title-text-font-size);
+      font-weight: var(--m3e-app-bar-large-title-text-font-weight);
+      line-height: var(--m3e-app-bar-large-title-text-line-height);
     }
   }
 

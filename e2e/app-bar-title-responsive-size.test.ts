@@ -54,25 +54,78 @@ test("long title stays contained inside the app bar's box, not overflowing it", 
   expect(barScrollWidth).toBeLessThanOrEqual(barClientWidth + 1);
 });
 
-test("narrow viewport drops a long-titled app bar from size large to size medium", async ({
+// 2026-09-22 (jitter fix — live report: "long titles get caught in an
+// infinite loop of growing/shrinking"). Root cause: the old version of this
+// effect wrapped the measurement in a persistent `ResizeObserver` on the
+// title slot AND measured a same-font mirror whose font cascaded from the
+// bar's OWN current `size` — so setting `size="medium"` shrunk the mirror's
+// measured width, which could make it fit again, flipping back to "large",
+// regrowing the font, overflowing again, forever. Fixed contract: `barSize`
+// is now decided exactly ONCE per page load / title change (top_bar.tsx's
+// `useLayoutEffect`, keyed on `[pageName, pageNamePrefix]`, no persisting
+// observer) and never re-evaluated in response to a later window resize.
+// The two tests below replace the old "resize the live window and expect
+// the bar to react" test, which asserted the exact reactive behavior this
+// fix intentionally removes.
+test("a long title's app-bar size is decided once at load, from the viewport at load time", async ({
   sbServer,
   page,
 }) => {
   await page.setViewportSize({ width: 1920, height: 900 });
   await gotoSilverBulletPage(page, sbServer, LONG_TITLE);
+  await expect(page.locator("m3e-app-bar")).toHaveAttribute("size", "large");
+});
+
+test("a long title loaded at a narrow viewport starts medium and does NOT grow back on a later window resize", async ({
+  sbServer,
+  page,
+}) => {
+  await page.setViewportSize({ width: 480, height: 800 });
+  await gotoSilverBulletPage(page, sbServer, LONG_TITLE);
 
   const appBar = page.locator("m3e-app-bar");
-  await expect(appBar).toHaveAttribute("size", "large");
+  await expect(appBar).toHaveAttribute("size", "medium");
 
-  // Shrinking the viewport reduces the space available for the title at
-  // the large-size (Display Small) font, past the point it fits — the
-  // ResizeObserver-driven effect must flip the real `size` attribute.
-  await page.setViewportSize({ width: 480, height: 800 });
-  await expect(appBar).toHaveAttribute("size", "medium", { timeout: 10_000 });
-
-  // Widening back out restores it — this isn't a one-way/sticky flag.
+  // The old bug: widening the window after load used to flip this back to
+  // "large" (then, at the wrong measured-at-medium font, right back to
+  // "medium" again — the jitter). The fixed contract only measures once,
+  // at load/title-change — a later resize must never touch it again.
   await page.setViewportSize({ width: 1920, height: 900 });
-  await expect(appBar).toHaveAttribute("size", "large", { timeout: 10_000 });
+  await page.waitForTimeout(500);
+  await expect(appBar).toHaveAttribute("size", "medium");
+});
+
+test("size never flip-flops after the initial decision (anti-jitter lock)", async ({
+  sbServer,
+  page,
+}) => {
+  await page.setViewportSize({ width: 480, height: 800 });
+  await gotoSilverBulletPage(page, sbServer, LONG_TITLE);
+
+  const appBar = page.locator("m3e-app-bar");
+  await expect(appBar).toHaveAttribute("size", "medium");
+
+  // Count every `size` attribute mutation over a real observation window.
+  // The buggy version thrashed dozens of times a second once triggered;
+  // the fixed one-shot decision produces zero further mutations once
+  // settled (the initial "large" -> "medium" transition has already
+  // happened by the time we start observing here).
+  const mutationCount = await appBar.evaluate((el) =>
+    new Promise<number>((resolve) => {
+      let count = 0;
+      const observer = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          if (m.attributeName === "size") count++;
+        }
+      });
+      observer.observe(el, { attributes: true, attributeFilter: ["size"] });
+      setTimeout(() => {
+        observer.disconnect();
+        resolve(count);
+      }, 1000);
+    })
+  );
+  expect(mutationCount).toBe(0);
 });
 
 test("a short title keeps the large app bar even at a narrow viewport", async ({
