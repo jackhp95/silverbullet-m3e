@@ -1,8 +1,7 @@
 import { cloneElement, type ComponentChildren, type VNode } from "preact";
 import { useId } from "preact/hooks";
 import { cx } from "./cx.ts";
-import { Checkbox } from "./checkbox.tsx";
-import type { JSX } from "preact";
+import { Checkbox, type CheckboxProps } from "./checkbox.tsx";
 
 export type FieldProps = {
   label: ComponentChildren;
@@ -49,10 +48,11 @@ export function Field({
     </div>
   );
 }
-export type CheckboxFieldProps = Omit<
-  JSX.IntrinsicElements["input"],
-  "type" | "class" | "size"
-> & {
+// Derived from CheckboxProps (the m3e-checkbox shape), not a raw
+// JSX.IntrinsicElements["input"] Omit — Checkbox itself renders `m3e-checkbox`
+// (see checkbox.tsx), so this field wrapper's spread props must match that
+// element's real attribute surface, not a native `<input type=checkbox>`'s.
+export type CheckboxFieldProps = Omit<CheckboxProps, "class"> & {
   label: ComponentChildren;
   hint?: ComponentChildren;
   class?: string;

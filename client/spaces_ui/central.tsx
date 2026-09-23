@@ -5,6 +5,18 @@ import { managerUrl } from "../manager_navigation.ts";
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { Alert, Button } from "@silverbulletmd/silverbullet/ui";
+// Global custom-element registration for the shared UI kit's m3e-backed
+// components — see client/spaces_ui/spaces.tsx's matching comment. This is
+// the separate "central" admin-unlock browser entry point (built from its
+// own esbuild entry alongside auth.tsx, sharing no runtime registration with
+// spaces.tsx/setup.tsx's bundles), and its own tree (this file directly,
+// plus SignedOut.tsx, LoginForm.tsx incl. its CheckboxField uses, and
+// CentralUnlock.tsx) reaches Button/Input/Checkbox but never Badge/
+// UrlPrefixInput. No `@m3e/web/snackbar` here — `Alert`'s own swap is
+// DEFERRED, see plug-api/ui/alert.tsx's file header.
+import "@m3e/web/button";
+import "@m3e/web/form-field";
+import "@m3e/web/checkbox";
 import { LoginForm, type LoginValues } from "./components/LoginForm.tsx";
 import { CentralUnlock } from "./components/CentralUnlock.tsx";
 import { base64Decode, deriveEncryptionKey } from "./encryption.ts";

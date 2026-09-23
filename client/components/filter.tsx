@@ -116,6 +116,9 @@ export function FilterList({
       >
         <label>{label}</label>
         <Input
+          // This header row is a plain label+input line (not a boxed
+          // Material field) — see Input's `bare` doc comment.
+          bare
           inputRef={inputRef}
           class="sb-filter-input"
           autocapitalize="off"

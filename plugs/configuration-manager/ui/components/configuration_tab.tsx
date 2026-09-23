@@ -6,6 +6,8 @@ import { cls } from "./chord_display.tsx";
 import { Checkbox, Input, Select } from "@silverbulletmd/silverbullet/ui";
 // `Input` renders `m3e-form-field` — see plug-api/ui/input.tsx's doc comment.
 import "@m3e/web/form-field";
+// `Checkbox` renders `m3e-checkbox` — see plug-api/ui/checkbox.tsx's doc comment.
+import "@m3e/web/checkbox";
 import type { UiSchema } from "../schema.ts";
 
 function Control({

@@ -27,7 +27,7 @@ test("new spaces start with managed revisions and shell commands disabled", () =
   );
   expect(html).toMatch(/<option[^>]*selected[^>]*value="managed"[^>]*>/);
   expect(html).toMatch(
-    /<h3>Shell commands<\/h3><label><input(?![^>]*checked)[^>]*type="checkbox"[^>]*>/,
+    /<h3>Shell commands<\/h3><label><m3e-checkbox(?![^>]*checked)[^>]*><\/m3e-checkbox>/,
   );
   expect(html).toContain("Primary hostname — localhost:3000");
   expect(html).toContain("New hostname");

@@ -237,6 +237,9 @@ function PageNameEditor({
 
   return (
     <Input
+      // Chrome-less inline page-title editor, not a boxed Material field —
+      // see Input's `bare` doc comment.
+      bare
       class="sb-page-name-editor"
       value={name}
       readOnly={readOnly}

@@ -1,9 +1,10 @@
 import { Button, Input } from "@silverbulletmd/silverbullet/ui";
-// `Button`/`Input` render `m3e-button`/`m3e-form-field` — see
-// plug-api/ui/button.tsx's doc comment on why these side-effect imports
-// belong at each DOM-side consumer, not the kit files themselves.
-import "@m3e/web/button";
-import "@m3e/web/form-field";
+// `Button`/`Input` render `m3e-button`/`m3e-form-field` — registered once at
+// this wizard's browser entry point (client/spaces_ui/setup.tsx), not here;
+// see that file's comment. (This step previously self-imported
+// `@m3e/web/button`/`@m3e/web/form-field` directly, staged ahead of the
+// button.tsx/input.tsx kit swap itself — now redundant with setup.tsx's
+// entry-level import and removed to match the rest of the app's convention.)
 import { FieldErrors } from "../../space_fields.tsx";
 import type { FieldError } from "../../types.ts";
 import type { AdminValues } from "../../wizard.ts";

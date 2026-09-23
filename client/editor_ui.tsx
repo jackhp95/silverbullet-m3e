@@ -22,6 +22,17 @@ import "@m3e/web/search"; // m3e-search-bar: the filter input's chrome
 import "@m3e/web/icon-button"; // m3e-icon-button: close/copy/dock-menu-trigger
 import "@m3e/web/menu"; // m3e-menu/-item-radio/-trigger: the dock-placement menu
 import "@m3e/web/progress-indicator"; // m3e-circular-progress-indicator: the loading spinner
+// Same reasoning as `@m3e/web/chips` above, for `<m3e-button>`: `Button`
+// (plug-api/ui/button.tsx) is reachable from plug FUNCTION code too (no
+// DOM), so its kit file deliberately doesn't self-register — every real
+// DOM-side consumer must, and this app root is the one that covers
+// client/navigator/ui/components/revision_preview.tsx's `<Button>` usage
+// (the only direct Button consumer left in the editor bundle;
+// client/components/basic_modals.tsx self-registers its own `@m3e/web/button`
+// since it isn't reachable from plug FUNCTION code, and
+// client/components/filter.tsx / top_bar.tsx render `Input` with `bare`,
+// which never renders an m3e element at all).
+import "@m3e/web/button";
 import { getNameFromPath } from "@silverbulletmd/silverbullet/lib/ref";
 import type {
   FilterOption,

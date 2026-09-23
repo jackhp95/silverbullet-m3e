@@ -15,7 +15,10 @@ const pixelPng = Buffer.from(
 const binaryDocument = Buffer.from([0, 1, 2, 3, 127, 128, 254, 255]);
 
 async function acceptUploadName(page: Page, path: string): Promise<void> {
-  const prompt = page.locator(".sb-prompt");
+  // Prompt()'s outer container is now `m3e-dialog` (client/components/
+  // basic_modals.tsx's m3e-dialog swap) — the old `.sb-prompt` wrapper div
+  // is gone, but the inner input keeps its `.sb-prompt-input` class.
+  const prompt = page.locator("m3e-dialog");
   await expect(prompt).toContainText(
     /File name for (pasted|uploaded) document/,
   );

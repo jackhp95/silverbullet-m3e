@@ -15,31 +15,53 @@ import {
   UrlPrefixInput,
 } from "./index.ts";
 
-test("Button primary emits both classes and merges consumer class", () => {
+test("Button renders m3e-button, primary emits both classes and merges consumer class", () => {
   const html = render(h(Button, { variant: "primary", class: "x" }, "Ok"));
+  expect(html).toContain("<m3e-button");
   expect(html).toContain("sb-button sb-button-primary x");
-  expect(html).toContain(">Ok</button>");
+  expect(html).toContain('variant="filled"');
+  expect(html).toContain(">Ok</m3e-button>");
   expect(html).toContain('type="button"');
 });
 
-test("Button danger/icon variants", () => {
-  expect(render(h(Button, { variant: "danger" }, "D"))).toContain(
-    "sb-button-danger",
-  );
-  expect(render(h(Button, { variant: "icon" }, "I"))).toContain(
-    "sb-button-icon",
-  );
+test("Button danger/icon variants map to m3e-button variants + class hooks", () => {
+  const danger = render(h(Button, { variant: "danger" }, "D"));
+  expect(danger).toContain("sb-button-danger");
+  expect(danger).toContain('variant="filled"');
+
+  const icon = render(h(Button, { variant: "icon" }, "I"));
+  expect(icon).toContain("sb-button-icon");
+  expect(icon).toContain('variant="text"');
 });
 
-test("Input renders sb-input with default type text", () => {
+test("Button default variant renders outlined m3e-button", () => {
+  const html = render(h(Button, {}, "Ok"));
+  expect(html).toContain('variant="outlined"');
+  expect(html).toContain("sb-button");
+});
+
+test("Input wraps in m3e-form-field by default", () => {
   const html = render(h(Input, { value: "hi" }));
+  expect(html).toContain("<m3e-form-field");
+  expect(html).toContain('type="text"');
+  expect(html).toContain('value="hi"');
+});
+
+test("Input bare renders a plain sb-input with default type text, no wrapper", () => {
+  const html = render(h(Input, { value: "hi", bare: true }));
+  expect(html).not.toContain("m3e-form-field");
   expect(html).toContain('class="sb-input"');
   expect(html).toContain('type="text"');
 });
 
 test("Input renders cleanly when onConfirm/onExit are provided", () => {
   const html = render(
-    h(Input, { value: "hi", onConfirm: () => {}, onExit: () => {} }),
+    h(Input, {
+      value: "hi",
+      bare: true,
+      onConfirm: () => {},
+      onExit: () => {},
+    }),
   );
   expect(html).toContain('class="sb-input"');
   expect(html).toContain('value="hi"');
@@ -54,10 +76,11 @@ test("Select wraps options", () => {
   expect(html).toContain(">A</option>");
 });
 
-test("Checkbox is a checkbox input", () => {
+test("Checkbox renders an m3e-checkbox with the checked attribute", () => {
   const html = render(h(Checkbox, { checked: true }));
-  expect(html).toContain('type="checkbox"');
-  expect(html).toContain("sb-checkbox");
+  expect(html).toContain("<m3e-checkbox");
+  expect(html).toContain("m3e-checkbox");
+  expect(html).toContain("checked");
 });
 
 test("Tabs marks the active tab and wires per-item onSelect", () => {
