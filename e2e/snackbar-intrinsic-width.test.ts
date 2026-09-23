@@ -29,13 +29,28 @@ test("read-only-toggle snackbar sizes to its intrinsic content width, not the fu
   await expect(snackbar).toContainText("Read-only mode enabled");
 
   const box = (await snackbar.boundingBox())!;
-  const viewportWidth = page.viewportSize()!.width;
 
   // Real M3 snackbar minimum (SnackbarElement.d.ts default) — the floor,
-  // not the bug. The bug would be the box stretching out to (near) the
-  // full viewport width for a one-line message.
+  // not the bug. Tightened from a loose "< 60% of viewport" bound (which
+  // at a 1280px default viewport allowed up to 768px — wide enough to hide
+  // a real regression) to the actual contract: this one-line message must
+  // stay near its intrinsic content width, and can never exceed the
+  // library's own 672px hard cap (client/styles/top.scss's explicit
+  // `--m3e-snackbar-max-width` pin, `min(672px, 100% - 48px)`) regardless
+  // of viewport size. The bug would be the box stretching out to (near)
+  // the full viewport width for a one-line message.
   expect(box.width).toBeGreaterThanOrEqual(300);
-  expect(box.width).toBeLessThan(viewportWidth * 0.6);
+  expect(box.width).toBeLessThanOrEqual(400);
+  expect(box.width).toBeLessThanOrEqual(672);
+
+  // Exercises the explicit app-side CSS pin directly, not just its visual
+  // effect — fails if the top.scss `m3e-snackbar { --m3e-snackbar-max-
+  // width: ... }` rule is ever removed or a selector typo stops it from
+  // matching.
+  const maxWidth = await snackbar.evaluate((el) =>
+    getComputedStyle(el).maxWidth
+  );
+  expect(maxWidth).toContain("672px");
 
   // Restore read-only state for hygiene.
   await readOnlyButton.click();
