@@ -10,6 +10,18 @@ import { runScopeHandlers } from "@codemirror/view";
 // LitElement class throws immediately at import time without a global
 // `HTMLElement`).
 import "@m3e/web/chips";
+// Global custom-element registration for the navigator panel's m3e reskin
+// (client/navigator/ui/components/{nav_root,dock_menu,content_view,
+// loading_indicator}.tsx) -- same reason as the chips import just above:
+// this is the browser-only app root, and none of those files may
+// self-import an `@m3e/web/*` module at module scope, because several
+// siblings under client/navigator/ have `.test.ts` files that run under
+// vitest's DOM-less `node` environment (a Lit custom-element class throws
+// immediately at import time with no global `HTMLElement`).
+import "@m3e/web/search"; // m3e-search-bar: the filter input's chrome
+import "@m3e/web/icon-button"; // m3e-icon-button: close/copy/dock-menu-trigger
+import "@m3e/web/menu"; // m3e-menu/-item-radio/-trigger: the dock-placement menu
+import "@m3e/web/progress-indicator"; // m3e-circular-progress-indicator: the loading spinner
 import { getNameFromPath } from "@silverbulletmd/silverbullet/lib/ref";
 import type {
   FilterOption,

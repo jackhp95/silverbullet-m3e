@@ -23,7 +23,7 @@ import { handleKeyDown } from "../keyboard.ts";
 import type { ActiveView, PanelSetters, SharedRefs } from "../panel.ts";
 import { resolvePrefix } from "../prefix.ts";
 import { markSlotReady, type NavActivation } from "../slots.ts";
-import { CloseIcon } from "./chrome_icons.tsx";
+import { CloseIcon, SearchIcon } from "./chrome_icons.tsx";
 import { ContentBody, CopyMarkdownButton } from "./content_view.tsx";
 import { CreateRow } from "./create_row.tsx";
 import { DockMenu } from "./dock_menu.tsx";
@@ -261,56 +261,85 @@ export function NavRoot({
               {view.meta.label ?? view.meta.title}
             </label>
           )}
-          <input
-            ref={inputRef}
-            className="sb-nav-input"
-            type="text"
-            autocapitalize="off"
-            autocorrect="off"
-            spellcheck={false}
-            placeholder={noFilter ? undefined : placeholder}
-            aria-label={
-              noFilter ? (view?.meta.label ?? view?.meta.title) : undefined
-            }
-            value={phrase}
-            onInput={(e) => {
-              // Whatever slipped past the keydown swallow (paste, IME) would
-              // invisibly filter the rows of a filterless view.
-              if (noFilter) {
-                e.currentTarget.value = "";
-                return;
-              }
-              interaction.current = "typing";
-              const value = e.currentTarget.value;
-              const routed = resolvePrefix(view?.meta, phrase, value);
-              if (routed) {
-                e.currentTarget.value = routed.rest;
-                setPhrase(routed.rest);
-                setSelectedIndex(0);
-                setSelectedPath(undefined);
-                if (routed.kind === "view") {
-                  cmd.routeToView(routed.view, routed.rest, view?.name);
-                } else {
-                  cmd.pickSegment(routed.index);
+          {(() => {
+            // Built once and either rendered bare (a filterless view: this
+            // input stays in the DOM as the panel's focus home but is
+            // invisible and takes no space, see .sb-nav-no-filter below --
+            // wrapping it in a search bar chrome there would draw a pill
+            // around nothing) or slotted into `m3e-search-bar`'s `input`
+            // slot for the genuinely search-style filter field every other
+            // view has. Either way it is the exact same `<input>` node --
+            // same ref, same class, same handlers -- which is what
+            // `e2e/fixtures/actions.ts`'s `input.sb-nav-input` locators and
+            // `expectNavInputFocused`'s exact `className === "sb-nav-input"`
+            // check both depend on. `slot="input"` is inert when there's no
+            // shadow host around it, so it's set unconditionally.
+            const filterInput = (
+              <input
+                ref={inputRef}
+                className="sb-nav-input"
+                slot="input"
+                type="text"
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck={false}
+                placeholder={noFilter ? undefined : placeholder}
+                aria-label={
+                  noFilter
+                    ? (view?.meta.label ?? view?.meta.title)
+                    : undefined
                 }
-                return;
-              }
-              setPhrase(value);
-              setSelectedIndex(0);
-              setSelectedPath(undefined);
-            }}
-            onKeyDown={(e) =>
-              handleKeyDown(e, {
-                view,
-                phrase,
-                segmentIndex,
-                interaction,
-                derived,
-                cmd,
-                set,
-              })
-            }
-          />
+                value={phrase}
+                onInput={(e) => {
+                  // Whatever slipped past the keydown swallow (paste, IME)
+                  // would invisibly filter the rows of a filterless view.
+                  if (noFilter) {
+                    e.currentTarget.value = "";
+                    return;
+                  }
+                  interaction.current = "typing";
+                  const value = e.currentTarget.value;
+                  const routed = resolvePrefix(view?.meta, phrase, value);
+                  if (routed) {
+                    e.currentTarget.value = routed.rest;
+                    setPhrase(routed.rest);
+                    setSelectedIndex(0);
+                    setSelectedPath(undefined);
+                    if (routed.kind === "view") {
+                      cmd.routeToView(routed.view, routed.rest, view?.name);
+                    } else {
+                      cmd.pickSegment(routed.index);
+                    }
+                    return;
+                  }
+                  setPhrase(value);
+                  setSelectedIndex(0);
+                  setSelectedPath(undefined);
+                }}
+                onKeyDown={(e) =>
+                  handleKeyDown(e, {
+                    view,
+                    phrase,
+                    segmentIndex,
+                    interaction,
+                    derived,
+                    cmd,
+                    set,
+                  })
+                }
+              />
+            );
+            return noFilter ? (
+              filterInput
+            ) : (
+              <m3e-search-bar class="sb-nav-search-bar">
+                <span slot="leading" aria-hidden="true">
+                  <SearchIcon />
+                </span>
+                {filterInput}
+              </m3e-search-bar>
+            );
+          })()}
           {loading && <LoadingIndicator />}
           {/* The same Copy the page-docked container puts in its own strip,
               and the same one the inline Lua widget button bar has: the
@@ -325,15 +354,16 @@ export function NavRoot({
               supported={view.meta.supportedDocks ?? [slot]}
             />
           )}
-          <button
+          <m3e-icon-button
             type="button"
-            className="sb-nav-close"
+            class="sb-nav-close"
+            size="small"
             title="Close"
             aria-label="Close"
             onClick={() => void cmd.close()}
           >
             <CloseIcon />
-          </button>
+          </m3e-icon-button>
         </div>
         {segments && (
           <SegmentedControl

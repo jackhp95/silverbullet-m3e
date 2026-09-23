@@ -38,7 +38,11 @@
   max-height: calc(7 * var(--sb-nav-row-height));
 }
 
-.sb-nav-close {
+// The page-widget strip's own close button (page_widget_frame.tsx, out of
+// this slice's scope) is still a plain <button> -- this sizing stays as-is
+// for it. The panel header's close button (below) is an `m3e-icon-button`
+// now and owns its own box model via its `size` attribute instead.
+.sb-page-widget-tools .sb-nav-close {
   flex: 0 0 auto;
   background: transparent;
   border: 0;
@@ -49,7 +53,7 @@
   padding: 0 2px;
 }
 
-.sb-nav-close:hover {
+.sb-page-widget-tools .sb-nav-close:hover {
   color: var(--modal-header-label-color);
 }
 
@@ -108,6 +112,14 @@
   white-space: nowrap;
 }
 
+// The search-style filter field's chrome: `m3e-search-bar` wraps the actual
+// `<input>` (see nav_root.tsx) and, being the direct flex child of
+// `.sb-nav-header-row` now, is what needs to grow/shrink in that row.
+.sb-nav-search-bar {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .sb-nav-input {
   flex: 1 1 auto;
   min-width: 0;
@@ -135,30 +147,17 @@
   margin-left: auto;
 }
 
+// `.sb-nav-copy`, `.sb-dock-button` and the header row's own `.sb-nav-close`
+// are all `m3e-icon-button` now (see content_view.tsx, dock_menu.tsx,
+// nav_root.tsx) -- sizing/color/hover state-layer are the component's own
+// (`size="small"`, its default "standard" variant), per the m3e styling
+// ladder (component attrs, then its own CSS custom properties, custom CSS
+// only for layout). Only the flex-item layout concerns stay here.
 .sb-nav-copy,
 .sb-dock-button,
-.sb-page-widget-tools .sb-nav-close,
 .sb-nav-header-row .sb-nav-close {
   flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   align-self: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.sb-nav-copy {
-  color: var(--subtle-color);
-}
-
-.sb-nav-copy:hover {
-  color: var(--modal-header-label-color);
 }
 
 .sb-nav-root-content.sb-nav-root-modal .sb-nav-body {
@@ -339,11 +338,6 @@
 .sb-nav-root-rhs,
 .sb-nav-root-bhs {
   background: var(--panel-background-color);
-}
-
-.sb-nav-input:focus-visible {
-  outline: none;
-  box-shadow: inset 0 -1px var(--text-field-focus-color);
 }
 
 .sb-nav-row[aria-current="page"] {

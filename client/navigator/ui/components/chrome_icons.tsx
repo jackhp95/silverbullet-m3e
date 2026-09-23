@@ -25,3 +25,21 @@ export function CloseIcon(): JSX.Element {
     </svg>
   );
 }
+
+// The filter field's leading glyph, in `<m3e-search-bar>`'s `leading` slot
+// (nav_root.tsx). Deliberately a hand-drawn svg like the two above rather
+// than `<m3e-icon name="search">`: `m3e-icon` renders Material Symbols
+// ligature text and depends on the consumer loading that variable font via
+// its own `<link>` (see the m3e skill's icon concept doc) -- this repo
+// doesn't load it anywhere yet, so `m3e-icon` renders as raw fallback text
+// ("search"), not a glyph. Fixing that is a separate, repo-wide font-loading
+// decision outside this slice's scope; this keeps the search bar's icon
+// looking correct today.
+export function SearchIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" {...CHROME_ICON_PROPS} stroke-linecap="round">
+      <circle cx="6.75" cy="6.75" r="4.25" />
+      <path d="M10 10l3.5 3.5" />
+    </svg>
+  );
+}

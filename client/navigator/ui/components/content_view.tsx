@@ -131,6 +131,13 @@ export function ContentBody({
   return <ContentNode client={client} node={result.node} />;
 }
 
+// m3e reskin: a plain <button> replaced with the library's icon button --
+// registered by client/editor_ui.tsx's `@m3e/web/icon-button` import (this
+// file has no `.test.ts` sibling of its own, but per the navigator-wide rule,
+// no file under client/navigator/ self-imports an `@m3e/web/*` module: some
+// siblings run under vitest's DOM-less `node` environment). The bespoke
+// CopyIcon svg is kept as-is -- it slots into the button's default (icon)
+// slot exactly like an `m3e-icon` would.
 export function CopyMarkdownButton({
   client,
   markdown,
@@ -139,9 +146,10 @@ export function CopyMarkdownButton({
   markdown: string;
 }) {
   return (
-    <button
+    <m3e-icon-button
       type="button"
-      className="sb-nav-copy"
+      class="sb-nav-copy"
+      size="small"
       data-button="copy"
       title="Copy"
       aria-label="Copy markdown"
@@ -153,6 +161,6 @@ export function CopyMarkdownButton({
       }}
     >
       <CopyIcon />
-    </button>
+    </m3e-icon-button>
   );
 }

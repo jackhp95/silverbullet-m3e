@@ -1,6 +1,6 @@
 import type { JSX } from "preact";
+import { useId } from "preact/hooks";
 import { CHROME_ICON_PROPS } from "./chrome_icons.tsx";
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { moveDock } from "../../navigator.ts";
 
 const LABELS: Record<string, string> = {
@@ -37,6 +37,31 @@ function dockIcon(dock: string) {
   );
 }
 
+/**
+ * m3e reskin: the hand-rolled positioned popup (mousedown-outside-to-close,
+ * viewport-edge-aware placement, scroll/resize-to-close) is replaced
+ * wholesale by `m3e-menu` -- a real anchored-menu component that already
+ * owns positioning, dismissal (Popover-API light-dismiss: outside click,
+ * scroll, Escape) and keyboard navigation, none of which the old
+ * implementation had (it only closed on outside mousedown; there was no
+ * keyboard support at all). The "current selection has a distinct
+ * indicator" requirement maps directly onto `m3e-menu-item-radio`'s
+ * `checked` state -- this is exactly a mutually-exclusive, single-choice
+ * menu (one dock at a time), the textbook radio-group use case.
+ *
+ * `.sb-dock-button` and `.sb-dock-menu-item` are kept as literal class names
+ * (alongside the new m3e tags/attributes) because e2e/flows/docking.test.ts
+ * selects on them directly (`.locator(".sb-dock-button")`,
+ * `.locator(".sb-dock-menu-item", { hasText: ... })`) -- see
+ * client/navigator/keyboard.ts's own note on the panel's keyboard pipeline:
+ * it only ever binds to the filter `<input>`, so it has no opinion about
+ * this menu at all, and nothing here can shadow it.
+ *
+ * `useId()` (already used elsewhere -- see plug-api/ui/field.tsx,
+ * plug-api/ui/section_nav.tsx) gives each mounted instance its own
+ * `m3e-menu` id: a page can host several page-top/page-bottom nav widgets
+ * at once, each needing its own trigger/menu pairing.
+ */
 export function DockMenu({
   name,
   current,
@@ -46,98 +71,35 @@ export function DockMenu({
   current: string;
   supported: string[];
 }) {
-  const [open, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number } | undefined>(
-    undefined,
-  );
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setPos(undefined);
-      return;
-    }
-    const button = ref.current?.querySelector("button");
-    const menu = menuRef.current;
-    if (!button || !menu) return;
-    const b = button.getBoundingClientRect();
-    const { offsetHeight: h, offsetWidth: w } = menu;
-    const GAP = 4;
-    const EDGE = 8;
-    const below = b.bottom + GAP;
-    const top =
-      below + h > globalThis.innerHeight - EDGE
-        ? Math.max(EDGE, b.top - GAP - h)
-        : below;
-    const left = Math.max(
-      EDGE,
-      Math.min(b.right - w, globalThis.innerWidth - w - EDGE),
-    );
-    setPos({ top, left });
-  }, [open]);
-
-  // A fixed menu would otherwise sit still while the page moved under it.
-  useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(false);
-    globalThis.addEventListener("scroll", close, true);
-    globalThis.addEventListener("resize", close);
-    return () => {
-      globalThis.removeEventListener("scroll", close, true);
-      globalThis.removeEventListener("resize", close);
-    };
-  }, [open]);
+  const menuId = useId();
   if (supported.length < 2) return null;
+  const label = `Shown as: ${LABELS[current]}. Change placement`;
   return (
-    <div className="sb-dock-menu-anchor" ref={ref}>
-      <button
+    <>
+      <m3e-icon-button
         type="button"
-        className="sb-dock-button"
-        title={`Shown as: ${LABELS[current]}. Change placement`}
-        aria-label={`Shown as: ${LABELS[current]}. Change placement`}
-        onClick={() => setOpen(!open)}
+        class="sb-dock-button"
+        size="small"
+        title={label}
+        aria-label={label}
       >
-        {dockIcon(current)}
-      </button>
-      {open && (
-        <div
-          className="sb-dock-menu"
-          role="menu"
-          ref={menuRef}
-          // Hidden for the single frame between mounting (which is what makes
-          // it measurable) and being placed, so it never flashes at 0,0.
-          style={
-            pos
-              ? { top: `${pos.top}px`, left: `${pos.left}px` }
-              : { visibility: "hidden" }
-          }
-        >
-          {supported.map((dock) => (
-            <button
-              type="button"
-              role="menuitem"
-              key={dock}
-              className={`sb-dock-menu-item${dock === current ? " sb-dock-menu-current" : ""}`}
-              onClick={() => {
-                setOpen(false);
-                if (dock !== current) void moveDock(name, dock);
-              }}
-            >
-              {dockIcon(dock)}
-              <span>{LABELS[dock]}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+        <m3e-menu-trigger for={menuId}>{dockIcon(current)}</m3e-menu-trigger>
+      </m3e-icon-button>
+      <m3e-menu id={menuId}>
+        {supported.map((dock) => (
+          <m3e-menu-item-radio
+            key={dock}
+            class="sb-dock-menu-item"
+            checked={dock === current}
+            onClick={() => {
+              if (dock !== current) void moveDock(name, dock);
+            }}
+          >
+            <span slot="icon">{dockIcon(dock)}</span>
+            {LABELS[dock]}
+          </m3e-menu-item-radio>
+        ))}
+      </m3e-menu>
+    </>
   );
 }
