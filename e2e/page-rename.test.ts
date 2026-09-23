@@ -13,17 +13,17 @@ test.describe("Top-bar page rename", () => {
     sbServer,
   }) => {
     await gotoSilverBulletPage(sbPage, sbServer, "OldName");
-    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(sbPage.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       "OldName",
     );
 
-    const nameInput = sbPage.locator("#sb-current-page input.sb-input");
+    const nameInput = sbPage.locator("#sb-current-page textarea.sb-input");
     await nameInput.click();
     await sbPage.keyboard.press(`${mod}+a`);
     await sbPage.keyboard.type("NewName");
     await sbPage.keyboard.press("Enter");
 
-    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(sbPage.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       "NewName",
     );
 
@@ -41,12 +41,12 @@ test.describe("Top-bar page rename", () => {
 
   test("rename via blur commits", async ({ sbPage, sbServer }) => {
     await gotoSilverBulletPage(sbPage, sbServer, "OldName");
-    const nameInput = sbPage.locator("#sb-current-page input.sb-input");
+    const nameInput = sbPage.locator("#sb-current-page textarea.sb-input");
     await nameInput.click();
     await sbPage.keyboard.press(`${mod}+a`);
     await sbPage.keyboard.type("BlurRenamed");
     await sbPage.locator("#sb-editor .cm-content").click(); // blur the field
-    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(sbPage.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       "BlurRenamed",
     );
     // Wait for the rename round-trip to land (client navigates to the new page).
@@ -60,7 +60,7 @@ test.describe("Top-bar page rename", () => {
     sbServer,
   }) => {
     await gotoSilverBulletPage(sbPage, sbServer, "OldName");
-    const nameInput = sbPage.locator("#sb-current-page input.sb-input");
+    const nameInput = sbPage.locator("#sb-current-page textarea.sb-input");
     await nameInput.click();
     // The global key forwarder must still route mod+k to the editor and open
     // the page picker even though a native input is focused (parity with the

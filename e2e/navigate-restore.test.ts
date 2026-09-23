@@ -56,7 +56,7 @@ async function parkOnPageBThenLeave(
   await page.evaluate(() =>
     (globalThis as any).client.navigate({ path: "PageA.md" }),
   );
-  await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+  await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
     "PageA",
   );
   await waitForEditorReady(page);
@@ -73,7 +73,7 @@ test("clean wiki-link navigation opens PageB at the top, not the remembered line
   await expect(wikiLink).toBeVisible({ timeout: 10_000 });
   await wikiLink.click();
 
-  await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+  await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
     "PageB",
   );
   await waitForEditorReady(page);
@@ -89,7 +89,7 @@ test("client.open restores the remembered line on PageB", async ({
   await page.evaluate(() =>
     (globalThis as any).client.open({ path: "PageB.md" }),
   );
-  await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+  await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
     "PageB",
   );
   await waitForEditorReady(page);
@@ -103,7 +103,7 @@ test("browser Back restores the remembered line on PageB", async ({
   await parkOnPageBThenLeave(page, sbServer);
 
   await page.goBack();
-  await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+  await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
     "PageB",
   );
   await waitForEditorReady(page);
@@ -129,7 +129,7 @@ test("explicit #header pointer wins over both fresh and remembered position", as
       details: { type: "header", header: "Section" },
     }),
   );
-  await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+  await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
     "PageB",
   );
   await waitForEditorReady(page);
@@ -150,7 +150,7 @@ test("page picker restores the remembered line on PageB", async ({
   await page.keyboard.type("PageB", { delay: 30 });
   await page.keyboard.press("Enter");
 
-  await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+  await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
     "PageB",
   );
   await waitForEditorReady(page);
@@ -168,7 +168,7 @@ test("editor.open syscall restores the remembered line on PageB", async ({
       "PageB",
     ]),
   );
-  await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+  await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
     "PageB",
   );
   await waitForEditorReady(page);
@@ -198,7 +198,7 @@ test("fresh forward navigation, then browser Back, restores the origin page", as
   const wikiLink = editor.locator(".sb-wiki-link", { hasText: "PageB" });
   await expect(wikiLink).toBeVisible({ timeout: 10_000 });
   await wikiLink.click();
-  await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+  await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
     "PageB",
   );
   await waitForEditorReady(page);
@@ -206,7 +206,7 @@ test("fresh forward navigation, then browser Back, restores the origin page", as
 
   // Back to PageA must restore line 8 even though the forward nav was fresh.
   await page.goBack();
-  await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+  await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
     "PageA",
   );
   await waitForEditorReady(page);

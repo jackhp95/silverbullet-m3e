@@ -17,7 +17,7 @@ test.describe("Task management", () => {
     await gotoSilverBulletPage(page, sbServer, "Tasks");
     const editor = page.locator("#sb-editor .cm-content");
 
-    await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       "Tasks",
     );
     await expect(editor).toContainText("Buy groceries");

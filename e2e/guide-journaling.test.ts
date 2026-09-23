@@ -40,7 +40,7 @@ async function runJournalToday(sbPage: Page): Promise<void> {
   await expect(modal).not.toBeVisible();
 
   const expectedPage = `Journal/${today()}`;
-  await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+  await expect(sbPage.locator("#sb-current-page textarea.sb-input")).toHaveValue(
     expectedPage,
   );
 }
@@ -114,7 +114,7 @@ test.describe("Guide: Journaling", () => {
     await expect(wikiLinkText).toBeVisible({ timeout: 10_000 });
     await wikiLinkText.click();
 
-    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(sbPage.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       "Alice",
     );
 

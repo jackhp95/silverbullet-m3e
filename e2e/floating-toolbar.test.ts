@@ -51,7 +51,7 @@ test.describe("Floating toolbar (client/components/floating_toolbar.tsx, V4)", (
       .click();
 
     const expectedPage = `Journal/${today()}`;
-    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(sbPage.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       expectedPage,
     );
   });

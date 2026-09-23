@@ -23,7 +23,7 @@ test.describe("Wiki links", () => {
       await gotoSilverBulletPage(page, sbServer, "PageA");
       const editor = page.locator("#sb-editor .cm-content");
 
-      await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+      await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
         "PageA",
       );
       await expect(editor).toContainText("Page A");
@@ -36,7 +36,7 @@ test.describe("Wiki links", () => {
       await wikiLinkText.click();
 
       // Should navigate to PageB
-      await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+      await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
         "PageB",
       );
       await expect(editor).toContainText("Page B");
@@ -82,7 +82,7 @@ test.describe("Wiki links", () => {
     await expect(wikiLinkText).toBeVisible({ timeout: 10_000 });
     await wikiLinkText.click();
 
-    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(sbPage.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       "Brand New Page",
     );
   });

@@ -28,7 +28,7 @@ test.describe("Page navigation", () => {
     await expect(sbPage.locator(".sb-modal-box")).not.toBeVisible();
 
     // Page name should update in top bar
-    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(sbPage.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       "My New Page",
     );
 
@@ -60,7 +60,7 @@ test.describe("Page navigation", () => {
     await pickerInput.click();
     await sbPage.keyboard.type("Temporary Page", { delay: 30 });
     await sbPage.keyboard.press("Shift+Enter");
-    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(sbPage.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       "Temporary Page",
     );
 
@@ -73,7 +73,7 @@ test.describe("Page navigation", () => {
     await sbPage.keyboard.press("Enter");
 
     // Should be back on the index/welcome page
-    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(sbPage.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       "index",
     );
     await expect(editor).toContainText(
@@ -98,7 +98,7 @@ test.describe("Page navigation", () => {
     await sbPage.keyboard.press("Shift+Enter");
 
     // Page name should show the full path
-    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(sbPage.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       "Notes/My Subfolder Page",
     );
     await expect(editor).toHaveText("");

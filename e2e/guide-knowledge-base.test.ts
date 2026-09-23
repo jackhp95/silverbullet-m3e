@@ -56,7 +56,7 @@ test.describe("Guide: Knowledge Base", () => {
     await expect(ownershipLink).toBeVisible({ timeout: 10_000 });
     await ownershipLink.click();
 
-    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(sbPage.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       "Ownership",
     );
     await expect(editor).toContainText("compile-time memory safety");

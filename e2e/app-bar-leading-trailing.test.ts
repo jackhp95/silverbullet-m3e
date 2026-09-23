@@ -67,7 +67,7 @@ test("leading asterisk icon-button reuses the breadcrumb root's Home navigation"
     "asterisk",
   );
 
-  const pageNameInput = page.locator("#sb-current-page input.sb-input");
+  const pageNameInput = page.locator("#sb-current-page textarea.sb-input");
   await expect(pageNameInput).toHaveValue("Some Page");
 
   await homeButton.click();
@@ -263,7 +263,7 @@ test("trailing kebab's config link navigates to the CONFIG page", async ({
   await expect(configItem).toHaveCount(1);
   await configItem.click();
 
-  const pageNameInput = page.locator("#sb-current-page input.sb-input");
+  const pageNameInput = page.locator("#sb-current-page textarea.sb-input");
   await expect(pageNameInput).toHaveValue("CONFIG");
 });
 
@@ -290,7 +290,7 @@ test("trailing kebab includes every CONFIG-defined actionButton", async ({
   await expect(actionItem).toHaveCount(1);
   await actionItem.click();
 
-  const pageNameInput = page.locator("#sb-current-page input.sb-input");
+  const pageNameInput = page.locator("#sb-current-page textarea.sb-input");
   await expect(pageNameInput).toHaveValue("index");
   await expect(page).toHaveURL((url) => url.pathname === "/");
 });

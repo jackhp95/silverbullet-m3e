@@ -154,7 +154,7 @@ test("modifier-click navigates to Lua function definitions", async ({
   await page.mouse.click(coordinates.x, coordinates.y);
   await page.keyboard.up(mod);
 
-  await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+  await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
     "LuaDefinitions",
   );
   await page.waitForURL(/\/LuaDefinitions$/);

@@ -180,7 +180,7 @@ test("large app bar renders breadcrumb + headline + subtitle, rests snapped to t
     "name",
     "asterisk",
   );
-  await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+  await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
     "RevealPage",
   );
   await expect(page.locator('m3e-app-bar [slot="subtitle"]')).toContainText(
@@ -459,7 +459,7 @@ test("navigating to a second page also rests snapped to the app bar (decision #3
   await expect(wikiLink).toBeVisible({ timeout: 10_000 });
   await wikiLink.click();
 
-  await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+  await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
     "NavPageB",
   );
   await waitForEditorReady(page);
@@ -490,13 +490,13 @@ test("[critical regression gate, §5.B risk 8] a deep scroll position on page A 
   await page.evaluate(() =>
     (globalThis as any).client.navigate({ path: "NavPageB.md" })
   );
-  await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+  await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
     "NavPageB",
   );
   await waitForEditorReady(page);
 
   await page.goBack();
-  await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+  await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
     "NavPageA",
   );
   await waitForEditorReady(page);

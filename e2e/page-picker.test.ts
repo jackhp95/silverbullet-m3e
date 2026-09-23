@@ -48,7 +48,7 @@ test.describe("Page picker keyboard control", () => {
     await sbPage.keyboard.type("Fruit Cherry", { delay: 30 });
     await sbPage.keyboard.press("Enter");
     await expect(modal).not.toBeVisible();
-    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(sbPage.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       "Fruit Cherry",
     );
   });
@@ -99,7 +99,7 @@ test.describe("Page picker anchor mode", () => {
 
     await sbPage.keyboard.press("Enter");
     await expect(modal).not.toBeVisible();
-    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(sbPage.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       "Finances",
     );
   });
@@ -134,7 +134,7 @@ test.describe("Page picker anchor mode", () => {
     // the page. It must now do nothing but close.
     await expect(modal).not.toBeVisible();
     await expect(
-      sbPage.locator("#sb-current-page input.sb-input"),
+      sbPage.locator("#sb-current-page textarea.sb-input"),
     ).not.toHaveValue("Definitely New Page");
   });
 
@@ -198,7 +198,7 @@ test.describe("Page picker anchor mode with a duplicate anchor name", () => {
     // error path and never navigate anywhere. Landing on Beta confirms the
     // picker qualified the ref with the page the clicked row belongs to.
     await expect(modal).not.toBeVisible();
-    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(sbPage.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       "Beta",
     );
   });
