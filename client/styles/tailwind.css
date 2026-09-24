@@ -43,10 +43,12 @@
  * We import ONLY Layer 3 (`src/theme.css`).
  *
  * Why: Layers 0–2 *declare* static `--md-sys-*` values on `html`. This app
- * already generates those tokens at runtime — `<m3e-theme>` in
- * `client/editor_ui.tsx:814` writes the live, seed-derived color roles to
- * `html { … }` via `document.adoptedStyleSheets`. Layer 3 is the only layer
- * we actually need: it maps those existing `--md-sys-*` tokens onto Tailwind
+ * already generates those tokens at runtime — `<m3e-theme>`, the root
+ * element `MainUI.ViewComponent` renders in `client/editor_ui.tsx:493`,
+ * writes the live, seed-derived color roles onto itself as CSS custom
+ * properties, which every nested element then inherits via ordinary CSS
+ * inheritance. Layer 3 is the only layer we actually need: it maps those
+ * existing `--md-sys-*` tokens onto Tailwind
  * v4 `@theme` keys (`--color-primary: var(--md-sys-color-primary)`, etc.),
  * which is precisely what turns them into `bg-primary` / `text-body-lg` /
  * `rounded-md-corner-medium` utilities.

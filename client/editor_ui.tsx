@@ -33,6 +33,16 @@ import "@m3e/web/progress-indicator"; // m3e-circular-progress-indicator: the lo
 // client/components/filter.tsx / top_bar.tsx render `Input` with `bare`,
 // which never renders an m3e element at all).
 import "@m3e/web/button";
+// m3e-theme: dynamic-color root wrapping MainUI (CS-1), seeded from the
+// space's `--ui-accent-color` custom property.
+import "@m3e/web/theme";
+// m3e-card / m3e-app-bar / m3e-icon: client/codemirror/lua_widget.ts's
+// TOP/BOTTOM Lua array widgets (Linked Mentions, TOC, Linked Tasks) have
+// rendered these tags since Slice 2's `3f6ba829` -- registering them here
+// is what actually upgrades them from inert HTML.
+import "@m3e/web/card";
+import "@m3e/web/app-bar";
+import "@m3e/web/icon";
 import { getNameFromPath } from "@silverbulletmd/silverbullet/lib/ref";
 import type {
   FilterOption,
@@ -52,6 +62,7 @@ import { Confirm, Prompt } from "./components/basic_modals.tsx";
 import { isMacLike, keyboardHint } from "../plug-api/lib/shortcut.ts";
 import { kebabToPascal } from "./lib/feather_icons.ts";
 import { FilterList } from "./components/filter.tsx";
+import { accentSeed } from "./lib/theme_seed.ts";
 import { NavigatorDock, NavigatorModal } from "./navigator/ui/panels.tsx";
 import { RevisionPreviewModal } from "./navigator/ui/components/revision_preview.tsx";
 import { useNavigatorSlot } from "./navigator/ui/slots.ts";
@@ -72,6 +83,10 @@ import {
   type AppViewState,
   initialViewState,
 } from "./types/ui.ts";
+
+// _tokens.scss's own `--ui-accent-color` default -- used only if the
+// computed custom property can't be read at all (e.g. no matching rule).
+const FALLBACK_ACCENT = "#3569b8";
 
 export class MainUI {
   viewState: AppViewState = initialViewState;
@@ -343,6 +358,24 @@ export class MainUI {
       undefined,
     );
 
+    // `<m3e-theme>`'s color seed. Read once on mount and again whenever a
+    // space style finishes loading (`loadCustomStyles` sets `customStyles`
+    // after the `#custom-styles` stylesheet is in the DOM) -- a space style
+    // overriding `--ui-accent-color` only takes effect on the *next* read of
+    // the computed value, not retroactively on an already-read one.
+    const [themeColor, setThemeColor] = useState(FALLBACK_ACCENT);
+    useEffect(() => {
+      const computed = getComputedStyle(document.documentElement)
+        .getPropertyValue("--ui-accent-color");
+      setThemeColor(accentSeed(computed, FALLBACK_ACCENT));
+    }, [viewState.uiOptions.customStyles]);
+
+    const themeScheme = viewState.uiOptions.darkMode === undefined
+      ? "auto"
+      : viewState.uiOptions.darkMode
+        ? "dark"
+        : "light";
+
     const navSlots = {
       lhs: useNavigatorSlot("lhs"),
       rhs: useNavigatorSlot("rhs"),
@@ -457,7 +490,7 @@ export class MainUI {
     }, [navSlots.bhs, plugBhsMode]);
 
     return (
-      <>
+      <m3e-theme color={themeColor} scheme={themeScheme}>
         {viewState.showFilterBox && (
           <FilterList
             label={viewState.filterBoxLabel}
@@ -694,7 +727,7 @@ export class MainUI {
             <Panel config={viewState.panels.bhs} editor={client} slot="bhs" />
           </div>
         ) : null}
-      </>
+      </m3e-theme>
     );
   }
 

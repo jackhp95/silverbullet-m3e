@@ -24,6 +24,21 @@ export function currentPage(page: Page) {
   return page.locator("#sb-current-page input.sb-input");
 }
 
+/**
+ * Proves an `<m3e-*>` element is a live, hydrated custom element -- not
+ * inert, unregistered HTML (the exact failure mode when a `@m3e/web/*`
+ * side-effect import is missing from `client/editor_ui.tsx`; see
+ * `scripts/reconcile/builder-common.md` hazard 2).
+ */
+export function isUpgraded(page: Page, selector: string): Promise<boolean> {
+  return page
+    .locator(selector)
+    .first()
+    .evaluate(
+      (el) => !!customElements.get(el.localName) && !!el.shadowRoot,
+    );
+}
+
 export async function openPicker(
   page: Page,
   key: string,
