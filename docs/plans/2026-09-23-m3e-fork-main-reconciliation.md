@@ -6,6 +6,8 @@ Status: IN EXECUTION — living plan doc. Slices 1–4, 6-boot, 6-codemirror, 6b
 
 ## 0. Ground truth (verified via read-only git inspection)
 
+> **2026-09-24 correction (planner `bed795ff`):** Slice 2's real merge made the cards tip `4cfc3763` an *ancestor of `main`*, so `git merge-base main 4cfc3763` = `4cfc3763` and `git merge`/`merge-tree` against the fork now report nothing left. Every "what's left to port" analysis must 3-way explicitly against the original merge-base `2b2a7c719bb3546df8c78ddeaf95256535ee2dd3` (`git merge-file` base=`2b2a7c71` ours=`main` theirs=`4cfc3763`).
+
 - `main` @ `e1d8eb18` (`origin/main`).
 - `m3e-fork` @ `c77ccb1d` (`origin/m3e-fork: ahead 28`), forked at merge-base `2b2a7c7`.
   - `appbar-large-frontmatter-v5b` (78846ae1) is the branch merged into m3e-fork's tip — the V5b work (large app bar, inline frontmatter property editor, scroll-snap).
@@ -229,7 +231,17 @@ Landing protocol (unchanged from 2026-09-23): builder works in its own worktree 
 | 6-spaces-v2 | `spaces_ui/components/*` m3e revisit with entry-point registration | re-dispatched 2026-09-24 ~20:15Z as Paseo agent `6099e936` (wt `../sb-slice-spaces-v2`); dead builder's 6-file WIP checkpoint-committed, builder continues it. Brief: [`reconcile-briefs/2026-09-24-slice-spaces-v2.md`](reconcile-briefs/2026-09-24-slice-spaces-v2.md) | — | — |
 | 6-plugui | `tabs.tsx` + configuration-manager/object-graph plug UI | re-dispatched 2026-09-24 ~20:15Z as Paseo agent `f9981d78` (wt `../sb-slice-plugui`); no prior work survived. Brief: [`reconcile-briefs/2026-09-24-slice-plugui.md`](reconcile-briefs/2026-09-24-slice-plugui.md) | — | — |
 | 6-push | Web Push UI, service worker, PWA single-reload, server version convergence | re-dispatched 2026-09-24 ~20:15Z as Paseo agent `7f3cfbdf` (wt `../sb-slice-push`); dead builder's 3-file WIP (push toggle command) checkpoint-committed, builder continues it. Brief: [`reconcile-briefs/2026-09-24-slice-push.md`](reconcile-briefs/2026-09-24-slice-push.md) | — | — |
-| core shell (5 + rest of 6) | editor_ui/top_bar/client.ts/content_manager/navigator/reducer/types, floating toolbar, drawer, sync indicator, frontmatter raw-YAML card, linked mentions | decomposition re-dispatched 2026-09-24 ~20:15Z as Paseo agent `bed795ff` as Paseo agent `bed795ff` (prior Plan agent's output lost at the usage limit) → opus planner, wt `../sb-core-shell-plan`, output `docs/plans/2026-09-24-core-shell-decomposition.md`. Brief: [`reconcile-briefs/2026-09-24-core-shell-plan.md`](reconcile-briefs/2026-09-24-core-shell-plan.md) | — | — |
+| core shell (5 + rest of 6) | editor_ui/top_bar/client.ts/content_manager/navigator/reducer/types, floating toolbar, drawer, sync indicator, frontmatter raw-YAML card, linked mentions | decomposed 2026-09-24 by Paseo `bed795ff` → [`2026-09-24-core-shell-decomposition.md`](2026-09-24-core-shell-decomposition.md): slices CS-1…CS-8, CS-10 in lanes A–D (CS-1 blocks all). Status per CS row below. | — | — |
+| CS-1 | theme foundation (`<m3e-theme>` + accent seed) + missing card/app-bar/icon registrations | queued → dispatching | — | — |
+| CS-2 | tag-pill click + slash-menu spec | queued (after CS-1, 6-styles) | — | — |
+| CS-3 | plug modal → m3e-dialog | queued (after CS-1) | — | — |
+| CS-4 | FilterList → m3e-search-view | queued (after CS-1) | — | — |
+| CS-5 | TopBar → m3e-app-bar + sync ring + offline chip + RO toggle | queued (after CS-1) | — | — |
+| CS-6 | floating toolbar wiring | queued (after CS-5) | — | — |
+| CS-7a | large app bar: breadcrumb/subtitle/textarea title | queued (after CS-5) | — | — |
+| CS-7b | app-bar kebab + push toggle item | queued (after CS-7a, push) | — | — |
+| CS-8 | frontmatter raw-YAML card (Slice 5) | queued (after CS-1, CS-2) | — | — |
+| CS-10 | dead-module cleanup | queued → dispatching | — | — |
 | 7 | package.json/lock | mostly done: `@m3e/web`, `tailwindcss`, `js-yaml` already on `main`; re-verify `npm ci` from clean in every gate | — | — |
 | cutover | merge reconciled `main` into `m3e-fork` → triggers staging image publish | queued, last | — | — |
 
