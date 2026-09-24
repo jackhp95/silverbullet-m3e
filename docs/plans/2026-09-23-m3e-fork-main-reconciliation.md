@@ -212,7 +212,7 @@ Order: land everything that doesn't touch the conflict surface first (cheap, saf
 
 Point-in-time state captured 2026-09-24 in worktree `/Users/jack/Documents/code/sb-reconcile-main` (branch `main`). Re-resolve every ref against live git before acting.
 
-Shared builder brief: `/tmp/sb-builder-common.md` (hazards + full gate). Full-gate script used by the orchestrator: `/tmp/sb-gate.sh <worktree> <logprefix>`.
+Shared builder brief: [`scripts/reconcile/builder-common.md`](../../scripts/reconcile/builder-common.md) (hazards + full gate). Full-gate script used by the orchestrator: [`scripts/reconcile/sb-gate.sh`](../../scripts/reconcile/sb-gate.sh) `<worktree> <abs-logprefix>` (committed 2026-09-24 by understudy orchestrator `34f4d0d3`; the earlier `/tmp` copies were volatile).
 
 Landing protocol (unchanged from 2026-09-23): builder works in its own worktree `../sb-slice-<name>` on branch `reconcile/slice-<name>` off `main`; orchestrator rebases onto current `main`, reruns the full gate from a clean tree (`npm ci` → `npm run build` → `cargo build -p silverbullet -p sb` → `npm run check` → `npm test` → `RUST_MIN_STACK=67108864 npm run lint` → `npm run test:e2e`), reviews diff scope, fast-forwards `main`, pushes `origin main` (never force).
 
