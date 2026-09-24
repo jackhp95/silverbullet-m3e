@@ -11,9 +11,10 @@ use crate::shell::ShellConfig;
 /// `Static`. The standalone binary uses `Dynamic` in debug builds so the
 /// reported version follows a live-rebuilt client bundle (served from disk)
 /// without a server restart.
+#[derive(Clone)]
 pub enum ServerVersion {
     Static(String),
-    Dynamic(Box<dyn Fn() -> String + Send + Sync>),
+    Dynamic(Arc<dyn Fn() -> String + Send + Sync>),
 }
 
 impl ServerVersion {
