@@ -9,7 +9,8 @@ import { Input } from "@silverbulletmd/silverbullet/ui";
 import { fuzzySearchAndSort } from "../lib/fuzzy_search.ts";
 import { isMobileDevice } from "../lib/mobile.ts";
 import { deepEqual } from "../../plug-api/lib/json.ts";
-import { AlwaysShownModal } from "./basic_modals.tsx";
+import "@m3e/web/list";
+import "./m3e-jsx.d.ts";
 
 export function FilterList({
   placeholder,
@@ -47,7 +48,8 @@ export function FilterList({
   );
   const [selectedOption, setSelectionOption] = useState(0);
 
-  const selectedElementRef = useRef<HTMLDivElement>(null);
+  // m3e-list-item (not a div) is the selected-row DOM node we scroll into view.
+  const selectedElementRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     // See the matching skip in the navigator's `focusInput`: on a touch device
@@ -76,6 +78,7 @@ export function FilterList({
     }
 
     if (!deepEqual(matchingOptions, results)) {
+      // Only do this (=> rerender of UI) if the results have changed
       setMatchingOptions(results);
       setSelectionOption(0);
     }
@@ -101,110 +104,134 @@ export function FilterList({
     };
   }, []);
 
+  // Clicks anywhere inside the search view (label, input, results) must not
+  // reach the document-level `closer` above.
+  function stopPropagation(e: MouseEvent) {
+    e.stopPropagation();
+  }
+
   const returnEl = (
-    <AlwaysShownModal
-      onCancel={() => {
-        onSelect(undefined);
-      }}
+    // mode="fullscreen", not "docked": FilterList is always-mounted-when-
+    // shown (no separate closed/collapsed search-bar state to preserve),
+    // and "docked" mode renders its own persistent anchored container +
+    // scrim on top of the .sb-modal-box chrome below — literally the
+    // "container within a container within a container" nesting Jack
+    // flagged (confirmed live: DOM-inspecting the open modal showed
+    // .sb-modal-box's own border/box-shadow/background wrapping
+    // m3e-search-view's own docked-mode container/scrim wrapping the
+    // results list). "fullscreen" gives m3e-search-view a single native
+    // top-level chrome instead. The .sb-modal-box CLASS stays (its child
+    // selectors in modals.scss/colors.scss still theme .sb-help-text/
+    // .sb-result-list/.sb-option/.sb-hint here) — see the
+    // `m3e-search-view.sb-modal-box` override in modals.scss that cancels
+    // just the outer box-chrome properties (border/shadow/background/
+    // fixed width) so they don't stack on top of the native chrome.
+    <m3e-search-view
+      class="sb-modal-box"
+      mode="fullscreen"
+      open
+      hide-search-icon
     >
-      <div
-        className="sb-header"
-        onClick={(e) => {
-          // Allow tapping/clicking the header without closing it
-          e.stopPropagation();
-        }}
+      <label
+        slot="open-leading"
+        class="sb-header-label"
+        onClick={stopPropagation}
       >
-        <label>{label}</label>
-        <Input
-          // This header row is a plain label+input line (not a boxed
-          // Material field) — see Input's `bare` doc comment.
-          bare
-          inputRef={inputRef}
-          class="sb-filter-input"
-          autocapitalize="off"
-          autocorrect="off"
-          spellcheck={false}
-          value={text}
-          placeholder={placeholder}
-          onInput={(e) => setText(e.currentTarget.value)}
-          onKeyDown={(e) => {
-            // While composing with an IME (e.g. selecting a CJK candidate),
-            // let the input/IME handle every key — don't select/navigate.
-            if (e.isComposing) {
-              return;
-            }
-            if (e.key === "Enter") {
-              e.preventDefault();
-              onSelect(
-                e.shiftKey && allowNew
-                  ? { name: text, type: "page" }
-                  : matchingOptions[selectedOption],
-              );
-              return;
-            }
-            if (e.key === "Escape") {
-              e.preventDefault();
-              onSelect(undefined);
-              return;
-            }
-            if (e.key === "ArrowUp" || (e.ctrlKey && e.key === "p")) {
-              setSelectionOption(Math.max(0, selectedOption - 1));
-            } else if (e.key === "ArrowDown" || (e.ctrlKey && e.key === "n")) {
-              setSelectionOption(
-                Math.min(matchingOptions.length - 1, selectedOption + 1),
-              );
-            } else if (e.key === "PageUp") {
-              setSelectionOption(Math.max(0, selectedOption - 5));
-            } else if (e.key === "PageDown") {
-              setSelectionOption(
-                Math.min(matchingOptions.length - 1, selectedOption + 5),
-              );
-            } else if (e.key === "Home") {
-              setSelectionOption(0);
-            } else if (e.key === "End") {
-              setSelectionOption(matchingOptions.length - 1);
-            } else if (
-              e.key === " " &&
-              completePrefix &&
-              e.currentTarget.value === ""
-            ) {
-              setText(completePrefix);
-            } else {
-              return;
-            }
+        {label}
+      </label>
+      <Input
+        // m3e-search-view's "input" slot contract requires a plain <input>
+        // (see the m3e skill's search card) — see the `bare` prop's doc
+        // comment on plug-api/ui/input.tsx.
+        bare
+        slot="input"
+        inputRef={inputRef}
+        class="sb-filter-input"
+        autocapitalize="off"
+        autocorrect="off"
+        spellcheck={false}
+        value={text}
+        placeholder={placeholder}
+        onClick={stopPropagation}
+        onInput={(e) => setText(e.currentTarget.value)}
+        onKeyDown={(e) => {
+          // While composing with an IME (e.g. selecting a CJK candidate),
+          // let the input/IME handle every key — don't select/navigate.
+          if (e.isComposing) {
+            return;
+          }
+          if (e.key === "Enter") {
             e.preventDefault();
-            setTimeout(() => {
-              selectedElementRef.current?.scrollIntoView({ block: "nearest" });
-            });
-          }}
-          onKeyUp={(e) => {
-            if (e.code === "Space" && e.altKey) {
-              if (matchingOptions.length > 0) {
-                const value = e.currentTarget.value.trimEnd();
-                const option = matchingOptions[0];
-                if (option.name.toLowerCase().startsWith(value.toLowerCase())) {
-                  let nextSlash = option.name.indexOf("/", value.length + 1);
-                  if (nextSlash === -1) {
-                    nextSlash = Infinity;
-                  }
-                  setText(option.name.slice(0, nextSlash));
-                } else {
-                  setText(`${option.name.split("/")[0]}/`);
+            onSelect(
+              e.shiftKey && allowNew
+                ? { name: text, type: "page" }
+                : matchingOptions[selectedOption],
+            );
+            return;
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            onSelect(undefined);
+            return;
+          }
+          if (e.key === "ArrowUp" || (e.ctrlKey && e.key === "p")) {
+            setSelectionOption(Math.max(0, selectedOption - 1));
+          } else if (e.key === "ArrowDown" || (e.ctrlKey && e.key === "n")) {
+            setSelectionOption(
+              Math.min(matchingOptions.length - 1, selectedOption + 1),
+            );
+          } else if (e.key === "PageUp") {
+            setSelectionOption(Math.max(0, selectedOption - 5));
+          } else if (e.key === "PageDown") {
+            setSelectionOption(
+              Math.min(matchingOptions.length - 1, selectedOption + 5),
+            );
+          } else if (e.key === "Home") {
+            setSelectionOption(0);
+          } else if (e.key === "End") {
+            setSelectionOption(matchingOptions.length - 1);
+          } else if (
+            e.key === " " &&
+            completePrefix &&
+            e.currentTarget.value === ""
+          ) {
+            setText(completePrefix);
+          } else {
+            return;
+          }
+          e.preventDefault();
+          setTimeout(() => {
+            selectedElementRef.current?.scrollIntoView({ block: "nearest" });
+          });
+        }}
+        onKeyUp={(e) => {
+          if (e.code === "Space" && e.altKey) {
+            if (matchingOptions.length > 0) {
+              const value = e.currentTarget.value.trimEnd();
+              const option = matchingOptions[0];
+              if (option.name.toLowerCase().startsWith(value.toLowerCase())) {
+                let nextSlash = option.name.indexOf("/", value.length + 1);
+                if (nextSlash === -1) {
+                  nextSlash = Infinity;
                 }
+                setText(option.name.slice(0, nextSlash));
+              } else {
+                setText(`${option.name.split("/")[0]}/`);
               }
-              return;
             }
-            if (onKeyPress) {
-              onKeyPress(e.currentTarget.value, e);
-            }
-          }}
-        />
-      </div>
+            return;
+          }
+          if (onKeyPress) {
+            onKeyPress(e.currentTarget.value, e);
+          }
+        }}
+      />
       <div
         className="sb-help-text"
+        onClick={stopPropagation}
         dangerouslySetInnerHTML={{ __html: helpText }}
       ></div>
-      <div className="sb-result-list" tabIndex={-1}>
+      <m3e-list class="sb-result-list" tabIndex={-1} onClick={stopPropagation}>
         {matchingOptions && matchingOptions.length > 0
           ? (() => {
               let optionIndex = 0;
@@ -214,14 +241,14 @@ export function FilterList({
                 optionIndex++;
 
                 return (
-                  <div
+                  <m3e-list-item
                     key={`option-${currentOptionIndex}`}
                     ref={
                       selectedOption === currentOptionIndex
                         ? selectedElementRef
                         : undefined
                     }
-                    className={
+                    class={
                       (selectedOption === currentOptionIndex
                         ? "sb-option sb-selected-option"
                         : "sb-option") +
@@ -240,7 +267,7 @@ export function FilterList({
                     }}
                   >
                     {Icon && (
-                      <span className="sb-icon">
+                      <span slot="leading" className="sb-icon">
                         <Icon width={16} height={16} />
                       </span>
                     )}
@@ -249,6 +276,7 @@ export function FilterList({
                     </span>
                     {option.hint && (
                       <span
+                        slot="trailing"
                         className={
                           "sb-hint" +
                           (option.hintInactive ? " sb-hint-inactive" : "")
@@ -257,14 +285,18 @@ export function FilterList({
                         {option.hint}
                       </span>
                     )}
-                    <div className="sb-description">{option.description}</div>
-                  </div>
+                    {option.description && (
+                      <span slot="supporting-text" className="sb-description">
+                        {option.description}
+                      </span>
+                    )}
+                  </m3e-list-item>
                 );
               });
             })()
           : null}
-      </div>
-    </AlwaysShownModal>
+      </m3e-list>
+    </m3e-search-view>
   );
 
   return returnEl;

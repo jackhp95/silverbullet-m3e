@@ -18,10 +18,12 @@ import "@m3e/web/chips";
 // siblings under client/navigator/ have `.test.ts` files that run under
 // vitest's DOM-less `node` environment (a Lit custom-element class throws
 // immediately at import time with no global `HTMLElement`).
-import "@m3e/web/search"; // m3e-search-bar: the filter input's chrome
+import "@m3e/web/search"; // m3e-search-bar: the filter input's chrome; also registers m3e-search-view (CS-4's FilterList)
 import "@m3e/web/icon-button"; // m3e-icon-button: close/copy/dock-menu-trigger
 import "@m3e/web/menu"; // m3e-menu/-item-radio/-trigger: the dock-placement menu
 import "@m3e/web/progress-indicator"; // m3e-circular-progress-indicator: the loading spinner
+// m3e-list / m3e-list-item: CS-4's FilterList result rows (client/components/filter.tsx).
+import "@m3e/web/list";
 // Same reasoning as `@m3e/web/chips` above, for `<m3e-button>`: `Button`
 // (plug-api/ui/button.tsx) is reachable from plug FUNCTION code too (no
 // DOM), so its kit file deliberately doesn't self-register — every real
