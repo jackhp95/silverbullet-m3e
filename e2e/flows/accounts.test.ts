@@ -5,6 +5,25 @@ import {
   waitForPersistedContent,
 } from "../fixtures/core.ts";
 
+test("the spaces login page renders the m3e reskin at mobile and desktop widths", async ({
+  page,
+  sbServer,
+}) => {
+  await page.goto(`${sbServer.url}/.spaces/login`);
+  await expect(page.getByLabel("Username", { exact: true })).toBeVisible();
+  expect(
+    await page.evaluate(() => !!customElements.get("m3e-form-field")),
+  ).toBe(true);
+  await page.setViewportSize({ width: 411, height: 761 });
+  await page.screenshot({
+    path: "/tmp/slice-spaces-v2-shots/login-mobile.png",
+  });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.screenshot({
+    path: "/tmp/slice-spaces-v2-shots/login-desktop.png",
+  });
+});
+
 test("a member signs in, edits their space and signs out", async ({
   adminPage: page,
   sbServer,

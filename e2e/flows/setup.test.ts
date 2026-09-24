@@ -76,6 +76,17 @@ test("wizard provisions a hostname-prefix space with selected revisions mode", a
   test.setTimeout(120_000);
   const setupUrl = `http://localhost:${sbServer.port}`;
   await page.goto(`${setupUrl}/`);
+  await expect(
+    page.getByRole("heading", { name: "Welcome to SilverBullet" }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 411, height: 761 });
+  await page.screenshot({
+    path: "/tmp/slice-spaces-v2-shots/setup-wizard-mobile.png",
+  });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.screenshot({
+    path: "/tmp/slice-spaces-v2-shots/setup-wizard-desktop.png",
+  });
   await fillAdminStep(page, ADMIN_USER, ADMIN_PASSWORD);
   await expect(page.getByLabel("Server URL", { exact: true })).toHaveValue(
     setupUrl,
@@ -95,6 +106,18 @@ test("wizard provisions a hostname-prefix space with selected revisions mode", a
     "http://notes.localhost",
   );
   await expect(page.locator("output")).toHaveCount(0);
+  // The folder picker's "Browse…" panel renders m3e-breadcrumb/m3e-list —
+  // confirm they're actually upgraded custom elements, not inert HTML.
+  await page.getByRole("button", { name: "Browse…", exact: true }).click();
+  const breadcrumb = page.locator("m3e-breadcrumb");
+  await expect(breadcrumb).toBeVisible();
+  expect(
+    await page.evaluate(() => !!customElements.get("m3e-breadcrumb")),
+  ).toBe(true);
+  expect(
+    await breadcrumb.evaluate((el) => !!(el as Element).shadowRoot),
+  ).toBe(true);
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.getByLabel("Revisions")).toHaveValue("managed");
   await page.getByLabel("Revisions").selectOption("unmanaged");
   await page.getByRole("button", { name: "Finish setup" }).click();

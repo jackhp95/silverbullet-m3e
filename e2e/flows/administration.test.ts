@@ -187,3 +187,84 @@ test("an administrator creates a member and saves a space grant", async ({
   const saved = await adminApi(page, sbServer, "GET", `spaces/${space.id}`);
   expect(saved.members.casey.role).toBe("write");
 });
+
+test("an administrator manages a user's API tokens through the m3e-list/m3e-dialog reskin", async ({
+  adminPage: page,
+  sbServer,
+}) => {
+  await adminApi(page, sbServer, "POST", "users", {
+    username: "casey",
+    password: "casey-password",
+    fullName: "Casey Example",
+  });
+  await page.goto(`${sbServer.url}/.spaces/`);
+  await page.setViewportSize({ width: 411, height: 761 });
+  await page.screenshot({
+    path: "/tmp/slice-spaces-v2-shots/admin-spaces-list-mobile.png",
+  });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.screenshot({
+    path: "/tmp/slice-spaces-v2-shots/admin-spaces-list-desktop.png",
+  });
+
+  await page.goto(
+    `${sbServer.url}/.spaces/users/casey?section=tokens`,
+  );
+  await page.screenshot({
+    path: "/tmp/slice-spaces-v2-shots/users-view-desktop.png",
+  });
+  await page.setViewportSize({ width: 411, height: 761 });
+  await page.screenshot({
+    path: "/tmp/slice-spaces-v2-shots/users-view-mobile.png",
+  });
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  // Create a token, then confirm the m3e-list custom element is actually
+  // upgraded (registered), not inert unstyled HTML.
+  await page.getByLabel("Token name", { exact: true }).fill("ci-token");
+  await page.getByRole("button", { name: "Create token", exact: true }).click();
+  const list = page.locator("m3e-list.sb-token-list");
+  await expect(list).toBeVisible();
+  await expect(list.locator("m3e-list-item")).toContainText("ci-token");
+  expect(
+    await page.evaluate(() => !!customElements.get("m3e-list")),
+  ).toBe(true);
+  expect(
+    await list.evaluate((el) => !!(el as Element).shadowRoot),
+  ).toBe(true);
+
+  // Cancelling the m3e-dialog confirm leaves the token in place.
+  await page
+    .getByRole("button", { name: "Revoke token ci-token", exact: true })
+    .click();
+  const dialog = page.locator("m3e-dialog[open]");
+  await expect(dialog).toBeVisible();
+  expect(
+    await page.evaluate(() => !!customElements.get("m3e-dialog")),
+  ).toBe(true);
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(list.locator("m3e-list-item")).toContainText("ci-token");
+
+  // Confirming it removes the token.
+  await page
+    .getByRole("button", { name: "Revoke token ci-token", exact: true })
+    .click();
+  await page
+    .locator("m3e-dialog[open]")
+    .getByRole("button", { name: "Ok", exact: true })
+    .click();
+  await expect(page.getByText("No tokens.", { exact: true })).toBeVisible();
+
+  // Deleting the user goes through the same m3e-dialog confirm. "Delete user"
+  // lives in the "account" section (UserDetail's default section is
+  // "profile" without a `?section=` query param).
+  await page.goto(`${sbServer.url}/.spaces/users/casey?section=account`);
+  await page.getByRole("button", { name: "Delete user", exact: true }).click();
+  await page
+    .locator("m3e-dialog[open]")
+    .getByRole("button", { name: "Ok", exact: true })
+    .click();
+  await expect(page).toHaveURL(`${sbServer.url}/.spaces/users`);
+  await expect(page.getByText("casey", { exact: true })).toHaveCount(0);
+});
