@@ -170,129 +170,60 @@
   color: var(--action-button-color);
 }
 
-.sb-modal-box {
-  color: var(--modal-color);
-  background-color: var(--modal-background-color);
-  border: var(--modal-border-color) 1px solid;
-  box-shadow: rgba(0, 0, 0, 0.35) 0px 20px 20px;
+// `.sb-modal-box` (outer color/bg/border/shadow) is DEAD — matches
+// modals.scss's own note: basic_modals.tsx's `AlwaysShownModal` (and
+// filter.tsx, which renders through it) is a bare `<m3e-dialog>` with no
+// `.sb-modal-box` class, and `m3e-dialog` owns its own surface/elevation
+// theming. The child selectors below are still live (filter.tsx renders
+// every one of these classes) but promoted to top-level since their
+// `.sb-modal-box` ancestor no longer exists in the DOM.
+.sb-header {
+  border-bottom: 1px var(--modal-border-color) solid;
 
-  .sb-header {
-    border-bottom: 1px var(--modal-border-color) solid;
-
-    label {
-      color: var(--modal-header-label-color);
-    }
-
-    .sb-input {
-      font-family: var(--ui-font);
-    }
+  label {
+    color: var(--modal-header-label-color);
   }
-
-  .sb-help-text {
-    background-color: var(--modal-help-background-color);
-    border-bottom: 1px var(--modal-border-color) solid;
-    color: var(--modal-help-color);
-  }
-
-  .sb-result-list {
-    .sb-hint:not(.sb-hint-inactive) {
-      color: var(--modal-hint-color);
-      background-color: var(--modal-hint-background-color);
-    }
-
-    .sb-hint.sb-hint-inactive {
-      color: var(--modal-hint-inactive-color);
-      background-color: var(--modal-hint-inactive-background-color);
-    }
-
-    .sb-description {
-      color: var(--modal-description-color);
-    }
-
-    // Forward-compat, zero-conflict: once client/components/filter.tsx
-    // migrates its result rows from plain divs to m3e-list-item (fork commit
-    // 4cfc3763), that element paints its own slotted supporting-text/label
-    // colors from these cssprops (node_modules/@m3e/web/dist/list.js:
-    // `::slotted([slot="supporting-text"])` and `.content`), not from a
-    // plain `color:` set on the slotted light-DOM node — so the two
-    // mechanisms coexist without conflict until the TSX migration lands.
-    --m3e-list-item-supporting-text-color: var(--modal-description-color);
-
-    .sb-selected-option {
-      background-color: var(--modal-selected-option-background-color);
-      color: var(--modal-selected-option-color);
-
-      .sb-description {
-        color: var(--modal-selected-option-description-color);
-      }
-
-      --m3e-list-item-container-color: var(
-        --modal-selected-option-background-color
-      );
-      --m3e-list-item-label-text-color: var(--modal-selected-option-color);
-      --m3e-list-item-supporting-text-color: var(
-        --modal-selected-option-description-color
-      );
-    }
-  }
-}
-
-// Two stacked fills were fighting inside the search sheet, and the previous
-// pass fixed the wrong one.
-//
-// 1. `m3e-search-bar` (slotted inside `m3e-search-view`) paints its `.base`
-//    div from `var(--m3e-search-bar-container-color, surfaceContainerHigh)`
-//    (decompiled node_modules/@m3e/web/dist/search.js). Default = a heavy
-//    gray pill against the sheet.
-// 2. The slotted `Input` is a kit `.sb-input`, which components.scss gives
-//    its OWN `background-color: var(--text-field-background-color)` —
-//    live-measured as `rgb(85,85,85)` in dark mode, i.e. a LIGHTER gray
-//    rectangle floating inside the bar's pill. `bare` does not strip it.
-//
-// Correct split: the INPUT goes fully transparent so it reads as text on
-// the bar rather than a nested box, and the BAR keeps a real — but subtle —
-// container color so it still has a visible boundary/affordance. The bar's
-// fill is derived from `--root-color` (the theme's foreground) rather than
-// hardcoded, so it lifts off the sheet by the same small amount in both
-// light and dark themes instead of only working in one.
-//
-// Inert until client/components/search_sheet.tsx exists (sibling
-// reconciliation slice) — matches modals.scss's already-landed
-// `#sb-search-sheet`/`.sb-search-sheet-bar` scaffolding, zero-conflict.
-#sb-search-sheet {
-  --m3e-search-bar-container-color: color-mix(
-    in srgb,
-    var(--root-color) 9%,
-    transparent
-  );
 
   .sb-input {
-    background-color: transparent;
+    font-family: var(--ui-font);
   }
 }
 
-// search_sheet.tsx's result/history list — not a .sb-modal-box (it's a
-// bottom sheet, not a <dialog>), so it needs its own selector root, but
-// reuses the exact same --modal-* tokens as the .sb-modal-box block above
-// rather than a second palette. Inert until search_sheet.tsx exists.
-.sb-search-sheet-list {
-  .sb-hint {
+.sb-help-text {
+  background-color: var(--modal-help-background-color);
+  border-bottom: 1px var(--modal-border-color) solid;
+  color: var(--modal-help-color);
+}
+
+.sb-result-list {
+  .sb-hint:not(.sb-hint-inactive) {
     color: var(--modal-hint-color);
     background-color: var(--modal-hint-background-color);
   }
 
-  --m3e-list-item-supporting-text-color: var(--modal-description-color);
+  .sb-hint.sb-hint-inactive {
+    color: var(--modal-hint-inactive-color);
+    background-color: var(--modal-hint-inactive-background-color);
+  }
+
+  .sb-description {
+    color: var(--modal-description-color);
+  }
 
   .sb-selected-option {
-    --m3e-list-item-container-color: var(
-      --modal-selected-option-background-color
-    );
-    --m3e-list-item-label-text-color: var(--modal-selected-option-color);
-    --m3e-list-item-supporting-text-color: var(
-      --modal-selected-option-description-color
-    );
+    background-color: var(--modal-selected-option-background-color);
+    color: var(--modal-selected-option-color);
+
+    .sb-description {
+      color: var(--modal-selected-option-description-color);
+    }
   }
 }
+
+// DEAD: `#sb-search-sheet`/`.sb-search-sheet-list` targeted
+// `search_sheet.tsx`, which Jack's decision (builder-common.md) marks
+// permanently dead — main's `NavRoot` is THE search/picker UI, this fork
+// file never lands. Fork's rules dropped, not kept as scaffolding.
 
 #sb-editor {
   .cm-content {
