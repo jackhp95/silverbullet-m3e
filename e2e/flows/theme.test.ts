@@ -36,17 +36,29 @@ test.describe("theme foundation: registrations + layout", () => {
     await expect(themeEl).toHaveCount(1);
     expect(await isUpgraded(page, "m3e-theme")).toBe(true);
 
-    const { colorAttr, computedAccent, display } = await page.evaluate(() => {
-      const el = document.querySelector("m3e-theme")!;
+    // Preact sets `color`/`scheme` as element *properties* here (Lit's
+    // `color` accessor isn't attribute-reflecting -- confirmed live:
+    // `getAttribute("color")` stays null while the `.color` property holds
+    // the real value), so read the property, not the attribute. Poll: it's
+    // set by a `useEffect` that runs after first paint (it re-reads the
+    // computed custom property once mounted).
+    await expect
+      .poll(() =>
+        page.evaluate(() => (document.querySelector("m3e-theme") as any)?.color)
+      , { timeout: 15_000 })
+      .toMatch(/^#[0-9a-f]{6}$/);
+
+    const { colorProp, computedAccent, display } = await page.evaluate(() => {
+      const el = document.querySelector("m3e-theme") as any;
       return {
-        colorAttr: el.getAttribute("color"),
+        colorProp: el.color as string,
         computedAccent: getComputedStyle(document.documentElement)
           .getPropertyValue("--ui-accent-color")
           .trim(),
         display: getComputedStyle(el).display,
       };
     });
-    expect(colorAttr?.toLowerCase()).toBe(computedAccent.toLowerCase());
+    expect(colorProp.toLowerCase()).toBe(computedAccent.toLowerCase());
     expect(display).toBe("contents");
   });
 });
@@ -107,18 +119,52 @@ test.describe("theme foundation: space-style accent override", () => {
   });
 });
 
-// Minimal port of fork `e2e/linked-mentions-card.test.ts`: proves the
-// registration fix actually upgrades the Linked Mentions widget in
-// production, rather than just checking `customElements.get`.
-test.describe("theme foundation: linked mentions card", () => {
+// Premise correction (see builder report): the plan's acceptance test
+// assumed main's built-in "Linked Mentions" navigator feature renders
+// through `client/codemirror/lua_widget.ts`'s TOP/BOTTOM array-widget path
+// (`wrapHtmlAsCard`, gated on `!inPage`) -- the same path fork commit
+// `3f6ba829` reskinned into `m3e-card`/`m3e-app-bar`. Verified live (see
+// report): on main today, the built-in feature actually renders through a
+// completely different, already-fully-registered system (
+// `client/navigator/ui/components/page_widget_frame.tsx` +
+// `content_view.tsx`, driven by `NavPageSlotWidget`/`pageSlotViews`), not
+// `lua_widget.ts` at all. `lua_widget.ts`'s array-widget path is reached
+// only by a plug/space-lua listener on the `hooks:renderTopWidgets` /
+// `hooks:renderBottomWidgets` app events (`client/codemirror/
+// top_bottom_panels.ts`'s `ArrayWidget`) -- comment there literally calls
+// it "the legacy Lua top and bottom widgets" -- and nothing in a stock
+// space registers one. This test exercises that path directly via a
+// `space-lua` `event.listen` block, which is exactly how a real widget
+// (Linked Mentions/TOC/Linked Tasks equivalent) would reach it, to prove
+// the missing `@m3e/web/{card,app-bar,icon}` registrations actually fixed
+// the "inert HTML" bug finding #1 described, rather than asserting against
+// a feature that never exercised the broken path in the first place.
+test.describe("theme foundation: legacy Lua top/bottom array widget card", () => {
   test.use({
     spaceFiles: {
       "A.md": "# A\nThe page B links to.\n",
       "B.md": "# B\nSee [[A]].\n",
+      "Widget.md": [
+        "# Widget",
+        "",
+        "```space-lua",
+        "event.listen {",
+        '  name = "hooks:renderBottomWidgets",',
+        "  run = function(e)",
+        "    return {",
+        "      _isWidget = true,",
+        '      markdown = "# Linked Mentions\\n\\nSee [[A]].",',
+        '      display = "block"',
+        "    }",
+        "  end",
+        "}",
+        "```",
+        "",
+      ].join("\n"),
     },
   });
 
-  test("Linked Mentions renders as an upgraded m3e-card with an m3e-app-bar title", async ({
+  test("renders as an upgraded m3e-card with an m3e-app-bar title, hoisted from the leading heading", async ({
     sbServer,
     page,
   }) => {
