@@ -24,6 +24,13 @@
     overflow: hidden;
     scrollbar-gutter: stable;
 
+    // Orchestrator addendum (2026-09-24, core-shell decomposition plan
+    // §3.2): inert until the core-shell #sb-top -> m3e-app-bar restructure
+    // lands (top_bar.tsx doesn't render `m3e-app-bar` yet) — matches the
+    // horizontal padding the current `.wrapper { padding: 0 20px }` gives.
+    --m3e-app-bar-padding-left: 20px;
+    --m3e-app-bar-padding-right: 20px;
+
     .inner {
       // Hack to not have SCSS precompile this value but use proper CSS variables
       max-width: var(--#{"editor-width"});
@@ -95,6 +102,25 @@
     margin-right: 6px;
     padding: 4px;
     background-color: var(--top-background-color);
+
+    // Orchestrator addendum (2026-09-24, core-shell decomposition plan
+    // §3.2): inert until top_bar.tsx's sync/index spinner swaps its plain
+    // .progress-bar/.progress-ring/.progress-hole divs (kept live below)
+    // for `<m3e-circular-progress-indicator>`.
+    m3e-circular-progress-indicator {
+      --m3e-circular-flat-progress-indicator-diameter: 24px;
+      --m3e-circular-progress-indicator-thickness: 3px;
+      --m3e-progress-indicator-track-color: var(--progress-background-color);
+      font-size: 8px;
+    }
+
+    &.progress-sync m3e-circular-progress-indicator {
+      --m3e-progress-indicator-color: var(--progress-sync-color);
+    }
+
+    &.progress-index m3e-circular-progress-indicator {
+      --m3e-progress-indicator-color: var(--progress-index-color);
+    }
   }
 
   // Shown next to the ring during the first boot only, while the space is
@@ -412,6 +438,16 @@
 // `ellipsized: true`, short labels untouched (`ellipsized: false`), and the
 // menu surface now hugs its shortest/widest item instead of always
 // rendering at a fixed 280px.
+// Orchestrator addendum (2026-09-24, core-shell decomposition plan §3.2):
+// inert until the pre-nav-bar floating-toolbar shell lands (no
+// `.sb-floating-toolbar` consumer on main yet).
+.sb-floating-toolbar {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 30;
+}
+
 #sb-app-bar-menu {
   --m3e-menu-container-max-width: min(280px, calc(100vw - 32px));
 
@@ -428,11 +464,6 @@
   }
 }
 
-// #sb-page-scroll: inert until the #sb-main -> m3e-drawer-container +
-// auto-height-editor restructure (main.scss's own deferred note) lands —
-// scrollbar-gutter reservation for the not-yet-existing scroll container,
-// on the brief's allowed inert list.
-#sb-page-scroll {
-  scrollbar-gutter: stable;
-  -webkit-overflow-scrolling: touch;
-}
+// Orchestrator addendum (2026-09-24, core-shell decomposition plan §3.2):
+// #sb-page-scroll is dead — dropped (was landed here inertly, now removed
+// per explicit instruction not to land anything scoped to it).

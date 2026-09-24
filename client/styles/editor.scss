@@ -1,47 +1,13 @@
-// Reconciliation note (slice-6-styles, 2026-09-23): the m3e-reskin fork tip
-// (4cfc3763) rewrote large parts of this file with a "SCSS reduction audit"
-// claiming most `.sb-*` widget classes had already been migrated to
-// Tailwind utility classes set directly at their creation sites, making the
-// SCSS rule dead. Re-checked every such claim against this worktree's
-// actual client/codemirror/*.ts sources (grep + read, not fork's own
-// commit-message narrative): about half were TRUE (list.ts, task.ts,
-// table.ts, html_widget.ts, lua_widget.ts, top_bottom_panels.ts,
-// loading_widget.ts, inline_content.ts, fenced_code.ts, admonition.ts's
-// border/pl-only claim excepted below all already carry the matching
-// Tailwind classes) and those dead rules were deleted below at each site.
-// The OTHER half were FALSE on this main: fork's own comment narrative
-// describes fork's own, further-diverged codebase, not this one.
-// Grep-confirmed still-live and kept unchanged: the entire `--sb-indent`/
-// `--editor-column`/`--blockquote-*` composable-indent variable system
-// (list_indent.ts, block_quote.ts and their test suites assert these exact
-// custom properties), the `@container sb-editor-col` query (main.scss sets
-// up that container context on purpose, for dock- not just viewport-
-// narrowing), `.sb-external-*` (external_presence.ts), `.sb-hashtag`/
-// `a.sb-at-mention` (hashtag.ts/at_mention.ts), `.cm-frontmatterFoldPlaceholder`
-// /`.cm-frontmatterFoldStatus`/`.sb-frontmatter-marker`/
-// `.sb-line-frontmatter-outside` (frontmatter.ts/frontmatter_folding.ts —
-// the "renders fully empty now" and "removed outright" claims do not hold;
-// this main still populates and uses all of them), `.sb-comment-block(-first
-// /-last)`/`.sb-comment-resolve`/`.sb-comment-label` (comment_region.ts —
-// also directly asserted by comment_region.test.ts), the entire
-// `.sb-conflict-*` family (conflict_markers.ts — fork's tree drops this
-// feature's CSS entirely; it is very much alive here), `.sb-admonition`'s
-// dynamic `padding-left: calc(var(--sb-indent) + 5px)` (must stay dynamic:
-// a static `pl-[5px]` can't account for a nested list/quote indent), the
-// `#sb-editor>.cm-editor>.cm-scroller { scrollbar-gutter: stable }` rule
-// (fork claims it "moved to top.scss" — false; top.scss's own
-// `scrollbar-gutter` rule is on an unrelated `#sb-top .main` selector), and
-// `#sb-main .cm-editor`'s fixed `height: 100%` / `.cm-scroller`'s own
-// scrolling (fork's auto-height "#sb-page-scroll" rewrite is a real,
-// currently-unlanded plan — see main.scss's own reconciliation note; no
-// `#sb-page-scroll` exists anywhere in client/ yet). Landed as new,
-// zero-conflict additions: the `m3e-card`-scoped TOP/BOTTOM widget rules and
-// `.sb-lua-card-content[hidden]` (lua_widget.ts's `wrapHtmlAsCard` already
-// creates exactly this DOM) and M3 token theming on the completion-info
-// tooltip (additive only, tokens already in use elsewhere post the modals.scss
-// slice).
 @use "markdown_body" as mb;
 
+// Reconciliation note (slice-6-styles, 2026-09-24): fork tip 4cfc3763
+// claims several .sb-* widget box-model rules below moved to Tailwind
+// utility classes at their client/codemirror/*.ts creation sites. Verified
+// per-widget, not blanket-trusted: some ARE already Tailwind-ported on this
+// main (loading_widget.ts, task.ts's checkbox/dropdown, top_bottom_panels.ts
+// — those rules dropped below), others are NOT (hashtag.ts/at_mention.ts,
+// admonition.ts's indent-aware padding, comment_region.ts, frontmatter.ts's
+// FrontmatterMarkerWidget — those rules kept, fork's deletions rejected).
 .cm-focused {
   outline: none !important;
 }
@@ -74,7 +40,10 @@ $comment-border: 1px;
 
 #sb-main .cm-editor {
   font-size: 18px;
-  height: 100%;
+  // Auto-height / "page scrolls" mode (§2 of the 2026-09-22 large-app-bar
+  // plan): no fixed height — the editor sizes to its content so CM's own
+  // scrollableParents() walk (view/index.js) tracks #sb-page-scroll (L5)
+  // as the real scrolling ancestor instead of .cm-scroller.
 
   .cm-content {
     width: 100%;
@@ -147,7 +116,7 @@ $comment-border: 1px;
   }
 
   // If a header only contains a tag, it's likely a line containging "#" which may turn into a hashtag, so style it as such instead of a header
-  .sb-line-h1:has(> a.sb-hashtag:only-child) {
+  .sb-line-h1:has(> m3e-assist-chip[data-tag-name]:only-child) {
     font-size: 1em;
     // Not a heading after all, so none of a heading's breathing room -- and
     // set through the variable, which is also what the line paints against.
@@ -235,22 +204,34 @@ $comment-border: 1px;
     border: 0;
   }
 
+  // V5b (2026-09-22) defect fix: this ruleset used to size a visible
+  // "N lines hidden" / tag-chip placeholder — `width: 100%` + `padding` +
+  // `display: inline-flex` so that chip content could stretch and align
+  // across the folded line's full width. `frontmatterFoldPlaceholderDOM`
+  // (client/codemirror/frontmatter_folding.ts) now renders the frontmatter
+  // placeholder fully EMPTY (the inline `<FrontMatterPanel>` is the only
+  // rendering of frontmatter a reader sees), so those box-model properties
+  // just forced an empty `width: 100%` span to wrap onto its own line
+  // (confirmed via live Playwright/computed-style inspection on :3333 —
+  // the folded line measured 3 stacked line-heights tall for zero visible
+  // content). `cursor: pointer` is all that's still meaningful here.
   .cm-frontmatterFoldPlaceholder {
-    box-sizing: border-box;
     cursor: pointer;
-    display: inline-flex;
-    align-items: baseline;
-    gap: 3px;
-    padding: 2px 7px !important;
-    user-select: none;
-    width: 100%;
   }
 
-  .cm-frontmatterFoldStatus {
-    color: var(--subtle-color);
-    font-size: 0.85em;
-    margin-left: 0.4em;
-    opacity: 0.75;
+  // Same defect fix, other half: `line_wrapper.ts`'s `lineWrapper` config
+  // (client/codemirror/editor_state.ts) tags every source line of the
+  // `FrontMatter` syntax node with `.sb-frontmatter` (the background this
+  // rule now strips) purely from the syntax tree, independent of fold
+  // state — so the merged, folded line (which CM renders at the block's
+  // OPENING line position, exactly where that first `.sb-frontmatter`
+  // decoration attaches) kept the highlighted background even once the
+  // fold placeholder itself went empty. Scoped to lines that actually host
+  // the (empty) fold placeholder, so the background is untouched for a
+  // genuinely unfolded/live-preview frontmatter block (e.g. while a reader
+  // has clicked into "Edit as YAML").
+  .cm-line:has(.cm-frontmatterFoldPlaceholder) {
+    background-color: transparent;
   }
 
   .sb-line-comment {
@@ -258,24 +239,19 @@ $comment-border: 1px;
   }
 
   // .cm-list-bullet color/white-space moved to Tailwind utility classes set
-  // on the bullet span in client/codemirror/list.ts (confirmed: sole
-  // creator, already carries the equivalent `text-[color:...]
-  // whitespace-nowrap` classes).
+  // on the bullet span in client/codemirror/list.ts (sole creator).
 
   // .cm-task-checked's own text-decoration moved to a Tailwind utility set
-  // in client/codemirror/task.ts (confirmed: `line-through!`). This rule
-  // stays scoped to the sibling selector alone: a structural `:has()` reach
-  // into a wiki-link rendered by a wholly different widget
-  // (wiki_link_processor.ts) — no single widget's classList edit can
-  // express "strike through this OTHER element when a sibling condition
-  // holds."
+  // in client/codemirror/task.ts. This rule stays scoped to the sibling
+  // selector alone: a structural `:has()` reach into a wiki-link rendered
+  // by a wholly different widget (wiki_link_processor.ts) — no single
+  // widget's classList edit can express "strike through this OTHER
+  // element when a sibling condition holds."
   .sb-line-task:has(.cm-task-checked) .sb-wiki-link {
     text-decoration: line-through !important;
   }
 
   .cm-tooltip-autocomplete {
-    // Still live: editor_state.ts's autocomplete `addToOptions.render`
-    // renders a `sb-page-decoration-icon` inside this exact tooltip.
     .sb-page-decoration-icon {
       margin-left: 5px;
     }
@@ -300,8 +276,6 @@ $comment-border: 1px;
   // Sibling tooltip to `.cm-tooltip-autocomplete` (see colors.scss) — same
   // M3 token reskin, one surface tier up (surface-container-high) so the
   // docs popover reads as layered above the option list that spawned it.
-  // Additive only: max-width/padding/white-space below are main's own and
-  // unchanged.
   .cm-tooltip.cm-completionInfo:has(.sb-completion-documentation) {
     max-width: min(48rem, 70vw);
     padding: 0;
@@ -309,7 +283,7 @@ $comment-border: 1px;
     background-color: var(--md-sys-color-surface-container-high);
     color: var(--md-sys-color-on-surface);
     border: none;
-    border-radius: var(--md-sys-shape-corner-small, 8px);
+    border-radius: var(--md-sys-shape-corner-value-small, 8px);
     box-shadow:
       0px 1px 2px 0px
         color-mix(in srgb, var(--md-sys-color-shadow, #000) 30%, transparent),
@@ -368,13 +342,12 @@ $comment-border: 1px;
     }
   }
 
-  // .sb-checkbox box layout moved to Tailwind utility classes set on the
-  // widget's wrapper span in client/codemirror/task.ts (confirmed: sole
-  // creator of `.sb-checkbox` — markdown_render.ts's generic renderer emits
-  // a bare, unwrapped `<input type="checkbox">`).
-
-  // Safari fixes native checkboxes at ~13px regardless of CSS width. Draw a
-  // consistent box for both editor tasks and rendered Markdown.
+  // DEAD: display/text-align/width/text-indent/line-height — task.ts's
+  // checkbox wrapper already carries the equivalent Tailwind classes
+  // (inline-block/text-center/w-[3ch]/indent-0/leading-none, confirmed
+  // live). Safari fixes native checkboxes at ~13px regardless of CSS width,
+  // hence the CSS-drawn box below (irreducible: shared by the editor
+  // widget and any checkbox produced by renderMarkdownToHtml).
   input[type="checkbox"] {
     appearance: none;
     -webkit-appearance: none;
@@ -404,6 +377,8 @@ $comment-border: 1px;
     transform: rotate(45deg);
   }
 
+  // hashtag.ts/at_mention.ts render bare classNames with no Tailwind
+  // box-model equivalent (grep-confirmed) — kept, rejecting fork's deletion.
   .sb-hashtag,
   .hashtag {
     border-radius: 6px;
@@ -468,34 +443,42 @@ $comment-border: 1px;
     cursor: pointer;
   }
 
-  // .sb-lua-directive-inline/-block's own display/padding moved to Tailwind
-  // utility classes appended in client/codemirror/lua_widget.ts (confirmed:
-  // sole owner, `className +=` already includes `block` / `inline p-[2px]`).
-  // The shared border/min-height chrome these classes ALSO get, further
-  // down, stays in CSS — see that rule's own note.
+  // .sb-lua-directive-inline/-block's own display/padding moved to
+  // Tailwind utility classes appended in client/codemirror/lua_widget.ts
+  // (sole owner of these two classes). The shared border/min-height chrome
+  // these classes ALSO get, further down, stays in CSS — see that rule's
+  // own note.
 
   // .sb-loading-widget/-block/.sb-loading-spinner layout, color and
-  // animation moved to Tailwind utility classes set on the widget's spans in
-  // client/codemirror/loading_widget.ts (confirmed: sole creator, already
-  // carries the equivalent utilities including the color and the fade-in
-  // was dropped). The spinner's `animate-[spin_0.8s_linear_infinite]` reuses
-  // Tailwind's own built-in `spin` @keyframes at the original 0.8s duration,
-  // so the custom `sb-loading-spin` keyframes were deleted as redundant
-  // rather than migrated.
+  // animation moved to Tailwind utility classes set on the widget's spans
+  // in client/codemirror/loading_widget.ts (sole creator). The spinner's
+  // `animate-[spin_0.8s_linear_infinite]` reuses Tailwind's own built-in
+  // `spin` @keyframes (tailwindcss/theme.css) at the original 0.8s
+  // duration, so the custom `sb-loading-spin` keyframes were deleted as
+  // redundant rather than migrated.
 
-  // .sb-widget-array flex layout moved to Tailwind utility classes
-  // (`flex flex-col`) set on the widget's div in
-  // client/codemirror/top_bottom_panels.ts (confirmed).
+  // DEAD: .sb-loading-widget/-block/@keyframes sb-loading-appear —
+  // loading_widget.ts's wrapper already carries the equivalent Tailwind
+  // classes (confirmed live: its own comment points back to this file).
+  // .sb-widget-array flex layout also already Tailwind-ported
+  // (top_bottom_panels.ts: "sb-widget-array flex flex-col", confirmed live).
 
   // .sb-task-dropdown layout moved to Tailwind utility classes set on the
-  // widget's span in client/codemirror/task.ts (confirmed:
-  // `cursor-pointer opacity-40 select-none hover:opacity-100`).
+  // widget's span in client/codemirror/task.ts.
 
+  // Irreducible: `.sb-task-deadline` comes from client/style.ts's shared
+  // HighlightStyle tag→class map (`{ tag: ct.TaskDeadlineTag, class:
+  // "sb-task-deadline" }`), applied by CodeMirror to every deadline token
+  // in the document and consumed by every stylesheet, not just this one —
+  // out of this file's single-file scope to fork.
   .sb-task-deadline {
     background-color: rgba(22, 22, 22, 0.07);
   }
 
-  .sb-line-frontmatter-outside,
+  // `sb-line-frontmatter-outside` dropped from this selector list: dead —
+  // the line-decoration branch that produced it was removed outright (see
+  // client/codemirror/frontmatter.ts's "V5b (2026-09-22)" comment);
+  // grep-verified nothing in client/ sets that class anymore.
   .sb-line-code-outside {
     .sb-meta {
       color: transparent;
@@ -552,14 +535,10 @@ $comment-border: 1px;
 
 
   // .sb-table-widget layout moved to Tailwind utility classes set directly
-  // on the widget's span in client/codemirror/table.ts (confirmed:
-  // `dom.classList.add` already carries the equivalent utilities;
-  // `sb-table-widget` itself stays there as a stable hook for click
-  // handling, unrelated to this file).
+  // on the widget's span in client/codemirror/table.ts (dom.classList.add).
 
   // .sb-html-widget/-inline layout moved to Tailwind utility classes set
-  // directly on the widget's root element in
-  // client/codemirror/html_widget.ts (confirmed).
+  // directly on the widget's root element in client/codemirror/html_widget.ts.
 
   table {
     width: 100%;
@@ -677,38 +656,37 @@ $comment-border: 1px;
   }
 
   // TOP/BOTTOM array widgets (Linked Mentions, TOC, Linked Tasks, …) now
-  // render an `m3e-card` (client/codemirror/lua_widget.ts's
-  // `wrapHtmlAsCard`, confirmed: reached whenever `!opts.inPage`, which is
-  // always true for these two widget classes) instead of a bare heading +
-  // hover-revealed button-bar overlay — the old h1-background hack above is
-  // dead (grep-verified: no `sb-markdown-top-widget`/`sb-markdown-bottom-
-  // widget`/bare-h1 producer remains anywhere in client/, superseded by the
-  // lua widget system) and removed outright. The card's own `m3e-app-bar`
-  // header supplies its own outline/elevation, so the wrapper div's own box
-  // is redundant here.
+  // render an `m3e-card` (lua_widget.ts `wrapHtmlAsCard`, `!opts.inPage`
+  // only) instead of a bare heading + hover-revealed button-bar overlay —
+  // the card's own `m3e-app-bar` header replaces the old h1-background hack
+  // (superseded rule removed) and supplies its own outline/elevation, so the
+  // wrapper div's own box is redundant here.
   .sb-lua-top-widget:has(> m3e-card),
   .sb-lua-bottom-widget:has(> m3e-card) {
     border: none;
     min-height: 0;
   }
 
+  // No padding of our own here: `m3e-card`'s `content` slot already applies
+  // `--m3e-card-padding` around whatever is slotted in. max-height/overflow
+  // moved to Tailwind utility classes in client/codemirror/lua_widget.ts
+  // (sole owner). `[hidden]` stays: defensive against `m3e-card`'s own slot
+  // styling potentially overriding the native hidden-attribute default —
+  // an m3e-component interaction, not a plain layout property.
+  .sb-lua-card-content[hidden] {
+    display: none;
+  }
+
+  // `.sb-markdown-top-widget`/`.sb-markdown-bottom-widget` h1/margin rules
+  // deleted outright: dead. Grep-verified zero creators of either class
+  // remain anywhere in the repo — the "markdown widget" system these
+  // styled has been fully superseded by the lua widget system
+  // (client/codemirror/lua_widget.ts + top_bottom_panels.ts).
+
   .sb-lua-top-widget .content,
   .sb-lua-bottom-widget .content {
     max-height: 500px;
     padding: 10px;
-  }
-
-  // No padding of our own here: `m3e-card`'s `content` slot already applies
-  // `--m3e-card-padding` around whatever is slotted in. max-height/overflow
-  // moved to Tailwind utility classes in client/codemirror/lua_widget.ts
-  // (confirmed: `sb-lua-card-content max-h-[500px] overflow-y-auto`).
-  // `[hidden]` stays: defensive against `m3e-card`'s own slot styling
-  // potentially overriding the native hidden-attribute default (JS toggles
-  // this attribute directly — `content.toggleAttribute("hidden", collapsed)`
-  // — so a plain `display: none` override protects that toggle regardless
-  // of m3e-card's internal slot CSS).
-  .sb-lua-card-content[hidden] {
-    display: none;
   }
 
   .sb-lua-bottom-widget p strong {
@@ -730,16 +708,17 @@ $comment-border: 1px;
     border-top: 1px solid var(--editor-widget-background-color);
   }
 
-  // `.sb-markdown-top-widget:has(*) .content` (+ its max-height-1000px media
-  // variant) deleted outright: dead, same superseded "markdown widget"
-  // system as above (grep-verified zero producers of that class in
-  // client/).
+  // `.sb-markdown-top-widget:has(*) .content` (+ its max-height-1000px
+  // media variant) deleted outright: dead, same "markdown widget" system
+  // as above.
 
-  // Navigator page widgets provide their own frame; share only the
-  // typography. `.sb-markdown-widget`/`.sb-markdown-top-widget:has(*)`/
-  // `.sb-markdown-bottom-widget:has(*)` dropped from this selector list:
-  // dead, same system as above. `.sb-lua-directive-block`/`-inline` are the
-  // only live classes left here (top_bottom_panels.ts / lua_widget.ts).
+  // DEAD: `.sb-markdown-widget`/`.sb-markdown-top-widget:has(*)`/
+  // `.sb-markdown-bottom-widget:has(*)` (+ the max-height:1000px media
+  // variant targeting the same) — zero consumers anywhere in client/,
+  // grep-confirmed. `.sb-lua-directive-block`/`-inline` are the only live
+  // classes left here (top_bottom_panels.ts / lua_widget.ts). The block
+  // body stays: it styles arbitrary rendered-markdown children this file's
+  // consumer doesn't control per-node.
   .sb-lua-directive-block,
   .sb-lua-directive-inline {
     border: 1px solid var(--editor-widget-background-color);
@@ -793,17 +772,11 @@ $comment-border: 1px;
   // .sb-nav-root .sb-nav-content. Scope this to content bodies: row widgets
   // flatten lists inline, and these higher-specificity bullets would override
   // their list-item separators.
-  //
-  // `.sb-markdown-widget`/`.sb-markdown-top-widget:has(*)`/
-  // `.sb-markdown-bottom-widget:has(*)` dropped from this selector list too:
-  // dead, same superseded system as above. `.sb-page-widget-content
-  // .sb-page-widget-body` KEPT — still very much live
-  // (navigator/ui/components/page_widget.tsx sets the modifier,
-  // page_widget_frame.tsx renders the body div) and, per _page_widget.scss's
-  // own top-of-file comment, deliberately depends on this rule living here
-  // rather than being duplicated in _page_widget.scss.
+  .sb-markdown-widget,
   .sb-lua-directive-block,
   .sb-lua-directive-inline,
+  .sb-markdown-top-widget:has(*),
+  .sb-markdown-bottom-widget:has(*),
   .sb-page-widget-content .sb-page-widget-body {
 
     ul,
@@ -947,6 +920,11 @@ $comment-border: 1px;
     border-radius: 3px;
   }
 
+  // Irreducible: `>div>.content>*` reaches into the generic widget-content
+  // renderer shared across every `sb-*-widget` type (lua_widget.ts's
+  // `.content` div convention, same shared pipeline as the TOP/BOTTOM
+  // widget block below) — the grandchildren aren't per-instance authored
+  // markup this file's own consumer controls.
   .sb-inline-content>div>.content>* {
     max-width: 100%;
     display: block;
@@ -954,19 +932,16 @@ $comment-border: 1px;
 
   // .sb-inline-content's own margin/overflow moved to Tailwind utility
   // classes set in the `cssClasses` array in
-  // client/codemirror/inline_content.ts (confirmed: sole producer, already
-  // carries `m-0 overflow-hidden`).
+  // client/codemirror/inline_content.ts (sole producer of this class).
 
   // .sb-fenced-code-iframe's own background-color moved to a Tailwind
-  // utility (`bg-transparent`) set on the line decoration in
-  // client/codemirror/fenced_code.ts (confirmed).
+  // utility set on the line decoration in client/codemirror/fenced_code.ts.
   //
   // Irreducible: the nested `iframe` rule targets
-  // client/components/widget_sandbox_iframe.ts's shared
-  // `createWidgetSandboxIFrame` (confirmed: also used directly by
-  // lua_widget.ts for a differently-styled iframe context) — moving these
-  // classes onto the shared function would change that other, unrelated
-  // widget's styling too.
+  // widget_sandbox_iframe.ts's `createWidgetSandboxIFrame`, a creator
+  // shared with lua_widget.ts for a differently-styled iframe context
+  // (grep-verified) — moving these classes onto the shared function would
+  // change that other, unrelated widget's styling too.
   .sb-fenced-code-iframe iframe {
     border: 0;
     width: 100%;
@@ -977,22 +952,33 @@ $comment-border: 1px;
     border-radius: 5px;
   }
 
+  .sb-line-blockquote.sb-line-ul.sb-line-li>.sb-quote.sb-meta:first-child {
+    margin-left: -1ch;
+  }
+
+  // admonition.ts's className DOES already carry Tailwind border-l-4!/
+  // border-solid/pl-[5px], but that pl-[5px] is a flat value — it drops the
+  // nested-indent-aware `calc(var(--sb-indent) + 5px)` main's own CSS
+  // computes, plus the --sb-quote-indent reset/background-image:none/
+  // .sb-quote-spacer override Tailwind has no equivalent for. Kept main's
+  // full rule (redundant with, but a superset of, the Tailwind classes).
   .sb-admonition {
-    // Override the inline quote indent: the admonition border replaces its marker.
     --sb-quote-indent: 0px !important;
     border-left-width: 4px !important;
     border-left-style: solid;
-    // Add the border gap without losing a nested admonition’s list indent.
     padding-left: calc(var(--sb-indent) + 5px);
     background-image: none;
 
-    // The border replaces the quote spacer. Keep its inline box for posAtCoords,
-    // but remove its width so the first row stays aligned.
     >.sb-quote-spacer {
       padding-left: 0 !important;
     }
   }
 
+  // Irreducible: `--admonition-icon` is a per-admonition-type CSS custom
+  // property defined by attribute selectors in theme.scss (`[admonition]
+  // { --admonition-icon: url('data:image/svg+xml,...'); }` per type) — no
+  // M3E component or Tailwind utility can express a vendor-prefixed `mask`
+  // driven by a companion file's per-type token definitions.
   .sb-admonition-type::before {
     content: "";
     mask: var(--admonition-icon) no-repeat;
@@ -1008,15 +994,18 @@ $comment-border: 1px;
     vertical-align: middle;
   }
 
+  // fork's claims don't hold on this main: comment_region.ts still assigns
+  // bare .sb-comment-block(-first/-last)/.sb-comment-resolve/
+  // .sb-comment-label classNames (no Tailwind augmentation), and
+  // frontmatter.ts's FrontmatterMarkerWidget still creates
+  // `marker.className = "sb-frontmatter-marker"` — the fork's "V5b" removal
+  // of that widget hasn't landed on this main. Kept all of it, main wins.
   .sb-comment-block {
     background-color: var(--editor-comment-background-color);
     border-left-width: $comment-border;
     border-right-width: $comment-border;
     border-left-style: solid;
     border-right-style: solid;
-    // Bleed the box into content padding, then inset the text by the same amount
-    // to leave room for the caret. Subtract the border from that padding so the
-    // text stays aligned with surrounding lines.
     margin-left: -$comment-inset;
     margin-right: -$comment-inset;
     padding-left: calc(var(--sb-indent) + #{$comment-inset - $comment-border});
@@ -1038,12 +1027,8 @@ $comment-border: 1px;
   }
 
   .sb-comment-resolve {
-    // Floated rather than right-aligning the line, so the button sits right in
-    // both states without dragging a revealed `-->` across with it.
     float: right;
     font-size: 80%;
-    // line-height 1 on an 80% font keeps the inline box well inside the line
-    // box, so neither the padding nor the border can grow the line.
     line-height: 1;
     padding: 1px 8px;
     margin-right: 7px;
@@ -1057,7 +1042,6 @@ $comment-border: 1px;
     float: right;
     font-size: 80%;
     padding-right: 7px;
-    // Safari still drops the unprefixed property.
     -webkit-user-select: none;
     user-select: none;
   }
@@ -1078,12 +1062,17 @@ $comment-border: 1px;
 
   .cm-scroller {
     padding-bottom: 20em;
+    // Auto-height / "page scrolls" mode (§2/L6): .cm-scroller no longer
+    // owns scroll itself — #sb-page-scroll (client/styles/top.scss) does.
+    overflow: visible;
+    height: auto;
   }
 }
 
-#sb-editor>.cm-editor>.cm-scroller {
-  scrollbar-gutter: stable;
-}
+// `scrollbar-gutter: stable` used to live on `.cm-scroller` (the element
+// that scrolled). Now that #sb-page-scroll is the real scrolling element
+// (L5/L6), the rule moved there (client/styles/top.scss) — this selector
+// would be a no-op here since .cm-scroller never overflows post-L6.
 
 div:not(.cm-focused).cm-fat-cursor {
   outline: none !important;
