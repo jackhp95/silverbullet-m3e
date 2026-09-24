@@ -1,44 +1,5 @@
 @use "profile_menu";
 
-// Reconciliation note (slice-6-styles, 2026-09-23): the m3e-reskin fork tip
-// (4cfc3763) rewrote almost this entire file as part of
-// docs/plans/2026-09-22-appbar-large-frontmatter-scroll-snap.md (leaves
-// L8/L9) — replacing the `#sb-top`/`.main`/`.inner`/`.wrapper`/
-// `#sb-current-page`/`.sb-actions`/`.progress-*`/`.sb-notifications` chrome
-// with a `<m3e-app-bar size="large">` restructuring (`.sb-page-title`, a
-// wrapping title `<textarea>`, `m3e-circular-progress-indicator`, a kebab
-// `#sb-app-bar-menu`) plus new front-matter-panel styling (`.sb-fm-*`) and a
-// scroll-snap container (`#sb-page-scroll`). None of the paired TSX has
-// landed on this main: `client/components/top_bar.tsx` (read directly, not
-// just grepped) still renders the exact old div-based markup — plain
-// `<div id="sb-top">` > `.main` > `.inner` > `.wrapper`, `<Input
-// class="sb-page-name-editor">` (which also always emits `sb-input`, so
-// `#sb-current-page .sb-input` below is real), `ActionButtons` rendering
-// `.sb-actions`/hamburger, `SyncProgressIndicator` rendering `.progress-
-// wrapper`/`.progress-bar`/`.progress-ring`/`.progress-hole`, and
-// `NotificationList` still portalling a `.sb-notifications` div — no
-// `m3e-app-bar`, no `#sb-app-bar-menu`, no `front_matter_panel.tsx` (doesn't
-// exist), no `#sb-page-scroll` anywhere in client/ (grep-confirmed). This is
-// the exact same plan client/styles/main.scss's own reconciliation note
-// already deferred wholesale for its half (`#sb-main`/`#sb-page-scroll`),
-// citing the plan doc's own leaf ordering (L10 sequenced after the TS
-// leaves) as the reason to defer the whole feature rather than cherry-pick —
-// same reasoning applied here for top.scss's half (L8/L9). Kept main's
-// `#sb-top` block and everything through `.sb-notifications` below
-// unchanged; landed only the handful of fork additions from *other*,
-// unrelated specs that are genuinely new, non-overlapping, and zero-conflict
-// regardless of TSX landing status (see the end of this file).
-//
-// `@use "profile_menu"` specifically is NOT dead despite fork dropping it:
-// `_profile_menu.scss` is a side-effect-only partial (raw `.sb-anchored-menu`
-// selectors, no forwarded members), and Sass modules are deduped only
-// *within* one compilation. `top.scss` and `app.scss` compile to two
-// separate output bundles (main.css vs app.css, per build/build_client.ts) —
-// `app.scss` has its own `@use "profile_menu"`, but nothing else in
-// `main.scss`'s `@use` graph reaches it. `client/editor_ui.tsx` (main.css's
-// entry) genuinely renders `AnchoredMenu`/`ProfileButton`
-// (client/components/anchored_menu.tsx, profile_button.tsx) — dropping this
-// `@use` would silently delete `.sb-anchored-menu` styling from main.css.
 #sb-top {
   display: flex;
   flex-direction: row;
@@ -308,83 +269,170 @@
     }
   }
 }
+// Reconciliation note (slice-6-styles, 2026-09-24): fork tip 4cfc3763
+// rewrote most of this file around an m3e-app-bar/m3e-toolbar/nav-bar
+// restructure (#sb-top .main -> m3e-app-bar, hamburger/bottom-bar menu ->
+// m3e-toolbar + nav_views/search.tsx, .sb-notifications -> m3e-snackbar,
+// div progress ring -> m3e-circular-progress-indicator) that pairs with
+// TSX/TS changes not landed on this worktree's main — confirmed via
+// `grep -rn` across client/: top_bar.tsx still renders the plain
+// .inner/.wrapper/#sb-current-page bar, .sb-actions.hamburger/.bottom-bar,
+// .progress-bar/.progress-ring/.progress-hole divs, and the .sb-notifications
+// portal div; nav_views/search.tsx doesn't exist (permanently dead per the
+// epic's standing decision). Deferred wholesale, matching main.scss's own
+// precedent for the same restructure — kept main's blocks unchanged; landed
+// only fork's genuinely new, non-overlapping, inert additions below
+// (frontmatter raw-YAML card + app-bar kebab-menu ellipsis fix — both
+// target elements front_matter_panel.tsx/#sb-app-bar-menu don't render yet).
+
+.sb-fm-panel {
+  margin: 20px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 16px;
+  background: var(--md-sys-color-surface-container-lowest);
+  overflow: hidden;
+}
+
+// Read-only row list only (FrontMatterReadOnlyList) — the editable card is
+// just one textarea, no rows.
+.sb-fm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  font: var(--md-sys-typescale-body-medium-font);
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.sb-fm-icon {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 18px;
+  flex: none;
+}
+
+.sb-fm-key {
+  width: 84px;
+  flex: none;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.sb-fm-value {
+  flex: 1;
+  min-width: 0;
+  color: var(--md-sys-color-on-surface);
+}
+
+// Block-shaped fields (sequences/mappings/block-scalars) in the read-only
+// list render their raw multi-line YAML text as-is (front_matter_panel.tsx's
+// `FrontMatterReadOnlyRow`) — a plain `<span>` collapses newlines/leading-
+// space by default, so this is the one property that needs restoring for
+// them to actually look multi-line instead of running together.
+.sb-fm-value-multiline {
+  display: block;
+  white-space: pre-wrap;
+}
+
+// The editable card's single whole-block raw-YAML textarea
+// (FrontMatterEditableCard). No click-to-edit affordance/border needed
+// (unlike the old per-field `.sb-fm-value`) — the whole card IS the editor
+// now.
+.sb-fm-yaml-textarea {
+  display: block;
+  width: 100%;
+  padding: 14px;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: none;
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--editor-font);
+  font-size: 0.9em;
+  line-height: 1.5;
+}
 
 // ---------------------------------------------------------------------------
-// Fork additions landed as-is: genuinely new, non-overlapping selectors from
-// specs *other* than the deferred appbar-large-frontmatter-scroll-snap plan
-// above, zero-conflict with anything in this file regardless of current
-// wiring status (same "unwired but zero-conflict addition" precedent as
-// Slice 1/2 of this reconciliation and main.scss's `.sb-panel`).
+// App-bar kebab menu (#sb-app-bar-menu, client/components/top_bar.tsx)
+//
+// Fixes a genuine clipping bug, root-caused by live measurement at 390px
+// (the "Push notifications are not configured for this server" item):
+//
+//   item host        left  79  right 351  width 272
+//   shadow .wrapper  left  79  right 475  width 396   <- 124px outside its item
+//   shadow .content  left 119  right 463  width 344   ellipsized: FALSE
+//   viewport width 390 -> the label ran 73px past the screen edge and was
+//   hard-clipped by the menu's own `contain: content` .base. No ellipsis.
+//
+// Why the component's own ellipsis never fired: m3e-menu-item's shadow
+// `.content` does declare `overflow: hidden; text-overflow: ellipsis;
+// white-space: nowrap`, but it sits inside `.wrapper { flex: 1 1 auto }`,
+// which has no `min-width: 0`. `overflow: hidden` zeroes a flex item's own
+// automatic minimum size, yet it does NOT zero the min-content *contribution*
+// that item makes to its container's intrinsic size. So `.wrapper`'s
+// `min-width: auto` floored at the full nowrap text width (344px + 52px of
+// icon/gap/padding = 396px), `.wrapper` could not shrink into its 272px item,
+// `.content` was therefore never squeezed, and an ellipsis that is only ever
+// applied under shrink pressure never applied. This is an upstream @m3e/web
+// bug (v2.7.3): `.wrapper` is missing `min-width: 0`. It is not reachable
+// from here — m3e-menu-item exports no `part` and no width custom property
+// (grepped against the sourcemapped MenuItemElement.ts / MenuItemElementBase
+// .ts) — so the fix has to work entirely through the one thing the light DOM
+// owns: the slotted label element.
+//
+// `max-width: 0` was the ORIGINAL fix here, and it did stop the clip — but it
+// came with a real cost (flagged live 2026-09-21): with no item contributing
+// *any* intrinsic width, the menu's own shrink-to-fit had nothing to shrink
+// to, so it collapsed to the 112px `--m3e-menu-container-min-width` default,
+// and pinning min-width to the same fixed value as max-width was the
+// original fix for that — at the price of every kebab menu rendering at a
+// flat 280px, no matter how short its items were.
+//
+// The actual fix: cap the label at a fixed ceiling instead of zeroing it.
+// `.wrapper`'s floor is the label's own min-content size — for `white-space:
+// nowrap` text that's its full, unclamped width — but capping the label's
+// `max-width` to a fixed value also caps what it contributes to that floor
+// (per the flexbox spec, an item's automatic minimum is clamped by its own
+// specified max-width). A short label (e.g. "Reload") never reaches the cap,
+// so its true, small width keeps flowing through and the item —  and the
+// menu's own shrink-to-fit around it — hugs it. A long label (e.g. "Push
+// notifications are not configured for this server") gets floored at the
+// cap instead of its full width, which is exactly what un-floors `.wrapper`
+// and lets `.content`'s own ellipsis apply once real width pressure remains.
+// `--m3e-menu-container-min-width` is no longer set at all — the container's
+// shrink-to-fit is genuinely driven by its items again — and only
+// `--m3e-menu-container-max-width` stays, as the ceiling that keeps a long
+// label wrapping into an ellipsis instead of overflowing the viewport;
+// `min(280px, 100vw - 32px)` keeps that ceiling inside the viewport on
+// narrow screens.
+//
+// Measured after: wrapper overhang 0px at 320/390/1280, long label
+// `ellipsized: true`, short labels untouched (`ellipsized: false`), and the
+// menu surface now hugs its shortest/widest item instead of always
+// rendering at a fixed 280px.
+#sb-app-bar-menu {
+  --m3e-menu-container-max-width: min(280px, calc(100vw - 32px));
 
-// Floating vertical toolbar, bottom-right (2026-09-17 vertical-toolbar
-// redesign spec §2.1, leaf V4). Unlike the appbar-large plan above, this
-// leaf's TSX counterpart is already landed on this main —
-// client/components/floating_toolbar.tsx exists and renders
-// `<m3e-toolbar class="sb-floating-toolbar">` — but its own header comment
-// confirms it is "NOT wired into the live app in this leaf" (no caller
-// anywhere in client/, grep-confirmed) — a component landed ahead of its
-// consumer, styles landed here ahead of both. `m3e-toolbar` supplies no
-// positioning of its own, so this placement rule is required once wired, and
-// harmless (unreachable) until then.
-.sb-floating-toolbar {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 30;
+  .sb-app-bar-menu-label {
+    display: block;
+    min-width: 100%;
+    // The cap: shorter than the container's own max-width so a genuinely
+    // long label still has room to hit `text-overflow: ellipsis` before
+    // running into the container ceiling above.
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
-// Nav "Search" destination panel content (same vertical-toolbar/nav-redesign
-// spec, leaf N7 — client/components/nav_views/search.tsx). That file does
-// not exist on this main yet (grep-confirmed) — fully unwired, but the
-// selectors are scoped under `.sb-nav-search-view`, which never matches
-// anything in current markup, so nesting already-used bare class names
-// (`.sb-option`/`.sb-selected-option`/`.sb-hint`, also used elsewhere e.g.
-// modals.scss/colors.scss/nav_list_row.tsx) inside it cannot collide with
-// those other, differently-scoped rules.
-.sb-nav-search-view {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 12px 12px;
-  overflow-y: auto;
-
-  .sb-nav-panel-title {
-    font-weight: 500;
-  }
-
-  .sb-nav-search-result-list {
-    max-height: 320px;
-    overflow-y: scroll;
-  }
-
-  .sb-nav-search-empty {
-    padding: 12px 4px;
-  }
-
-  .sb-option {
-    cursor: pointer;
-  }
-
-  .sb-selected-option {
-    --m3e-list-item-container-shape: 8px;
-  }
-
-  .sb-hint {
-    padding: 3px 5px;
-    border-radius: 5px;
-  }
-}
-
-// m3e-snackbar sizing fix (2026-09-22, Jack, live): unrelated to any of the
-// above specs, and not yet reachable either — no `<m3e-snackbar>` renders
-// anywhere on this main (`Alert` is still plain-div, see components.scss;
-// `flashNotification` still portals the old `.sb-notifications` markup
-// above). Landed as harmless forward scaffolding: `--m3e-snackbar-min-width:
-// 344px` is only the vendor's own unstyled-fallback default
-// (`var(--m3e-snackbar-min-width, 344px)`), not a real M3 minimum — pinning
-// it to 0 lets the box hug its actual content instead of flooring every
-// short message at 344px; `max-width` is kept so long messages still wrap.
-m3e-snackbar {
-  --m3e-snackbar-min-width: 0;
-  --m3e-snackbar-max-width: min(672px, 100% - 48px);
+// #sb-page-scroll: inert until the #sb-main -> m3e-drawer-container +
+// auto-height-editor restructure (main.scss's own deferred note) lands —
+// scrollbar-gutter reservation for the not-yet-existing scroll container,
+// on the brief's allowed inert list.
+#sb-page-scroll {
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
 }
