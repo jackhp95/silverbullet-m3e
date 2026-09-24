@@ -30,6 +30,8 @@ Baseline on `main` @ `cd50bf9f` (captured 2026-09-24): check/unit/lint exit 0; e
 
 **Never end your turn waiting on a background job.** Under Paseo, a background Bash/Monitor completion does NOT wake an agent whose turn has ended — it just sits idle. Run gate steps in the foreground (Bash timeout up to 600000 ms, one step per call; e2e as its own call), or keep working and poll the log yourself. End your turn only to deliver the final report. Monitor/`run_in_background` completion notices and ScheduleWakeup do NOT reach you once idle — 5 of 6 builders in the 2026-09-24 run stalled that way. Canonical wait (one foreground Bash call, timeout 600000, repeat until DONE): `for i in $(seq 1 55); do grep -q DONE /tmp/sbgate/<slice>-summary.log 2>/dev/null && break; sleep 10; done; cat /tmp/sbgate/<slice>-summary.log`
 
+**Never kill processes you didn't start.** Several builders, the orchestrator's landing gates and other repos' test runs share this machine. A global `pkill`/`ps | grep playwright | xargs kill` SIGKILLed a landing gate mid-e2e on 2026-09-24. Kill only PIDs you launched (record `$!`), or ones whose command line/cwd is inside YOUR worktree.
+
 **No AskUserQuestion.** Nobody is watching. If you hit a genuine product/UX decision, implement the most conservative option (preserve main's current behavior), and list the decision with your recommended default in your report.
 
 **Premise check first:** your brief states checkable facts (file lists, what's on main). Verify them before building; if one is wrong, say so explicitly in the report and adapt.
