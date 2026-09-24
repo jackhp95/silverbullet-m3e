@@ -491,13 +491,24 @@ export class MainUI {
     const modalVisible = plugModalMode !== undefined && !navSlots.modal;
     const modalInset = plugModalMode;
     // PanelMode is `number | string` (plug-api/types/client.ts) — a plain
-    // pixel inset or a CSS length string. m3e-dialog has no inset concept,
-    // so the old absolute-positioned div's `inset: ${n}px` becomes an
-    // explicit min/max width/height carved out of the viewport, same
-    // footprint plug authors already size their content for.
-    const modalDialogInset = typeof modalInset === "number"
+    // pixel inset or a CSS length string. m3e-dialog has no inset concept
+    // and (verified against the @m3e/web dialog CEM) no min/max-height
+    // custom property either, only width -- so the old absolute-positioned
+    // div's `inset: ${n}px` (which shrank BOTH axes against the fixed
+    // full-viewport backdrop) becomes: an explicit min/max-width on the
+    // dialog itself (what the library does support), plus an explicit
+    // height set directly on the inner `.sb-modal` div (what it doesn't) so
+    // `.sb-panel`'s `height: 100%` chain has something real to resolve
+    // against — without it the dialog auto-sizes to content, `.sb-modal`
+    // collapses toward zero height, and its content becomes visually
+    // present but unclickable (the dialog's own backdrop intercepts
+    // pointer events at the coordinates a full-size panel would occupy).
+    const modalDialogWidth = typeof modalInset === "number"
       ? `calc(100% - ${modalInset * 2}px)`
       : `calc(100% - 2 * (${modalInset}))`;
+    const modalPanelHeight = typeof modalInset === "number"
+      ? `calc(100dvh - ${modalInset * 2}px)`
+      : `calc(100dvh - 2 * (${modalInset}))`;
 
     const bhsVisible = viewState.panels.bhs.mode !== undefined;
     const plugBhsMode = viewState.panels.bhs.mode;
@@ -731,12 +742,15 @@ export class MainUI {
             open
             dismissible
             style={{
-              "--m3e-dialog-min-width": modalDialogInset,
-              "--m3e-dialog-max-width": modalDialogInset,
+              "--m3e-dialog-min-width": modalDialogWidth,
+              "--m3e-dialog-max-width": modalDialogWidth,
             }}
             onclosed={() => dispatch({ type: "hide-panel", id: "modal" })}
           >
-            <div className="sb-modal">
+            <div
+              className="sb-modal"
+              style={{ position: "relative", height: modalPanelHeight }}
+            >
               <Panel
                 config={viewState.panels.modal}
                 editor={client}
