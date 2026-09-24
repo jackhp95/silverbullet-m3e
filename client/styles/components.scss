@@ -14,22 +14,11 @@ textarea,
   font-family: var(--ui-font);
 }
 
-// Button base. Two different elements share these class names now:
-// - `<a class="sb-button[-primary]">` (ButtonLink, plug-api/ui/button.tsx) —
-//   plain navigation links dressed up as buttons, styled the old way below.
-//   (Currently only ever rendered with variant="icon" — see .sb-button-icon
-//   below, untouched — but kept generic since ButtonLink's other variants
-//   are real API surface.)
-// - `<m3e-button class="sb-button[-primary|-danger]">` (Button,
-//   plug-api/ui/button.tsx — confirmed live, Button already renders
-//   `<m3e-button>`) — its own Shadow DOM already paints the full box (fill,
-//   border, padding, elevation, hover/focus/pressed state layers) per the
-//   `variant` attribute, so the box-model below would double-paint a second,
-//   conflicting box behind it. `:not(m3e-button)` keeps this block scoped to
-//   the `<a>` case; the `m3e-button` case instead gets `--m3e-*-button-*`
-//   custom-property overrides, the sanctioned per-instance override point
-//   (see the m3e skill's button card and modals.scss's `.sb-button-error`,
-//   same technique).
+// `.sb-button[-primary]` is shared by plain `<a>` ButtonLinks (styled below)
+// and `<m3e-button>` (which paints its own box via shadow DOM and would
+// double-paint if this box-model applied). `:not(m3e-button)` scopes this
+// block to the `<a>` case; m3e-button gets `--m3e-*-button-*` overrides
+// instead (see modals.scss's `.sb-button-error`).
 .sb-button:not(m3e-button),
 .sb-button-primary:not(m3e-button) {
   --color: var(--button-color);
@@ -65,19 +54,11 @@ textarea,
   }
 }
 
-// `<m3e-button variant="filled" class="sb-button-primary">` (Button's
-// "primary" variant, confirmed live) — recolor via the sanctioned
-// --m3e-filled-button-* override point instead of the box-model above.
 .sb-button-primary {
   --m3e-filled-button-container-color: var(--primary-button-background-color);
   --m3e-filled-button-label-text-color: var(--primary-button-color);
 }
 
-// `<m3e-button variant="filled" class="sb-button-danger">` (Button's
-// "danger" variant — confirmed live: UsersView/AuthenticationView/
-// SpaceForm/GitSyncPage all call `<Button variant="danger">`). Same
-// override point as .sb-button-primary above and modals.scss's
-// `.sb-button-error` sibling (identical technique, different call site).
 .sb-button-danger {
   --m3e-filled-button-container-color: var(--danger-color);
   --m3e-filled-button-label-text-color: var(--danger-contrast-color);
@@ -151,9 +132,8 @@ textarea,
   cursor: pointer;
 }
 
-// plug-api/ui's Checkbox: confirmed live (checkbox.tsx already renders
-// `<m3e-checkbox class="m3e-checkbox">`). Let the component size itself via
-// its own --m3e-checkbox-* tokens; only lay it out inline with its label.
+// Let m3e-checkbox size itself via its own tokens; only lay it out inline
+// with its label.
 .m3e-checkbox {
   vertical-align: middle;
 }
@@ -210,10 +190,8 @@ textarea,
   border-color: var(--alert-info-border-color);
 }
 
-// Badge already renders `<m3e-chip class="sb-badge">` (confirmed live,
-// plug-api/ui/badge.tsx) — m3e-chip paints its own label via shadow DOM, so
-// the old <span>-era box-model is replaced with the chip's sanctioned
-// per-instance token overrides.
+// m3e-chip paints its own label via shadow DOM; use its per-instance token
+// overrides instead of a box-model.
 .sb-badge {
   flex-shrink: 0;
   --m3e-chip-container-height: 18px;
@@ -226,12 +204,6 @@ textarea,
   background-color: var(--badge-background-color);
   border-radius: 4px;
 }
-
-// DEAD: Progress already renders `<m3e-linear-progress-indicator
-// class="sb-progress">` (confirmed live, plug-api/ui/progress.tsx), not the
-// old <div class="sb-progress"><div class="sb-progress-bar"> pair — the
-// component paints itself entirely (no override needed, fork ships none
-// either); box-model rules deleted rather than double-painting behind it.
 
 /* Subtle and inherits the button's text color. */
 .sb-kbd {

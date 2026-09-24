@@ -1,16 +1,3 @@
-// Reconciliation note (slice-6-styles, 2026-09-24): the old `.sb-modal-box`
-// wrapper (margin-top/width/border-radius/backdrop/600px media query) is
-// DEAD — basic_modals.tsx's `AlwaysShownModal` (and filter.tsx, which now
-// renders through it too) wraps everything in a bare `<m3e-dialog>` with no
-// `.sb-modal-box` class (verified: client/components/basic_modals.tsx's
-// `AlwaysShownModal` sets no `class` on the dialog at all). `m3e-dialog`
-// owns its own sizing/elevation/corner-shape chrome, so that outer block is
-// dropped rather than ported. The CHILD selectors below (`.sb-header`,
-// `.sb-help-text`, `.sb-result-list`, `.sb-option`, `.sb-hint`, …) are still
-// live — filter.tsx renders every one of those classes — but they used to
-// be scoped under `.sb-modal-box`, which no longer exists in the DOM, so
-// they're promoted to top-level selectors here (pure de-nesting, no TSX
-// change: the classes themselves didn't move).
 .sb-header {
   padding: 13px 10px 10px 10px;
   display: flex;
@@ -67,21 +54,11 @@
   padding-right: 5px;
   padding-top: 3px;
   padding-bottom: 3px;
-  // main changed 5px -> 4px; fork == base here, so main's value wins.
   border-radius: 4px;
 }
 
-// Confirm()'s destructive action: recolor a `filled` m3e-button to the
-// Material error role. Real gap, not forward-looking scaffolding: main's
-// own client/spaces_ui/components/ConfirmDialog.tsx (a separate Confirm()
-// for the spaces_ui bundle) and basic_modals.tsx's Confirm() both already
-// reference `class={destructive ? "sb-button-error" : undefined}` on a
-// `variant="filled"` m3e-button, but no rule defined it until now. No
-// dedicated "danger"/"destructive" variant exists on m3e-button (@m3e/web's
-// Custom Elements Manifest: ButtonVariant is elevated | filled | tonal |
-// outlined | text only); `--m3e-*-button-*` custom properties are the
-// sanctioned per-instance override point, and `--md-sys-color-error`/
-// `-on-error` are real generated tokens.
+// m3e-button has no built-in destructive variant; this fills that gap for
+// Confirm()'s destructive action via --md-sys-color-error tokens.
 .sb-button-error {
   --m3e-filled-button-container-color: var(--md-sys-color-error);
   --m3e-filled-button-label-text-color: var(--md-sys-color-on-error);

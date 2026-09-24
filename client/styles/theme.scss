@@ -2,18 +2,6 @@
 
 @use "tokens";
 
-// Re-audited 2026-09-22 (m3e/tailwind reduction pass), not just re-stated:
-// the bulk of this file IS a genuine token-definition site (`--*-color`
-// custom-property generation across light/dark `html[data-theme]`), and that
-// part is correctly irreducible — no tailwind utility or <m3e-*> component
-// replaces a token *definition* site. But the file was NOT audited
-// block-by-block before this pass: it also carried 16 dead custom-property
-// pairs (32 lines, zero consumers anywhere in client/plugs — deleted), one
-// redundant --ui-accent-color redeclaration (deleted, see dark block), 4x
-// duplicated admonition width/display logic (collapsed to one shared
-// selector list below), and one smuggled var-free layout rule
-// (html[data-markdown-syntax-rendering="on"]'s .sb-lua-directive-block
-// margin-top, left in place — see its own comment for why).
 html {
   --ui-accent-text-color: var(--ui-accent-color);
   --text-field-focus-color: color-mix(in srgb, var(--ui-accent-color) 45%, var(--ui-surface-border-color));
@@ -163,15 +151,10 @@ html {
   --editor-panels-bottom-button-active-background-image: linear-gradient(#b4b4b4,
       #d0d3d6);
 
-  // main changed -> "iA-Mono" (fork==base sans-stack); main's value wins.
   --ui-font: "iA-Mono", "Menlo", monospace;
-  // --chrome-font: fork addition, real gap-filler — separate from --ui-font
-  // so chrome that isn't editor-adjacent (dialog buttons, settings screens)
-  // doesn't flip fonts. Defaults to --ui-font.
+  // Separate from --ui-font so non-editor chrome (dialogs, settings) can
+  // flip fonts independently; defaults to --ui-font.
   --chrome-font: var(--ui-font);
-  // fork's addition: Monaspace Neon (self-hosted client/fonts/
-  // MonaspaceNeon-*.woff2, already shipped in main.scss's @font-face rules),
-  // old iA-Mono/Menlo stack kept as fallback.
   --editor-font: "Monaspace Neon", "iA-Mono", "Menlo";
   --editor-width: 800px;
 
@@ -198,9 +181,6 @@ html[data-theme="light"] {
 @mixin dark-theme {
   color-scheme: dark;
 
-  // main deliberately overrides the dark-mode accent (fork's claim that this
-  // is byte-identical to the light #464cfc default doesn't hold for main:
-  // main's dark value is a distinct #79a9f2/#13243e) — kept.
   --ui-accent-color: #79a9f2;
   --ui-accent-contrast-color: #13243e;
   --ui-accent-text-color: var(--ui-accent-color);
@@ -376,11 +356,6 @@ html[data-theme="dark"] {
     @include dark-theme;
   }
 }
-
-// DEAD: html[data-read-only="on"] font swap — no TSX anywhere sets
-// document.documentElement.dataset.readOnly (grep-verified across client/);
-// dropped rather than kept as inert scaffolding (not on the brief's inert
-// allow-list).
 
 html[data-markdown-syntax-rendering="on"] {
   --editor-meta-color: unset;

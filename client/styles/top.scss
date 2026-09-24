@@ -7,10 +7,8 @@
 
   height: 55px;
 
-  // iOS 27 paints a progressive blur over the top ~35px of a home-screen web app's content, which smears the page title and the action icons. 
-  // selector(:heading) shipped in Safari 27 and is the closest available proxy for "this WebKit draws the band", the
-  // `-webkit-touch-callout` half pins it to iOS. The blur fades out, so 20px is
-  // enough to put every glyph row at full contrast; clearing all 35px buys nothing.
+  // iOS 27 blurs the top ~35px of a home-screen web app; 20px of padding is
+  // enough to clear the smear without wasting the rest of the band.
   @media (display-mode: standalone) {
     @supports (-webkit-touch-callout: none) and selector(:heading) {
       padding-top: 20px;
@@ -24,10 +22,8 @@
     overflow: hidden;
     scrollbar-gutter: stable;
 
-    // Orchestrator addendum (2026-09-24, core-shell decomposition plan
-    // §3.2): inert until the core-shell #sb-top -> m3e-app-bar restructure
-    // lands (top_bar.tsx doesn't render `m3e-app-bar` yet) — matches the
-    // horizontal padding the current `.wrapper { padding: 0 20px }` gives.
+    // Inert until top_bar.tsx renders m3e-app-bar; matches the current
+    // `.wrapper { padding: 0 20px }`.
     --m3e-app-bar-padding-left: 20px;
     --m3e-app-bar-padding-right: 20px;
 
@@ -103,10 +99,7 @@
     padding: 4px;
     background-color: var(--top-background-color);
 
-    // Orchestrator addendum (2026-09-24, core-shell decomposition plan
-    // §3.2): inert until top_bar.tsx's sync/index spinner swaps its plain
-    // .progress-bar/.progress-ring/.progress-hole divs (kept live below)
-    // for `<m3e-circular-progress-indicator>`.
+    // Inert until top_bar.tsx's spinner swaps its plain divs for this.
     m3e-circular-progress-indicator {
       --m3e-circular-flat-progress-indicator-diameter: 24px;
       --m3e-circular-progress-indicator-thickness: 3px;
@@ -295,22 +288,6 @@
     }
   }
 }
-// Reconciliation note (slice-6-styles, 2026-09-24): fork tip 4cfc3763
-// rewrote most of this file around an m3e-app-bar/m3e-toolbar/nav-bar
-// restructure (#sb-top .main -> m3e-app-bar, hamburger/bottom-bar menu ->
-// m3e-toolbar + nav_views/search.tsx, .sb-notifications -> m3e-snackbar,
-// div progress ring -> m3e-circular-progress-indicator) that pairs with
-// TSX/TS changes not landed on this worktree's main — confirmed via
-// `grep -rn` across client/: top_bar.tsx still renders the plain
-// .inner/.wrapper/#sb-current-page bar, .sb-actions.hamburger/.bottom-bar,
-// .progress-bar/.progress-ring/.progress-hole divs, and the .sb-notifications
-// portal div; nav_views/search.tsx doesn't exist (permanently dead per the
-// epic's standing decision). Deferred wholesale, matching main.scss's own
-// precedent for the same restructure — kept main's blocks unchanged; landed
-// only fork's genuinely new, non-overlapping, inert additions below
-// (frontmatter raw-YAML card + app-bar kebab-menu ellipsis fix — both
-// target elements front_matter_panel.tsx/#sb-app-bar-menu don't render yet).
-
 .sb-fm-panel {
   margin: 20px;
   border: 1px solid var(--md-sys-color-outline-variant);
@@ -380,67 +357,13 @@
   line-height: 1.5;
 }
 
-// ---------------------------------------------------------------------------
-// App-bar kebab menu (#sb-app-bar-menu, client/components/top_bar.tsx)
-//
-// Fixes a genuine clipping bug, root-caused by live measurement at 390px
-// (the "Push notifications are not configured for this server" item):
-//
-//   item host        left  79  right 351  width 272
-//   shadow .wrapper  left  79  right 475  width 396   <- 124px outside its item
-//   shadow .content  left 119  right 463  width 344   ellipsized: FALSE
-//   viewport width 390 -> the label ran 73px past the screen edge and was
-//   hard-clipped by the menu's own `contain: content` .base. No ellipsis.
-//
-// Why the component's own ellipsis never fired: m3e-menu-item's shadow
-// `.content` does declare `overflow: hidden; text-overflow: ellipsis;
-// white-space: nowrap`, but it sits inside `.wrapper { flex: 1 1 auto }`,
-// which has no `min-width: 0`. `overflow: hidden` zeroes a flex item's own
-// automatic minimum size, yet it does NOT zero the min-content *contribution*
-// that item makes to its container's intrinsic size. So `.wrapper`'s
-// `min-width: auto` floored at the full nowrap text width (344px + 52px of
-// icon/gap/padding = 396px), `.wrapper` could not shrink into its 272px item,
-// `.content` was therefore never squeezed, and an ellipsis that is only ever
-// applied under shrink pressure never applied. This is an upstream @m3e/web
-// bug (v2.7.3): `.wrapper` is missing `min-width: 0`. It is not reachable
-// from here — m3e-menu-item exports no `part` and no width custom property
-// (grepped against the sourcemapped MenuItemElement.ts / MenuItemElementBase
-// .ts) — so the fix has to work entirely through the one thing the light DOM
-// owns: the slotted label element.
-//
-// `max-width: 0` was the ORIGINAL fix here, and it did stop the clip — but it
-// came with a real cost (flagged live 2026-09-21): with no item contributing
-// *any* intrinsic width, the menu's own shrink-to-fit had nothing to shrink
-// to, so it collapsed to the 112px `--m3e-menu-container-min-width` default,
-// and pinning min-width to the same fixed value as max-width was the
-// original fix for that — at the price of every kebab menu rendering at a
-// flat 280px, no matter how short its items were.
-//
-// The actual fix: cap the label at a fixed ceiling instead of zeroing it.
-// `.wrapper`'s floor is the label's own min-content size — for `white-space:
-// nowrap` text that's its full, unclamped width — but capping the label's
-// `max-width` to a fixed value also caps what it contributes to that floor
-// (per the flexbox spec, an item's automatic minimum is clamped by its own
-// specified max-width). A short label (e.g. "Reload") never reaches the cap,
-// so its true, small width keeps flowing through and the item —  and the
-// menu's own shrink-to-fit around it — hugs it. A long label (e.g. "Push
-// notifications are not configured for this server") gets floored at the
-// cap instead of its full width, which is exactly what un-floors `.wrapper`
-// and lets `.content`'s own ellipsis apply once real width pressure remains.
-// `--m3e-menu-container-min-width` is no longer set at all — the container's
-// shrink-to-fit is genuinely driven by its items again — and only
-// `--m3e-menu-container-max-width` stays, as the ceiling that keeps a long
-// label wrapping into an ellipsis instead of overflowing the viewport;
-// `min(280px, 100vw - 32px)` keeps that ceiling inside the viewport on
-// narrow screens.
-//
-// Measured after: wrapper overhang 0px at 320/390/1280, long label
-// `ellipsized: true`, short labels untouched (`ellipsized: false`), and the
-// menu surface now hugs its shortest/widest item instead of always
-// rendering at a fixed 280px.
-// Orchestrator addendum (2026-09-24, core-shell decomposition plan §3.2):
-// inert until the pre-nav-bar floating-toolbar shell lands (no
-// `.sb-floating-toolbar` consumer on main yet).
+// App-bar kebab menu (#sb-app-bar-menu): m3e-menu-item's shadow `.wrapper`
+// is missing `min-width: 0` (upstream @m3e/web v2.7.3 bug), so a long label
+// floors the menu's width instead of shrinking into it and its own
+// ellipsis never fires. Capping the label's own max-width (rather than
+// zeroing it) caps what it contributes to that floor, letting short labels
+// stay tight and long ones ellipsize. Inert until the floating-toolbar
+// shell lands (no `.sb-floating-toolbar` consumer on main yet).
 .sb-floating-toolbar {
   position: fixed;
   right: 24px;
@@ -464,6 +387,3 @@
   }
 }
 
-// Orchestrator addendum (2026-09-24, core-shell decomposition plan §3.2):
-// #sb-page-scroll is dead — dropped (was landed here inertly, now removed
-// per explicit instruction not to land anything scoped to it).
