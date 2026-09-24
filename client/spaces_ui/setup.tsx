@@ -8,11 +8,15 @@ import { render } from "preact";
 // `Alert` (via space_fields.tsx's `FieldErrors`, also reachable from both
 // steps) needs no registration either way right now: its own swap is
 // DEFERRED (see plug-api/ui/alert.tsx's file header), so `FieldErrors` still
-// renders a plain `<div>`. space_fields.tsx's own pre-staged
-// `@m3e/web/snackbar` self-import is consequently unused until that swap
-// lands — left alone since space_fields.tsx isn't one of this slice's files.
+// renders a plain `<div>`; when that swap lands, `@m3e/web/snackbar` is
+// registered here, not in space_fields.tsx (SpaceForm.test.ts loads it).
 import "@m3e/web/button";
 import "@m3e/web/form-field";
+// SpaceStep.tsx's FolderPicker renders `m3e-breadcrumb`/`m3e-list`/
+// `m3e-list-action` directly — registered here rather than in
+// FolderPicker.tsx, which SpaceForm.test.ts loads under plain-Node vitest.
+import "@m3e/web/list";
+import "@m3e/web/breadcrumb";
 import { AuthHeader } from "./components/AuthHeader.tsx";
 import { Wizard } from "./components/Wizard.tsx";
 

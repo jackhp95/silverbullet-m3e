@@ -30,6 +30,17 @@ import { useNavigate } from "../navigation.ts";
 import { SaveConfirmation, useNotification } from "../notifications.tsx";
 import { spacesUrl } from "../routes.ts";
 import type { AuthenticationStatus, UserInfo } from "../types.ts";
+import "../m3e-jsx.d.ts";
+import { Confirm } from "./ConfirmDialog.tsx";
+
+/** A confirmation staged from a click handler and resolved by the user's
+ * answer to the `m3e-dialog`-backed Confirm() — see UserDetail's
+ * `pendingConfirm`. */
+type PendingConfirm = {
+  message: string;
+  destructive: boolean;
+  onConfirm: () => void;
+};
 
 export function suggestUsernameFromEmail(email: string): string {
   const parts = email.trim().split("@");
@@ -312,6 +323,11 @@ export function UserDetail({
   const [email, setEmail] = useState("");
   const notify = useNotification("users");
   const [busy, setBusy] = useState(false);
+  // Replaces the blocking `window.confirm()` calls this screen used to make
+  // (remove own admin, revoke token, sign out everywhere, delete user).
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(
+    null,
+  );
   const sections = {
     profile: "Profile",
     account: "Account & access",
@@ -460,20 +476,24 @@ export function UserDetail({
                   checked={user.admin}
                   onChange={(event) => {
                     const admin = event.currentTarget.checked;
-                    if (
-                      isSelf &&
-                      !admin &&
-                      !confirm(
-                        `Remove admin rights from your own account "${username}"? Your session will lose admin access immediately.`,
-                      )
-                    ) {
+                    if (isSelf && !admin) {
+                      // Keep showing the current role until the dialog is
+                      // answered; Ok applies it, Cancel leaves it alone.
                       event.currentTarget.checked = true;
+                      setPendingConfirm({
+                        message: `Remove admin rights from your own account "${username}"? Your session will lose admin access immediately.`,
+                        destructive: false,
+                        onConfirm: () =>
+                          void run(async () => {
+                            await setUserAdmin(username, false);
+                            location.assign("/");
+                          }, "Account role updated."),
+                      });
                       return;
                     }
                     void run(async () => {
                       await setUserAdmin(username, admin);
-                      if (isSelf && !admin) location.assign("/");
-                      else await reload();
+                      await reload();
                     }, "Account role updated.");
                   }}
                 />{" "}
@@ -548,36 +568,36 @@ export function UserDetail({
             <section hidden={section !== "tokens"}>
               {tokenNames.length === 0 && <p>No tokens.</p>}
               {tokenNames.length > 0 && (
-                <ul class="sb-token-list">
+                <m3e-list class="sb-token-list">
                   {tokenNames.map((name) => (
-                    <li key={name}>
-                      <strong>{name}</strong>
-                      <span>
+                    <m3e-list-item key={name}>
+                      {name}
+                      <span slot="supporting-text">
                         created{" "}
                         {localDateString(new Date(user.tokens[name].createdAt))
                           .slice(0, 19)
                           .replace("T", " ")}
                       </span>
                       <Button
-                        onClick={() => {
-                          if (
-                            !confirm(
-                              `Revoke token "${name}" for "${username}"?`,
-                            )
-                          ) {
-                            return;
-                          }
-                          void run(async () => {
-                            await deleteToken(username, name);
-                            await reload();
-                          }, "API token revoked.");
-                        }}
+                        slot="trailing"
+                        aria-label={`Revoke token ${name}`}
+                        onClick={() =>
+                          setPendingConfirm({
+                            message: `Revoke token "${name}" for "${username}"?`,
+                            destructive: true,
+                            onConfirm: () =>
+                              void run(async () => {
+                                await deleteToken(username, name);
+                                await reload();
+                              }, "API token revoked."),
+                          })
+                        }
                       >
                         Revoke
                       </Button>
-                    </li>
+                    </m3e-list-item>
                   ))}
-                </ul>
+                </m3e-list>
               )}
               <div class="row">
                 <Input
@@ -624,12 +644,16 @@ export function UserDetail({
                   const message = isSelf
                     ? `Sign out everywhere for your own account "${username}"? You will be logged out immediately.`
                     : `Sign out every browser session and connected app for "${username}"?`;
-                  if (!confirm(message)) return;
-                  void run(async () => {
-                    await signOutEverywhere(username);
-                    if (isSelf) location.assign("/");
-                    else await reload();
-                  }, "All sessions signed out.");
+                  setPendingConfirm({
+                    message,
+                    destructive: true,
+                    onConfirm: () =>
+                      void run(async () => {
+                        await signOutEverywhere(username);
+                        if (isSelf) location.assign("/");
+                        else await reload();
+                      }, "All sessions signed out."),
+                  });
                 }}
               >
                 Sign out everywhere
@@ -642,14 +666,18 @@ export function UserDetail({
                   const message = isSelf
                     ? `Delete your own account "${username}"? You will be logged out immediately.`
                     : `Delete user "${username}"?`;
-                  if (!confirm(message)) return;
-                  void run(async () => {
-                    await deleteUser(username);
-                    if (!isSelf) notify("User deleted.");
-                    // Deleting your own account ends the session, so that one has
-                    // to be a real navigation out of the app.
-                    if (isSelf) location.assign("/");
-                    else navigate(spacesUrl("/users"));
+                  setPendingConfirm({
+                    message,
+                    destructive: true,
+                    onConfirm: () =>
+                      void run(async () => {
+                        await deleteUser(username);
+                        if (!isSelf) notify("User deleted.");
+                        // Deleting your own account ends the session, so that
+                        // one has to be a real navigation out of the app.
+                        if (isSelf) location.assign("/");
+                        else navigate(spacesUrl("/users"));
+                      }),
                   });
                 }}
               >
@@ -659,6 +687,18 @@ export function UserDetail({
           </fieldset>
         </div>
       </div>
+      {/* Outside the fieldset: its `disabled={busy}` would otherwise disable
+          the dialog's form-associated m3e-buttons too. */}
+      {pendingConfirm && (
+        <Confirm
+          message={pendingConfirm.message}
+          destructive={pendingConfirm.destructive}
+          callback={(ok) => {
+            setPendingConfirm(null);
+            if (ok) pendingConfirm.onConfirm();
+          }}
+        />
+      )}
     </main>
   );
 }

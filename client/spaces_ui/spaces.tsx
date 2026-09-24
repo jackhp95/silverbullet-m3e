@@ -16,6 +16,16 @@ import "@m3e/web/button";
 import "@m3e/web/form-field";
 import "@m3e/web/checkbox";
 import "@m3e/web/chips";
+// Elements this bundle's components render directly rather than through the
+// kit: `m3e-dialog`/`m3e-dialog-action` (components/ConfirmDialog.tsx, the
+// staged destructive-action confirm used by SpaceForm.tsx and UsersView.tsx),
+// `m3e-list`/`m3e-list-item`/`m3e-list-action` (UsersView.tsx's API-token
+// list, FolderPicker.tsx's subdirectory rows) and `m3e-breadcrumb` (the
+// FolderPicker browse trail). Registered here, not in those files, because
+// SpaceForm.tsx/UsersView.tsx are loaded by plain-Node vitest tests.
+import "@m3e/web/dialog";
+import "@m3e/web/list";
+import "@m3e/web/breadcrumb";
 import { App } from "./components/App.tsx";
 
 import { NotificationProvider } from "./notifications.tsx";

@@ -1,16 +1,11 @@
 import { Fragment } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { Input } from "@silverbulletmd/silverbullet/ui";
-// `Input` renders `m3e-form-field` — see plug-api/ui/input.tsx's doc comment.
-import "@m3e/web/form-field";
 // The browse panel's breadcrumb trail and subdirectory list render
-// `m3e-breadcrumb`/`m3e-list` directly (not through the shared kit — neither
-// has a plug-api/ui wrapper), so this file self-imports their side effects,
-// matching the fork's established per-consumer convention (see
-// plug-api/ui/button.tsx's doc comment on why these live at the DOM-side
-// consumer rather than a shared barrel).
-import "@m3e/web/breadcrumb";
-import "@m3e/web/list";
+// `m3e-breadcrumb`/`m3e-list` directly (neither has a plug-api/ui wrapper).
+// Their custom elements — and `m3e-form-field` for `Input` — are registered
+// once by this file's browser entry points (spaces.tsx, setup.tsx), never
+// here: SpaceForm.test.ts loads this module under plain-Node vitest.
 import "./m3e-jsx.d.ts";
 
 /**
