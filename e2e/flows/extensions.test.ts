@@ -1,5 +1,6 @@
 import {
   currentPage,
+  isUpgraded,
   navFrame,
   navInput,
   runCommandViaPalette,
@@ -112,6 +113,14 @@ test.describe("configuration extension", () => {
     );
     await runCommandViaPalette(sbPage, "Configuration: Open");
 
+    // CS-3: the plug modal's chrome is now a real <m3e-dialog> (was a
+    // hand-rolled .sb-modal-backdrop/.sb-modal pair) -- the plug content
+    // itself still lives in the inner .sb-modal iframe below, unchanged.
+    await expect(
+      sbPage.locator("m3e-dialog[open] .sb-modal iframe"),
+    ).toBeVisible();
+    expect(await isUpgraded(sbPage, "m3e-dialog")).toBe(true);
+
     // plug-api/ui/tabs.tsx's tablist mode now renders <m3e-tabs>/<m3e-tab>
     // (reconcile slice-plugui, fork 664a4d53). m3e-tab DOES set an
     // accessible role of "tab" (verified: TabElement extends
@@ -149,5 +158,29 @@ test.describe("configuration extension", () => {
         (globalThis as any).client.editorView.state.doc.toString(),
       ),
     ).toBe(before);
+  });
+
+  test("plug modal (m3e-dialog) closes on Escape and can reopen", async ({
+    sbPage,
+  }) => {
+    await runCommandViaPalette(sbPage, "Configuration: Open");
+    await expect(
+      sbPage.locator("m3e-dialog[open] .sb-modal iframe"),
+    ).toBeVisible();
+
+    // Escape closes it (m3e-dialog's own dismissible handling, routed back
+    // to `hide-panel` via onclosed -- see editor_ui.tsx's comment). Pressed
+    // before anything shifts keyboard focus into the plug's iframe (its own
+    // document), which native <dialog> Escape handling can't see.
+    await sbPage.keyboard.press("Escape");
+    await expect(sbPage.locator("m3e-dialog[open]")).toHaveCount(0);
+    await expect(sbPage.locator(".sb-modal")).toBeHidden();
+
+    // Reopening works -- state was actually cleared, not just visually
+    // hidden.
+    await runCommandViaPalette(sbPage, "Configuration: Open");
+    await expect(
+      sbPage.locator("m3e-dialog[open] .sb-modal iframe"),
+    ).toBeVisible();
   });
 });

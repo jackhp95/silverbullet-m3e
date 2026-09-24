@@ -45,6 +45,14 @@ import "@m3e/web/theme";
 import "@m3e/web/card";
 import "@m3e/web/app-bar";
 import "@m3e/web/icon";
+// m3e-dialog / m3e-dialog-action: CS-3's plug-modal wrapper below (the
+// `showPanel("modal", ...)` slot). Already registered transitively via
+// client/components/basic_modals.tsx's own `@m3e/web/dialog` self-import
+// (that file has no `.test.ts` sibling and isn't reachable from plug
+// FUNCTION code, so it's allowed to self-register) -- this explicit import
+// is the centralized-registration convention this file follows for every
+// other `<m3e-*>` tag it renders directly.
+import "@m3e/web/dialog";
 import { getNameFromPath } from "@silverbulletmd/silverbullet/lib/ref";
 import type {
   FilterOption,
@@ -482,6 +490,14 @@ export class MainUI {
     }, [navSlots.modal, plugModalMode]);
     const modalVisible = plugModalMode !== undefined && !navSlots.modal;
     const modalInset = plugModalMode;
+    // PanelMode is `number | string` (plug-api/types/client.ts) — a plain
+    // pixel inset or a CSS length string. m3e-dialog has no inset concept,
+    // so the old absolute-positioned div's `inset: ${n}px` becomes an
+    // explicit min/max width/height carved out of the viewport, same
+    // footprint plug authors already size their content for.
+    const modalDialogInset = typeof modalInset === "number"
+      ? `calc(100% - ${modalInset * 2}px)`
+      : `calc(100% - 2 * (${modalInset}))`;
 
     const bhsVisible = viewState.panels.bhs.mode !== undefined;
     const plugBhsMode = viewState.panels.bhs.mode;
@@ -702,23 +718,32 @@ export class MainUI {
         <NavigatorModal state={navSlots.modal} client={client} />
         <RevisionPreviewModal />
         {modalVisible && (
-          <div className="sb-modal-backdrop">
-            <div
-              className="sb-modal"
-              style={{
-                inset:
-                  typeof modalInset === "number"
-                    ? `${modalInset}px`
-                    : modalInset,
-              }}
-            >
+          // m3e-dialog replaces the hand-rolled .sb-modal-backdrop pair (see
+          // basic_modals.tsx's AlwaysShownModal for the identical pattern —
+          // onclosed must stay all-lowercase, see m3e-jsx.d.ts's comment on
+          // M3eDialogAttributes). `dismissible` (not `disable-close`) so
+          // backdrop click / Escape / the close icon all route through one
+          // "closed" event -> exactly one `hide-panel` dispatch. The inner
+          // `.sb-modal` div is kept (not folded into m3e-dialog's own
+          // content) purely so `e2e/flows/extensions.test.ts`'s
+          // `.sb-modal iframe` locator keeps matching plug content.
+          <m3e-dialog
+            open
+            dismissible
+            style={{
+              "--m3e-dialog-min-width": modalDialogInset,
+              "--m3e-dialog-max-width": modalDialogInset,
+            }}
+            onclosed={() => dispatch({ type: "hide-panel", id: "modal" })}
+          >
+            <div className="sb-modal">
               <Panel
                 config={viewState.panels.modal}
                 editor={client}
                 slot="modal"
               />
             </div>
-          </div>
+          </m3e-dialog>
         )}
         {navSlots.bhs ? (
           <div className="sb-bhs" style={{ flex: navSlots.bhs.mode }}>
