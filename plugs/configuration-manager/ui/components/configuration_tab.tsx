@@ -139,7 +139,11 @@ export function ConfigurationTab() {
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (document.activeElement?.getAttribute("role") !== "tab") {
+    // `<m3e-tab>` sets selection state via ElementInternals, not a `role`
+    // attribute (verified: no `role` attribute set in @m3e/web's tabs.js),
+    // so gate on tag name instead of the old plain-button `role="tab"` check
+    // — this avoids stealing focus from a tab the user just switched to.
+    if (document.activeElement?.tagName?.toLowerCase() !== "m3e-tab") {
       inputRef.current?.focus();
     }
   }, []);

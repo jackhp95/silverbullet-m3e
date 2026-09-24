@@ -90,10 +90,24 @@ test("Tabs marks the active tab and wires per-item onSelect", () => {
     { label: "B", active: true, onSelect: () => (picked = "b") },
   ];
   const html = render(h(Tabs, { items }));
+  expect(html).toContain("<m3e-tabs");
   expect(html).toContain("sb-tab sb-active");
-  expect(html).toContain('aria-selected="true"');
+  expect(html).toContain("selected");
+  // each tab carries its own handler
   items[0].onSelect();
   expect(picked).toBe("a");
+});
+
+test("Tabs with href items renders plain nav anchors, not m3e-tab", () => {
+  const items = [
+    { label: "A", href: "#a", active: true },
+    { label: "B", href: "#b", active: false, dirty: true },
+  ];
+  const html = render(h(Tabs, { items }));
+  expect(html).toContain('role="navigation"');
+  expect(html).not.toContain("<m3e-tab");
+  expect(html).toContain('href="#a"');
+  expect(html).toContain("data-dirty");
 });
 
 test("Alert variant class", () => {

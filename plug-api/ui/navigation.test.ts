@@ -57,11 +57,17 @@ test("field connects its existing input to its label and validation feedback", (
   expect(html).toContain('value="invalid"');
 });
 
-test("an enabled tab remains a keyboard entry point when the first tab is disabled", () => {
+test("a disabled tab is marked disabled without disabling its enabled sibling", () => {
+  // Pure onSelect/tablist mode renders <m3e-tabs>/<m3e-tab> (plug-api/ui/
+  // tabs.tsx) -- roving tabindex/keyboard-skip-disabled is @m3e/web's own
+  // runtime behavior (ListKeyManager), not something this component's SSR
+  // string output can assert; what this component IS responsible for is
+  // forwarding `disabled` to the right tab.
   const html = render(
     h(Tabs, {
       items: [{ label: "Unavailable", disabled: true }, { label: "General" }],
     }),
   );
-  expect(html).toMatch(/tabindex="0"[^>]*>General<\/button>/);
+  expect(html).toMatch(/<m3e-tab disabled[^>]*>Unavailable<\/m3e-tab>/);
+  expect(html).toMatch(/<m3e-tab class="sb-tab">General<\/m3e-tab>/);
 });

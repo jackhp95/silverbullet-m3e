@@ -112,22 +112,30 @@ test.describe("configuration extension", () => {
     );
     await runCommandViaPalette(sbPage, "Configuration: Open");
 
+    // plug-api/ui/tabs.tsx's tablist mode now renders <m3e-tabs>/<m3e-tab>
+    // (reconcile slice-plugui, fork 664a4d53) — @m3e/web's m3e-tab sets no
+    // ARIA role of its own (verified against node_modules/@m3e/web/dist/
+    // tabs.js: only the internal `.header` shadow div gets role="tablist",
+    // individual tabs get none), so `getByRole("tab", ...)`/`aria-selected`
+    // no longer resolve. Query the element directly and read its `selected`
+    // IDL property instead; arrow-key roving focus and Home/End still work
+    // via @m3e/web's shared ListKeyManager (core-a11y), independent of role.
     const frame = sbPage.frameLocator(".sb-modal iframe");
-    const configuration = frame.getByRole("tab", {
-      name: "Configuration",
-      exact: true,
+    const configuration = frame.locator("m3e-tab", {
+      hasText: "Configuration",
     });
     await expect(configuration).toBeVisible();
-    await configuration.focus();
+    await configuration.evaluate((el) => (el as HTMLElement).focus());
     await sbPage.keyboard.press("ArrowRight");
-    const shortcuts = frame.getByRole("tab", {
-      name: "Keyboard Shortcuts",
-      exact: true,
+    const shortcuts = frame.locator("m3e-tab", {
+      hasText: "Keyboard Shortcuts",
     });
     await expect(shortcuts).toBeFocused();
-    await expect(shortcuts).toHaveAttribute("aria-selected", "true");
+    expect(await shortcuts.evaluate((el) => (el as any).selected)).toBe(true);
     await sbPage.keyboard.press("Home");
-    await expect(configuration).toHaveAttribute("aria-selected", "true");
+    expect(await configuration.evaluate((el) => (el as any).selected)).toBe(
+      true,
+    );
 
     expect(
       await sbPage.evaluate(() =>
