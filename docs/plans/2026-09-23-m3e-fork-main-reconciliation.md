@@ -212,6 +212,8 @@ Order: land everything that doesn't touch the conflict surface first (cheap, saf
 
 Point-in-time state captured 2026-09-24 in worktree `/Users/jack/Documents/code/sb-reconcile-main` (branch `main`). Re-resolve every ref against live git before acting.
 
+Shared builder brief: `/tmp/sb-builder-common.md` (hazards + full gate). Full-gate script used by the orchestrator: `/tmp/sb-gate.sh <worktree> <logprefix>`.
+
 Landing protocol (unchanged from 2026-09-23): builder works in its own worktree `../sb-slice-<name>` on branch `reconcile/slice-<name>` off `main`; orchestrator rebases onto current `main`, reruns the full gate from a clean tree (`npm ci` → `npm run build` → `cargo build -p silverbullet -p sb` → `npm run check` → `npm test` → `RUST_MIN_STACK=67108864 npm run lint` → `npm run test:e2e`), reviews diff scope, fast-forwards `main`, pushes `origin main` (never force).
 
 | Slice | Scope | Status | Commit on `main` | Evidence |
@@ -223,10 +225,10 @@ Landing protocol (unchanged from 2026-09-23): builder works in its own worktree 
 | 6-codemirror | hashtag/widget_util/frontmatter.ts | done | `b54e4961` | §4 item 6 |
 | 4 | navigator NavRoot m3e reskin | done | `3388221e` | §4 item 4 |
 | 6b-registration | entry-point @m3e/web registration + 6 swaps | done | `cd50bf9f` | §4 item 6 |
-| 6-styles | 8 `styles/*.scss` hand-merges | harvesting — uncommitted work left in `../sb-slice-6-styles` (based on `c60c7f50`) when the 2026-09-23 orchestrator was archived; never gated | — | — |
-| 6-spaces-v2 | `spaces_ui/components/*` m3e revisit with entry-point registration | queued | — | — |
-| 6-plugui | `tabs.tsx` + configuration-manager/object-graph plug UI | queued | — | — |
-| 6-push | Web Push UI, service worker, PWA single-reload, server version convergence | queued | — | — |
+| 6-styles | 8 `styles/*.scss` hand-merges | dispatched 2026-09-24 (builder, wt `../sb-slice-6-styles`, branch `reconcile/slice-6-styles`); WIP left uncommitted by the archived 2026-09-23 agent was checkpoint-committed first | — | — |
+| 6-spaces-v2 | `spaces_ui/components/*` m3e revisit with entry-point registration | dispatched 2026-09-24 (wt `../sb-slice-spaces-v2`, branch `reconcile/slice-spaces-v2`) | — | — |
+| 6-plugui | `tabs.tsx` + configuration-manager/object-graph plug UI | dispatched 2026-09-24 (wt `../sb-slice-plugui`, branch `reconcile/slice-plugui`) | — | — |
+| 6-push | Web Push UI, service worker, PWA single-reload, server version convergence | dispatched 2026-09-24 (wt `../sb-slice-push`, branch `reconcile/slice-push`) | — | — |
 | core shell (5 + rest of 6) | editor_ui/top_bar/client.ts/content_manager/navigator/reducer/types, floating toolbar, drawer, sync indicator, frontmatter raw-YAML card, linked mentions | planning (read-only Plan agent decomposing) | — | — |
 | 7 | package.json/lock | mostly done: `@m3e/web`, `tailwindcss`, `js-yaml` already on `main`; re-verify `npm ci` from clean in every gate | — | — |
 | cutover | merge reconciled `main` into `m3e-fork` → triggers staging image publish | queued, last | — | — |
