@@ -359,7 +359,11 @@
 // palette below.
 m3e-assist-chip[data-tag-name] {
   --m3e-outlined-chip-outline-color: var(--editor-hashtag-border-color);
-  --m3e-chip-label-text-color: var(--editor-hashtag-color);
+  // --editor-hashtag-color is a fixed light value (main's old filled dark
+  // pill assumed a constant dark bg); on this outlined, unfilled chip it's
+  // unreadable in light theme. --root-color is main's own theme-aware body
+  // text color and stays readable against the page bg in both themes.
+  --m3e-chip-label-text-color: var(--root-color);
   vertical-align: middle;
 }
 
