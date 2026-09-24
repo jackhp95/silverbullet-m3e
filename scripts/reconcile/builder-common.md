@@ -28,6 +28,8 @@ Baseline on `main` @ `cd50bf9f` (captured 2026-09-24): check/unit/lint exit 0; e
 
 **Git discipline:** work only in your worktree on your branch. Commit each verified step before moving on; never leave verified work uncommitted. Do NOT push, do NOT merge into main, do NOT touch other worktrees/branches, do NOT run `git stash` (shared stack), no force operations. Don't commit `version.json`, `target/`, test artifacts, or pnpm files. Keep the diff scoped to your slice — no drive-by reformatting of unrelated files (run biome format only on files you changed).
 
+**Never end your turn waiting on a background job.** Under Paseo, a background Bash/Monitor completion does NOT wake an agent whose turn has ended — it just sits idle. Run gate steps in the foreground (Bash timeout up to 600000 ms, one step per call; e2e as its own call), or keep working and poll the log yourself. End your turn only to deliver the final report.
+
 **No AskUserQuestion.** Nobody is watching. If you hit a genuine product/UX decision, implement the most conservative option (preserve main's current behavior), and list the decision with your recommended default in your report.
 
 **Premise check first:** your brief states checkable facts (file lists, what's on main). Verify them before building; if one is wrong, say so explicitly in the report and adapt.
