@@ -31,3 +31,81 @@ export function notificationsIconFor(
   if (pushToggle.active) return "notifications_active";
   return "notifications";
 }
+
+// ---------------------------------------------------------------------------
+// Push state + messages, shared by the "Push Notifications: Toggle" command
+// (client/push_toggle.ts) and whichever app-bar surface later mounts a
+// visible toggle. Pure: no DOM, no browser APIs — the effectful reads live in
+// client/push_toggle.ts.
+
+/** The two build-time settings a subscribe needs (see `patchPushConfig()`). */
+export type PushConfig = { vapidPublicKey: string; sidecarUrl: string };
+
+/**
+ * Where push stands for this client. The first four are dead ends the user
+ * can't fix from inside the app; `off`/`on` are the actionable pair.
+ */
+export type PushState =
+  | "unsupported"
+  | "no-service-worker"
+  | "not-configured"
+  | "denied"
+  | "off"
+  | "on";
+
+/** Whether toggling from `state` can do anything at all. */
+export const isPushActionable = (state: PushState): boolean =>
+  state === "off" || state === "on";
+
+/**
+ * The push config baked into this bundle, or `undefined` when either half is
+ * missing — an empty string is how `patchPushConfig()` spells "unset".
+ */
+export function pushConfigFrom(bootConfig: {
+  vapidPublicKey?: string;
+  pushSidecarUrl?: string;
+}): PushConfig | undefined {
+  const vapidPublicKey = bootConfig.vapidPublicKey ?? "";
+  const sidecarUrl = bootConfig.pushSidecarUrl ?? "";
+  return vapidPublicKey && sidecarUrl
+    ? { vapidPublicKey, sidecarUrl }
+    : undefined;
+}
+
+/** Full-sentence explanation of each state, for notifications and tooltips. */
+export const PUSH_STATE_DETAILS: Record<PushState, string> = {
+  unsupported: "Push notifications are not supported in this browser",
+  "no-service-worker":
+    "Push notifications need the service worker, which is not active",
+  "not-configured": "Push notifications are not configured for this server",
+  denied:
+    "Notification permission was denied — enable it in your browser settings",
+  off: "Enable push notifications",
+  on: "Push notifications are on — click to turn off",
+};
+
+/** A notification to flash after a toggle attempt. */
+export type PushNotice = { message: string; type: "info" | "error" };
+
+/** What a toggle attempt ended in: a resting state, or a failed transition. */
+export type PushOutcome =
+  | { kind: "state"; state: PushState }
+  | { kind: "failed"; action: "enable" | "disable"; detail: string };
+
+/** The notice to flash for a toggle outcome. */
+export function pushNoticeFor(outcome: PushOutcome): PushNotice {
+  if (outcome.kind === "failed") {
+    return {
+      message: `Could not ${outcome.action} push notifications: ${outcome.detail}`,
+      type: "error",
+    };
+  }
+  switch (outcome.state) {
+    case "on":
+      return { message: "Push notifications enabled", type: "info" };
+    case "off":
+      return { message: "Push notifications turned off", type: "info" };
+    default:
+      return { message: PUSH_STATE_DETAILS[outcome.state], type: "error" };
+  }
+}

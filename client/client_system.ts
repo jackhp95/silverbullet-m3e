@@ -47,6 +47,7 @@ import { SpaceLuaEnvironment } from "./space_lua.ts";
 import type { ILuaFunction } from "./space_lua/runtime.ts";
 import { builtinPlugPaths } from "../plugs/builtin_plugs.ts";
 import { registerEditorCommands } from "./editor_commands.ts";
+import { registerPushCommands } from "./push_toggle.ts";
 import { ServiceRegistry } from "./service_registry.ts";
 import { serviceRegistrySyscalls } from "./plugos/syscalls/service_registry.ts";
 import type { ObjectIndex } from "./data/object_index.ts";
@@ -149,6 +150,7 @@ export class ClientSystem {
 
     this.commandHook = new CommandHook(this.readOnlyMode, this.scriptCommands);
     registerEditorCommands(client, this.commandHook);
+    registerPushCommands(client, this.commandHook);
     const gitAvailable =
       !!this.client.bootConfig.revisions &&
       this.client.bootConfig.revisions !== "disabled";
