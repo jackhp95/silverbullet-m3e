@@ -231,7 +231,7 @@ export function createEditorState(
               const touch = event.changedTouches.item(0)!;
               if (!event.altKey && event.target instanceof Element) {
                 // prevent the browser from opening the link twice
-                const parentA = event.target.closest("a");
+                const parentA = event.target.closest("a, [data-tag-name]");
                 if (parentA) {
                   event.preventDefault();
                 }
@@ -306,7 +306,7 @@ export function createEditorState(
             };
             // Make sure <a> tags are clicked without moving the cursor there
             if (!event.altKey && event.target instanceof Element) {
-              const parentA = event.target.closest("a");
+              const parentA = event.target.closest("a, [data-tag-name]");
               if (parentA) {
                 event.stopPropagation();
                 event.preventDefault();
