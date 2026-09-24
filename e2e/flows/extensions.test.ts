@@ -113,26 +113,33 @@ test.describe("configuration extension", () => {
     await runCommandViaPalette(sbPage, "Configuration: Open");
 
     // plug-api/ui/tabs.tsx's tablist mode now renders <m3e-tabs>/<m3e-tab>
-    // (reconcile slice-plugui, fork 664a4d53) — @m3e/web's m3e-tab sets no
-    // ARIA role of its own (verified against node_modules/@m3e/web/dist/
-    // tabs.js: only the internal `.header` shadow div gets role="tablist",
-    // individual tabs get none), so `getByRole("tab", ...)`/`aria-selected`
-    // no longer resolve. Query the element directly and read its `selected`
-    // IDL property instead; arrow-key roving focus and Home/End still work
-    // via @m3e/web's shared ListKeyManager (core-a11y), independent of role.
+    // (reconcile slice-plugui, fork 664a4d53). m3e-tab DOES set an
+    // accessible role of "tab" (verified: TabElement extends
+    // `Role(..., "tab")` via ElementInternals -- getByRole still resolves
+    // it), but its activation model differs from main's old plain-button
+    // Tabs: arrow keys only move the ListKeyManager's roving focus (manual
+    // activation), they don't select -- `aria-selected` (and the `selected`
+    // IDL property) only flips on an explicit click/Enter/Space, not on
+    // arrow movement alone (verified against @m3e/web's tabs.js
+    // handleClick). `aria-selected` also isn't a literal DOM attribute here
+    // (internals-reflected), so read the `selected` property instead.
     const frame = sbPage.frameLocator(".sb-modal iframe");
-    const configuration = frame.locator("m3e-tab", {
-      hasText: "Configuration",
+    const configuration = frame.getByRole("tab", {
+      name: "Configuration",
+      exact: true,
     });
     await expect(configuration).toBeVisible();
-    await configuration.evaluate((el) => (el as HTMLElement).focus());
+    await configuration.focus();
     await sbPage.keyboard.press("ArrowRight");
-    const shortcuts = frame.locator("m3e-tab", {
-      hasText: "Keyboard Shortcuts",
+    const shortcuts = frame.getByRole("tab", {
+      name: "Keyboard Shortcuts",
+      exact: true,
     });
     await expect(shortcuts).toBeFocused();
+    await sbPage.keyboard.press("Enter");
     expect(await shortcuts.evaluate((el) => (el as any).selected)).toBe(true);
     await sbPage.keyboard.press("Home");
+    await sbPage.keyboard.press("Enter");
     expect(await configuration.evaluate((el) => (el as any).selected)).toBe(
       true,
     );
