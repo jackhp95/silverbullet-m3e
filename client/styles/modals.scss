@@ -100,3 +100,121 @@
     border-radius: 4px;
   }
 }
+
+// Reconciliation note (slice-6-styles, 2026-09-23): the m3e-reskin fork tip
+// (4cfc3763) rewrote this file's `.sb-modal-box` block wholesale — deleting
+// the plain-div chrome above in favor of m3e-list-item/m3e-search-view child
+// styling — but that rewrite pairs with TSX changes (client/components/
+// filter.tsx renamed to m3e-search-view + m3e-list-item markup,
+// client/components/search_sheet.tsx and navigation_sheet.tsx as new files,
+// basic_modals.tsx's actions row moved to Tailwind classes) that have not
+// landed on main in this worktree — confirmed via `grep -rn` across
+// client/: main's filter.tsx and basic_modals.tsx still render the exact
+// classes above (.sb-header, .sb-prompt, .sb-result-list .sb-icon,
+// .sb-description, .sb-option/.sb-selected-option/.sb-hint), so deleting
+// them now would break the live app ahead of that TSX migration (presumably
+// a sibling reconciliation slice). Kept main's block unchanged; landed only
+// the fork's genuinely new, non-overlapping selectors below (inert until
+// their TSX consumers exist, except `.sb-button-error` — see its own note).
+
+// m3e-search-view (client/components/filter.tsx, once migrated) keeps the
+// .sb-modal-box class so its child theming above (and colors.scss's
+// color/border/shadow rules) still apply, but must NOT also get
+// .sb-modal-box's own outer box chrome — m3e-search-view (mode="fullscreen")
+// renders its own native container/elevation. Element+class beats the bare
+// class selector, so this wins regardless of source order once wired up.
+m3e-search-view.sb-modal-box {
+  margin-top: 0;
+  padding: 0;
+  width: auto;
+  max-width: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background-color: transparent;
+  overflow: visible;
+
+  &::backdrop {
+    background-color: transparent;
+  }
+
+  font-family: var(--chrome-font);
+
+  .sb-filter-input {
+    font-family: var(--chrome-font);
+  }
+
+  --m3e-search-view-container-color: color-mix(
+    in srgb,
+    var(--modal-background-color) 92%,
+    transparent
+  );
+}
+
+// Floating section-switcher toolbar for the (not-yet-landed) navigation
+// bottom sheet — see fork commit 4cfc3763's modals.scss for full rationale.
+.sb-sheet-section-toolbar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+}
+
+.sb-navigation-sheet-body {
+  padding: 0 16px 80px;
+}
+
+#sb-search-sheet {
+  --m3e-bottom-sheet-container-color: var(--modal-background-color);
+  --m3e-bottom-sheet-padding-inline: 0px;
+}
+
+.sb-search-sheet-bar {
+  --m3e-search-bar-container-color: var(--modal-background-color);
+}
+
+.sb-search-sheet-body {
+  padding: 0 16px 16px;
+
+  .sb-search-sheet-empty {
+    padding: 12px 4px;
+  }
+
+  .sb-option {
+    cursor: pointer;
+  }
+
+  .sb-selected-option {
+    --m3e-list-item-container-shape: 8px;
+  }
+
+  .sb-hint {
+    padding: 3px 5px;
+    border-radius: 5px;
+  }
+}
+
+// Confirm()'s destructive action: recolor a `filled` m3e-button to the
+// Material error role. This is NOT just forward-looking fork scaffolding —
+// main's own client/spaces_ui/components/ConfirmDialog.tsx (unrelated
+// feature work, a separate Confirm() reimplementation for the spaces_ui
+// bundle) already references `class={destructive ? "sb-button-error" :
+// undefined}` on a `variant="filled"` m3e-button, but main's styles never
+// defined the rule — a real gap this fork rule fills for both consumers.
+// No dedicated "danger"/"destructive" variant exists on m3e-button (@m3e/web
+// 2.7.12's Custom Elements Manifest: ButtonVariant is elevated | filled |
+// tonal | outlined | text only); `--m3e-*-button-*` custom properties are
+// the sanctioned per-instance override point, and `--md-sys-color-error`/
+// `-on-error` are real generated tokens (every M3 scheme includes an error
+// role).
+.sb-button-error {
+  --m3e-filled-button-container-color: var(--md-sys-color-error);
+  --m3e-filled-button-label-text-color: var(--md-sys-color-on-error);
+  --m3e-filled-button-hover-label-text-color: var(--md-sys-color-on-error);
+  --m3e-filled-button-hover-state-layer-color: var(--md-sys-color-on-error);
+  --m3e-filled-button-focus-label-text-color: var(--md-sys-color-on-error);
+  --m3e-filled-button-focus-state-layer-color: var(--md-sys-color-on-error);
+  --m3e-filled-button-pressed-label-text-color: var(--md-sys-color-on-error);
+  --m3e-filled-button-pressed-state-layer-color: var(--md-sys-color-on-error);
+}

@@ -1,5 +1,44 @@
 @use "profile_menu";
 
+// Reconciliation note (slice-6-styles, 2026-09-23): the m3e-reskin fork tip
+// (4cfc3763) rewrote almost this entire file as part of
+// docs/plans/2026-09-22-appbar-large-frontmatter-scroll-snap.md (leaves
+// L8/L9) — replacing the `#sb-top`/`.main`/`.inner`/`.wrapper`/
+// `#sb-current-page`/`.sb-actions`/`.progress-*`/`.sb-notifications` chrome
+// with a `<m3e-app-bar size="large">` restructuring (`.sb-page-title`, a
+// wrapping title `<textarea>`, `m3e-circular-progress-indicator`, a kebab
+// `#sb-app-bar-menu`) plus new front-matter-panel styling (`.sb-fm-*`) and a
+// scroll-snap container (`#sb-page-scroll`). None of the paired TSX has
+// landed on this main: `client/components/top_bar.tsx` (read directly, not
+// just grepped) still renders the exact old div-based markup — plain
+// `<div id="sb-top">` > `.main` > `.inner` > `.wrapper`, `<Input
+// class="sb-page-name-editor">` (which also always emits `sb-input`, so
+// `#sb-current-page .sb-input` below is real), `ActionButtons` rendering
+// `.sb-actions`/hamburger, `SyncProgressIndicator` rendering `.progress-
+// wrapper`/`.progress-bar`/`.progress-ring`/`.progress-hole`, and
+// `NotificationList` still portalling a `.sb-notifications` div — no
+// `m3e-app-bar`, no `#sb-app-bar-menu`, no `front_matter_panel.tsx` (doesn't
+// exist), no `#sb-page-scroll` anywhere in client/ (grep-confirmed). This is
+// the exact same plan client/styles/main.scss's own reconciliation note
+// already deferred wholesale for its half (`#sb-main`/`#sb-page-scroll`),
+// citing the plan doc's own leaf ordering (L10 sequenced after the TS
+// leaves) as the reason to defer the whole feature rather than cherry-pick —
+// same reasoning applied here for top.scss's half (L8/L9). Kept main's
+// `#sb-top` block and everything through `.sb-notifications` below
+// unchanged; landed only the handful of fork additions from *other*,
+// unrelated specs that are genuinely new, non-overlapping, and zero-conflict
+// regardless of TSX landing status (see the end of this file).
+//
+// `@use "profile_menu"` specifically is NOT dead despite fork dropping it:
+// `_profile_menu.scss` is a side-effect-only partial (raw `.sb-anchored-menu`
+// selectors, no forwarded members), and Sass modules are deduped only
+// *within* one compilation. `top.scss` and `app.scss` compile to two
+// separate output bundles (main.css vs app.css, per build/build_client.ts) —
+// `app.scss` has its own `@use "profile_menu"`, but nothing else in
+// `main.scss`'s `@use` graph reaches it. `client/editor_ui.tsx` (main.css's
+// entry) genuinely renders `AnchoredMenu`/`ProfileButton`
+// (client/components/anchored_menu.tsx, profile_button.tsx) — dropping this
+// `@use` would silently delete `.sb-anchored-menu` styling from main.css.
 #sb-top {
   display: flex;
   flex-direction: row;
@@ -268,4 +307,84 @@
       opacity: 1;
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Fork additions landed as-is: genuinely new, non-overlapping selectors from
+// specs *other* than the deferred appbar-large-frontmatter-scroll-snap plan
+// above, zero-conflict with anything in this file regardless of current
+// wiring status (same "unwired but zero-conflict addition" precedent as
+// Slice 1/2 of this reconciliation and main.scss's `.sb-panel`).
+
+// Floating vertical toolbar, bottom-right (2026-09-17 vertical-toolbar
+// redesign spec §2.1, leaf V4). Unlike the appbar-large plan above, this
+// leaf's TSX counterpart is already landed on this main —
+// client/components/floating_toolbar.tsx exists and renders
+// `<m3e-toolbar class="sb-floating-toolbar">` — but its own header comment
+// confirms it is "NOT wired into the live app in this leaf" (no caller
+// anywhere in client/, grep-confirmed) — a component landed ahead of its
+// consumer, styles landed here ahead of both. `m3e-toolbar` supplies no
+// positioning of its own, so this placement rule is required once wired, and
+// harmless (unreachable) until then.
+.sb-floating-toolbar {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 30;
+}
+
+// Nav "Search" destination panel content (same vertical-toolbar/nav-redesign
+// spec, leaf N7 — client/components/nav_views/search.tsx). That file does
+// not exist on this main yet (grep-confirmed) — fully unwired, but the
+// selectors are scoped under `.sb-nav-search-view`, which never matches
+// anything in current markup, so nesting already-used bare class names
+// (`.sb-option`/`.sb-selected-option`/`.sb-hint`, also used elsewhere e.g.
+// modals.scss/colors.scss/nav_list_row.tsx) inside it cannot collide with
+// those other, differently-scoped rules.
+.sb-nav-search-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px 12px;
+  overflow-y: auto;
+
+  .sb-nav-panel-title {
+    font-weight: 500;
+  }
+
+  .sb-nav-search-result-list {
+    max-height: 320px;
+    overflow-y: scroll;
+  }
+
+  .sb-nav-search-empty {
+    padding: 12px 4px;
+  }
+
+  .sb-option {
+    cursor: pointer;
+  }
+
+  .sb-selected-option {
+    --m3e-list-item-container-shape: 8px;
+  }
+
+  .sb-hint {
+    padding: 3px 5px;
+    border-radius: 5px;
+  }
+}
+
+// m3e-snackbar sizing fix (2026-09-22, Jack, live): unrelated to any of the
+// above specs, and not yet reachable either — no `<m3e-snackbar>` renders
+// anywhere on this main (`Alert` is still plain-div, see components.scss;
+// `flashNotification` still portals the old `.sb-notifications` markup
+// above). Landed as harmless forward scaffolding: `--m3e-snackbar-min-width:
+// 344px` is only the vendor's own unstyled-fallback default
+// (`var(--m3e-snackbar-min-width, 344px)`), not a real M3 minimum — pinning
+// it to 0 lets the box hug its actual content instead of flooring every
+// short message at 344px; `max-width` is kept so long messages still wrap.
+m3e-snackbar {
+  --m3e-snackbar-min-width: 0;
+  --m3e-snackbar-max-width: min(672px, 100% - 48px);
 }

@@ -2,6 +2,85 @@
 // wizard and the Space Manager. Everything here is scoped under
 // `body.sb-standalone` so this partial can share one stylesheet with the plug
 // panels, which are the same components without the page furniture.
+//
+// Reconciliation note (slice-6-styles, 2026-09-23): the m3e-reskin fork tip
+// (4cfc3763) rewrote most of this file, claiming most classes had already
+// migrated to Tailwind utility classes at their TSX call sites (much like
+// editor.scss's own audit) plus a decorative gradient-background redesign of
+// the login/setup pages. Checked every claim against this worktree's actual
+// client/spaces_ui/**/*.tsx AND plug-api/ui/*.tsx (fork's own narrative only
+// ever cites client/spaces_ui — several classes here turned out to be
+// produced by the shared plug-api/ui kit components instead, which a
+// client/-only grep misses entirely). Findings:
+// - REJECTED the gradient body background (`--top-color`/`--bottom-color`
+//   stops): `--top-color` already exists as an unrelated, real theme token
+//   (theme.scss, meaning "color of #sb-top's own text"), and the existing
+//   `var(--ui-surface-background-color)`/`var(--ui-surface-color)` pair is
+//   dark/light-mode aware where the fork's hardcoded hex stops are not.
+// - REJECTED every hardcoded `#b00020` replacing `var(--danger-color)`:
+//   that token is itself theme-aware (theme.scss defines a light AND dark
+//   value) and still used live elsewhere (components.scss).
+// - REJECTED most "moved to Tailwind at the call site" claims after
+//   confirming the actual JSX: `.flow`, `.center`, `.sb-wordmark`,
+//   `.sb-space-list`(+li), `.sb-space-link`, `.sb-space-edit`,
+//   `.sb-danger-zone`, `.sb-user-table`(+th/td), `.sb-user-link`,
+//   `.sb-token-list`(+li), `.sb-token-reveal`, `.sb-access-table`(+nested),
+//   `fieldset`/`fieldset legend`, `details`, `.checkbox-wrapper`'s sibling
+//   `.password-field` (still rendered by plug-api/ui/password_input.tsx),
+//   `.sb-spaces-profile` all still render with the bare class fork assumed
+//   was Tailwind-augmented or dropped — no utility classes present, no
+//   migration landed. `.sb-tab`/`.sb-tabs`/`.sb-url-input`/`.sb-url-affix`
+//   likewise are still produced verbatim by plug-api/ui/tabs.tsx and
+//   plug-api/ui/url_prefix_input.tsx.
+// - CONFIRMED TRUE (grep + read the real component): `.checkbox-wrapper`
+//   and `.sb-standalone .error-message` are genuinely dead — LoginForm.tsx
+//   now builds on the shared `CheckboxField`/`Alert` kit components instead
+//   of hand-rolled markup, zero producers of either class remain anywhere in
+//   the repo. `.sb-folder-crumbs`/`.sb-folder-crumb-sep`/`.sb-folder-dirs`
+//   are dead too — FolderPicker.tsx's browse panel now renders
+//   `m3e-breadcrumb`/`m3e-list` directly, and its surviving classes
+//   (`.sb-folder-picker-status`, `.sb-link-button`, `.sb-folder-browser`)
+//   really do already carry the exact Tailwind utility strings fork
+//   predicted. `.sb-user-table label` is confirmed dead (re-checked
+//   UsersView.tsx's table body: no `<label>` anywhere in it).
+//   `.sb-standalone .sb-spaces-header`/`.sb-spaces-header-left` (+ their
+//   nested `.sb-tabs`/`.sb-tab` mobile rules) are ALSO dead, but for a
+//   reason neither side's snapshot knew about: App.tsx's admin shell was
+//   independently rewritten to a sidebar-nav layout (`sb-management*`
+//   classes, styled by the separate, already-existing client/styles/
+//   management.scss — not part of this reconciliation slice) with no
+//   `sb-spaces-header` anywhere; `body.sb-standalone.sb-page:has(.sb-spaces-
+//   header)` is consequently also dead (never matches). `fieldset` inside
+//   `.sb-space-settings` still needs `.sb-settings-layout`/`-content`/
+//   `-fields` (all live), but its `.sb-settings-sidebar`/`.sb-settings-
+//   mobile` sub-rules are dead — that specific settings-page-local sidebar
+//   nav was superseded by management.scss's own
+//   `.sb-management-server-settings` handling.
+// - LANDED as new, zero-conflict additions: `.sb-button-error` (a real gap:
+//   client/spaces_ui/components/ConfirmDialog.tsx already references
+//   `class={destructive ? "sb-button-error" : undefined}` on a `filled`
+//   m3e-button, mirroring modals.scss's own already-landed `.sb-button-error`
+//   — but app.scss's standalone bundle never `@use`s modals.scss, so this
+//   file needs its own copy; kept the `, #b00020`-fallback form since
+//   standalone pages, unlike the editor, never render an `<m3e-theme>`
+//   ancestor to generate `--md-sys-color-error` for real) and
+//   `.sb-badge.errored` (the base `.sb-badge` class is live via plug-api/ui's
+//   `Badge` component; no current caller passes an `errored` modifier, but
+//   it's a harmless, unwired-but-ready extension of a real component's
+//   modifier surface — recolored to `var(--danger-color)` instead of fork's
+//   hardcoded hex for the same theme-token reason as everywhere else here).
+// - SPLIT `.sb-standalone .floating-island, .sb-standalone.sb-page #root`
+//   into two rules: `client/html/{setup,spaces}.html` already put Tailwind
+//   `p-12 my-8` directly on `#root`, but this rule's `padding:0;
+//   margin-block:0` — reachable only via an ID selector — was silently
+//   neutralizing those utility classes on every page that has them. Dropped
+//   the box-model properties from the `#root` half only so the Tailwind
+//   classes can finally take effect; kept the (still-transparent,
+//   no-op-looking) border/shadow/background chrome as main had it rather
+//   than fork's white-card-on-gradient redesign, since that redesign's own
+//   premise (the gradient body) was rejected above. `.floating-island`
+//   itself (SpaceLogin.tsx's login-page card, which carries no Tailwind
+//   spacing classes at all) keeps its full original rule unchanged.
 @use "tokens";
 
 body.sb-standalone {
@@ -43,11 +122,12 @@ body.sb-standalone {
     margin-top: 1rem;
   }
 
-  // These lists have no markers; remove the browser’s unused marker indent.
-  ul,
-  ol {
-    padding-left: 0;
-  }
+  // The generic `ul, ol { padding-left: 0 }` marker-indent reset that used to
+  // live here was dropped: client/spaces_ui only renders two `<ul>`s under
+  // `.sb-standalone` (`.sb-token-list`, `.sb-space-list`) and both already
+  // carry their own `list-style: none` from a more specific rule
+  // (this file's own `.sb-token-list`, and management.scss's
+  // `.sb-management-list`), so the generic reset was fully redundant.
 
   input[type="radio"] {
     accent-color: var(--ui-accent-color);
@@ -111,22 +191,49 @@ body.sb-standalone {
   .sb-spaces-warn {
     color: #9a6700;
   }
+
+  // ConfirmDialog.tsx's destructive Ok action already references
+  // `class={destructive ? "sb-button-error" : undefined}` on a `filled`
+  // m3e-button — mirrors modals.scss's already-landed `.sb-button-error`,
+  // duplicated here (not shared) because app.scss never `@use`s modals.scss.
+  // Unlike the editor (wrapped in `<m3e-theme>`), no standalone page renders
+  // an `m3e-theme` ancestor, so `--md-sys-color-error`/`-on-error` are never
+  // actually generated here — the fallback is what actually paints.
+  .sb-button-error {
+    --m3e-filled-button-container-color: var(--md-sys-color-error, #b00020);
+    --m3e-filled-button-label-text-color: var(--md-sys-color-on-error, #fff);
+    --m3e-filled-button-hover-label-text-color: var(--md-sys-color-on-error, #fff);
+    --m3e-filled-button-hover-state-layer-color: var(--md-sys-color-on-error, #fff);
+    --m3e-filled-button-focus-label-text-color: var(--md-sys-color-on-error, #fff);
+    --m3e-filled-button-focus-state-layer-color: var(--md-sys-color-on-error, #fff);
+    --m3e-filled-button-pressed-label-text-color: var(--md-sys-color-on-error, #fff);
+    --m3e-filled-button-pressed-state-layer-color: var(--md-sys-color-on-error, #fff);
+  }
 }
 
-body.sb-standalone.sb-page {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 2rem 1rem;
-}
+// body.sb-standalone.sb-page's max-width/margin/padding deleted outright:
+// dead. client/html/setup.html and spaces.html — the only two entry points
+// with `sb-page` on <body> — already carry the Tailwind equivalent
+// (`max-w-[720px] mx-auto py-8 px-4`) directly in the HTML.
 
-.sb-standalone .floating-island,
-.sb-standalone.sb-page #root {
+.sb-standalone .floating-island {
   padding: 0;
   border-radius: 4px;
   box-shadow: none;
   background-color: transparent;
   border: 0;
   margin-block: 0;
+}
+
+// `#root` on those same two pages also already carries Tailwind `p-12
+// my-8` directly in the HTML — but this selector's ID specificity was
+// silently winning over that utility class for padding/margin-block, so
+// those two properties are dropped here (see this file's top-of-file note).
+.sb-standalone.sb-page #root {
+  border-radius: 4px;
+  box-shadow: none;
+  background-color: transparent;
+  border: 0;
 }
 
 .sb-standalone .center {
@@ -221,24 +328,11 @@ body.sb-standalone.sb-page:has(.sb-auth-header) {
   margin-block-start: var(--space, 1rem);
 }
 
-.sb-standalone .error-message {
-  color: var(--danger-color);
-}
-
-.sb-standalone .checkbox-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-direction: row;
-}
-
-// Undo form-label layout for checkbox labels, which sit beside the control.
-.sb-standalone .checkbox-wrapper label,
-.sb-standalone form .checkbox-wrapper label {
-  display: inline;
-  margin: 0;
-  font-weight: normal;
-}
+// `.sb-standalone .error-message` and `.checkbox-wrapper` (+ its label
+// override) deleted outright: dead. LoginForm.tsx was rewritten on top of
+// the shared `Alert`/`CheckboxField` kit components (plug-api/ui) instead of
+// hand-rolled markup — grep-verified zero producers of either class remain
+// anywhere in the repo.
 
 .sb-standalone .password-field {
   display: flex;
@@ -251,26 +345,16 @@ body.sb-standalone.sb-page:has(.sb-auth-header) {
 }
 
 
-/* Header: wordmark (+ admin tab bar) on the left, quiet log-out link on the
-   right.
-
-   The gap below is 1rem, not the 2rem this had while the screens below it
-   opened with an <h1>. Those headings are gone from the list screens (the tab
-   bar names them), so 2rem left the content stranded — and on a list the first
-   row adds another 0.5rem of its own padding before any text. */
-.sb-standalone .sb-spaces-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid #8884;
-  margin-bottom: 1rem;
-}
-
-.sb-standalone .sb-spaces-header-left {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-}
+// `.sb-standalone .sb-spaces-header` and `.sb-spaces-header-left` deleted
+// outright: dead, for a reason neither main's nor fork's own snapshot of
+// this file knew about — App.tsx's admin shell was independently rewritten
+// to a sidebar-nav layout (`sb-management-header`/`sb-management-sidebar`/
+// `sb-management-nav`, styled by the separate client/styles/management.scss)
+// with no `sb-spaces-header` anywhere in it any more. Their mobile-only
+// counterparts further down (`.sb-standalone .sb-spaces-header` wrap rules,
+// `.sb-tabs`/`.sb-tab` nested under it) and
+// `body.sb-standalone.sb-page:has(.sb-spaces-header)` are dead for the same
+// reason and were removed too.
 
 .sb-standalone .sb-wordmark {
   min-width: 0;
@@ -335,82 +419,51 @@ body.sb-standalone.sb-page:has(.sb-auth-header) {
   border-top: 1px solid #8884;
 }
 
-/* Server-side folder picker (client/spaces_ui/FolderPicker.tsx). */
+// The base `.sb-badge` class is live (plug-api/ui's `Badge` component); no
+// current caller passes an `errored` modifier yet, but this is a harmless,
+// zero-conflict extension of that component's real modifier surface for a
+// (not yet built) "space binding errored" indicator.
+.sb-standalone .sb-badge.errored {
+  background-color: color-mix(in srgb, var(--danger-color) 20%, transparent);
+  color: var(--danger-color);
+}
+
+/* Server-side folder picker (client/spaces_ui/FolderPicker.tsx). Confirmed
+   fully Tailwind-migrated at its one call site: display/align-items/gap/
+   margin-top moved to `flex items-center gap-3 mt-1`; font-size stays. */
 .sb-standalone .sb-folder-picker-status {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-top: 0.25rem;
   font-size: 0.9em;
 }
 
+// Confirmed fully Tailwind-migrated at its one live call site
+// (FolderPicker.tsx's "Browse…" toggle carries the exact equivalent
+// utility string already): background/border/box-shadow/padding/
+// text-decoration/cursor + :hover/:focus reset moved to Tailwind; color/
+// font-size/font-family and the focus-visible outline color stay.
 .sb-standalone .sb-link-button {
-  background: none;
   color: var(--ui-accent-color);
-  border: none;
-  box-shadow: none;
-  padding: 0;
   font-size: inherit;
   font-family: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.sb-standalone .sb-link-button:hover {
-  background: none;
-}
-
-/* No focus ring on mouse clicks; keep a subtle one for keyboard focus. */
-.sb-standalone .sb-link-button:focus {
-  outline: none;
-  box-shadow: none;
 }
 
 .sb-standalone .sb-link-button:focus-visible {
   outline: 2px solid var(--ui-accent-color);
-  outline-offset: 2px;
-  border-radius: 2px;
 }
 
+// Confirmed fully Tailwind-migrated at its one call site: margin-top/padding
+// moved to `mt-2 py-2 px-3`; border/radius/background (literal hex, no
+// theme token) stay.
 .sb-standalone .sb-folder-browser {
-  margin-top: 0.5rem;
   border: 1px solid #ddd;
   border-radius: 4px;
-  padding: 0.5rem 0.75rem;
   background: #fafafa;
 }
 
-.sb-standalone .sb-folder-crumbs {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem;
-  margin-bottom: 0.5rem;
-}
-
-.sb-standalone .sb-folder-crumb-sep {
-  color: #999;
-}
-
-// Directory names have no length limit, and a crumb or listing entry is one
-// unbroken word, so without this a single long name pushes the whole page
-// sideways rather than wrapping.
-.sb-standalone .sb-folder-crumbs .sb-link-button,
-.sb-standalone .sb-folder-dirs li {
-  overflow-wrap: anywhere;
-  text-align: left;
-}
-
-.sb-standalone .sb-folder-dirs {
-  list-style: none;
-  max-height: 12rem;
-  overflow-y: auto;
-  margin: 0;
-}
-
-.sb-standalone .sb-folder-dirs li {
-  padding: 0.15rem 0;
-}
+// `.sb-folder-crumbs`/`.sb-folder-crumb-sep`/`.sb-folder-dirs` (+ their
+// nested rules) deleted outright: dead. FolderPicker.tsx's browse panel
+// now renders `m3e-breadcrumb`/`m3e-list`/`m3e-list-action` directly (which
+// own their own item layout/separators internally) instead of a hand-rolled
+// crumb trail and `<ul>`.
 
 .sb-standalone .sb-folder-empty {
   color: var(--subtle-color);
@@ -449,13 +502,9 @@ body.sb-standalone.sb-page:has(.sb-auth-header) {
   white-space: nowrap;
 }
 
-.sb-standalone .sb-user-table label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3em;
-  margin: 0;
-  font-weight: normal;
-}
+// `.sb-user-table label` deleted outright: dead — re-verified against
+// current UsersView.tsx, the table has exactly one `<table>`, no `<label>`
+// renders inside it anywhere.
 
 .sb-standalone .sb-token-list {
   padding: 0.5rem;
@@ -593,39 +642,9 @@ body.sb-standalone.sb-page:has(.sb-auth-header) {
     }
   }
 
-  /* The header's three parts don't fit on one line. `display: contents` lifts
-     the wordmark and tabs out of their wrapper so all three become siblings of
-     the flex container, which lets the tab bar claim a full-width row of its
-     own below the wordmark and the profile menu. */
-  .sb-standalone .sb-spaces-header {
-    flex-wrap: wrap;
-    row-gap: 0.25rem;
-    padding-bottom: 0.25rem;
-  }
-
-  .sb-standalone .sb-spaces-header-left {
-    display: contents;
-  }
-
-  .sb-standalone .sb-spaces-header .sb-tabs {
-    order: 1;
-    flex: 1 0 100%;
-    display: flex;
-    flex-wrap: nowrap;
-    min-width: 0;
-    max-width: 100%;
-    overflow-x: auto;
-    margin-top: 0.25rem;
-  }
-
-  .sb-standalone .sb-tab {
-    display: inline-flex;
-    flex-shrink: 0;
-    align-items: center;
-    min-height: 2.75rem;
-    padding: 0 0.6rem;
-  }
-
+  // `.sb-spaces-header`/`.sb-spaces-header-left`/`.sb-tabs`/`.sb-tab` mobile
+  // overrides deleted outright: dead, same reason as the base rules above
+  // (App.tsx's admin shell moved to management.scss's sidebar layout).
 
   /* Column alignment across rows stops being worth anything once the columns
      are too narrow to hold their content: give the name a line of its own and
@@ -712,9 +731,9 @@ body.sb-standalone .sb-git-page {
   }
 }
 
-body.sb-standalone.sb-page:has(.sb-spaces-header) {
-  max-width: 1040px;
-}
+// `body.sb-standalone.sb-page:has(.sb-spaces-header)` deleted outright:
+// dead, same reason as the base `.sb-spaces-header` rule above (it can never
+// match — nothing produces that class any more).
 
 body.sb-standalone .sb-space-settings {
   .sb-settings-layout {
@@ -723,25 +742,12 @@ body.sb-standalone .sb-space-settings {
     gap: 1.5rem;
     align-items: start;
   }
-  .sb-settings-sidebar {
-    position: sticky;
-    top: 1rem;
-    display: grid;
-    gap: 0.25rem;
-    a {
-      display: flex;
-      align-items: center;
-      padding: 0.7rem 0.85rem;
-      border-radius: 6px;
-      color: inherit;
-      text-decoration: none;
-      &[aria-current="page"] { background: var(--ui-accent-color); color: var(--ui-accent-contrast-color); }
-      &:hover:not([aria-current]) { background: color-mix(in srgb, var(--ui-accent-color) 8%, transparent); }
-      &[data-dirty]::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-left: auto; }
-    }
-  }
+  // `.sb-settings-sidebar`/`.sb-settings-mobile` deleted outright: dead —
+  // that settings-page-local sidebar nav was superseded by
+  // client/styles/management.scss's own `.sb-management-server-settings`
+  // handling (AdminView.tsx's settings layout carries that class alongside
+  // `.sb-settings-layout` and gets its responsive nav from there instead).
   .sb-input, .sb-select { min-height: 36px; }
-  .sb-settings-mobile { display: none; }
   .sb-settings-content { min-width: 0; h2:first-child { margin-top: 0; } }
   .sb-git-page { border-top: 1px solid var(--modal-border-color); padding-top: 0.5rem; }
 }
@@ -751,8 +757,6 @@ body.sb-standalone .sb-settings-fields { border: 0; margin: 0; padding: 0; min-w
   body.sb-standalone .sb-space-settings {
     .sb-settings-layout { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
     .sb-input, .sb-select { min-height: 44px; }
-    .sb-settings-sidebar { display: none; }
-    .sb-settings-mobile { display: grid; gap: 0.5rem; }
     .sb-settings-heading { align-items: start; flex-wrap: wrap; }
     .sb-settings-content .row { flex-wrap: wrap; }
     .sb-git-page dl { grid-template-columns: minmax(0, 1fr); }

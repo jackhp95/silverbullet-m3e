@@ -1,3 +1,67 @@
+// Reconciliation note (slice-6-styles, 2026-09-23): the m3e-reskin fork tip
+// (4cfc3763) rewrote large parts of this file. Landed wholesale: the
+// `.cm-tooltip-autocomplete` md-sys-color-token redesign (pure CM6
+// classnames + already-generated `--md-sys-color-*` runtime tokens, no TSX
+// dependency), the new `m3e-assist-chip[data-tag-name]` tag-pill rules
+// (client/markdown_renderer/markdown_render.ts's Hashtag case already
+// renders `<m3e-assist-chip data-tag-name>` — this is live, not
+// forward-looking), the inert `#sb-search-sheet`/`.sb-search-sheet-list`
+// scaffolding (matches modals.scss's already-landed precedent for the
+// not-yet-existing search_sheet.tsx), the `.sb-panel` direct-child →
+// descendant combinator loosening (main.scss's own `#sb-main .sb-panel`
+// already uses the descendant form), the `.sb-line-blockquote` border-left
+// addition, and the `.sb-emphasis`/`.sb-strong`/`.sb-sub`/`.sb-sup`/
+// `.sb-directive`/`.sb-directive-mark`/`.sb-footnote-ref` box-model
+// reductions (grep-confirmed: client/style.ts and client/codemirror/
+// footnote.ts already carry the equivalent Tailwind classes at their call
+// sites).
+//
+// Kept main's version, REJECTING the fork's deletion/change, in each of
+// these cases — grep across client/ showed a live, unmigrated consumer that
+// the fork's own codebase no longer has but this main still does:
+//   - `.sb-actions button`'s box-model (width/height/border/margin/padding/
+//     cursor): code_copy.ts's own button now duplicates these values as
+//     Tailwind classes (safe to drop there), but client/components/
+//     top_bar.tsx's `ActionButtons` (desktop icon buttons + the mobile
+//     hamburger menu) renders `.sb-actions button` with NO Tailwind sizing
+//     classes at all — it still depends on this shared CSS for its box
+//     model.
+//   - `.sb-actions:not(.open) button.expander:hover`: `.expander` is live
+//     (editor_ui.tsx's mobile hamburger action button, rendered through
+//     top_bar.tsx). (`.sb-actions button.sb-enabled` really is dead — zero
+//     consumers anywhere — that deletion is landed.)
+//   - `.sb-notifications`/`.sb-notification-info/error/warning`: top_bar.tsx
+//     still renders the old portal div-toast (`<div className=
+//     "sb-notifications">` / `sb-notification-${type}`), not an m3e-snackbar.
+//   - `.sb-hashtag, .hashtag`: still emitted by codemirror/hashtag.ts and
+//     frontmatter_folding.ts (only markdown_render.ts's read-mode preview
+//     has migrated to `m3e-assist-chip` so far) — both tag-rendering paths
+//     are simultaneously live, so both rule sets are needed together, not
+//     as an either/or swap.
+//   - `.sb-at-mention`/`-mark`/`-signature`/`-signature-mark`: still emitted
+//     by codemirror/at_mention.ts; the fork provides no replacement
+//     whatsoever for at-mentions (its chip rules only cover hashtag-style
+//     provenance tags), so deleting these would leave at-mentions unstyled.
+//   - `.sb-comment-block`, `.sb-comment-resolve(:hover)`, `.sb-comment-label`,
+//     `.sb-comment-marker`, `.sb-conflict-marker`: all still assigned as
+//     classNames by codemirror/comment_region.ts and client/style.ts's
+//     CodeMirror tag-to-class map.
+//   - `a.sb-wiki-link-ambiguous, .sb-wiki-link-ambiguous > .sb-wiki-link`:
+//     still assigned by codemirror/wiki_link_processor.ts.
+//   - `.sb-footnote-def-line`: footnote.ts still applies only the bare class
+//     (no Tailwind font-size class at that call site, unlike `.sb-footnote-
+//     ref`'s already-migrated FOOTNOTE_REF_LAYOUT_CLASSES).
+//   - `#sb-main .sb-nav-root-lhs`/`.sb-nav-root-rhs`: heavily live —
+//     e2e/flows/{docking,navigation,history}.test.ts assert on these
+//     selectors directly, and client/navigator/ui/components/
+//     nav_error_boundary.test.ts confirms the className is actually set.
+//   - `#sb-top.sb-sync-error`'s local `--top-background-color` reassignment:
+//     NOT redundant — client/styles/top.scss reads `--top-background-color`
+//     on several descendant elements (buttons/dropdowns) inside `#sb-top`,
+//     so re-scoping it to the sync-error value here is what tints those
+//     descendants during a sync error too. Fork's flattened version (setting
+//     `background-color` directly without touching the custom property)
+//     would silently stop tinting them.
 #sb-root {
   font-family: var(--ui-font);
   background-color: var(--root-background-color);
@@ -35,12 +99,11 @@
 }
 
 #sb-main {
-
-  >.sb-panel:last-child {
+  .sb-panel:last-child {
     border-left: 1px solid var(--panel-border-color);
   }
 
-  >.sb-panel:first-child {
+  .sb-panel:first-child {
     border-right: 1px solid var(--panel-border-color);
   }
 
@@ -96,10 +159,8 @@
   cursor: pointer;
 }
 
-.sb-actions button.sb-enabled {
-  background-color: var(--top-border-color);
-  border-radius: 5px;
-}
+// DEAD: .sb-enabled is never applied by any consumer anywhere in client/ or
+// plugs/ (grep-verified) — rule deleted.
 
 .sb-actions button:hover {
   color: var(--action-button-hover-color);
@@ -148,6 +209,15 @@
       color: var(--modal-description-color);
     }
 
+    // Forward-compat, zero-conflict: once client/components/filter.tsx
+    // migrates its result rows from plain divs to m3e-list-item (fork commit
+    // 4cfc3763), that element paints its own slotted supporting-text/label
+    // colors from these cssprops (node_modules/@m3e/web/dist/list.js:
+    // `::slotted([slot="supporting-text"])` and `.content`), not from a
+    // plain `color:` set on the slotted light-DOM node — so the two
+    // mechanisms coexist without conflict until the TSX migration lands.
+    --m3e-list-item-supporting-text-color: var(--modal-description-color);
+
     .sb-selected-option {
       background-color: var(--modal-selected-option-background-color);
       color: var(--modal-selected-option-color);
@@ -155,7 +225,72 @@
       .sb-description {
         color: var(--modal-selected-option-description-color);
       }
+
+      --m3e-list-item-container-color: var(
+        --modal-selected-option-background-color
+      );
+      --m3e-list-item-label-text-color: var(--modal-selected-option-color);
+      --m3e-list-item-supporting-text-color: var(
+        --modal-selected-option-description-color
+      );
     }
+  }
+}
+
+// Two stacked fills were fighting inside the search sheet, and the previous
+// pass fixed the wrong one.
+//
+// 1. `m3e-search-bar` (slotted inside `m3e-search-view`) paints its `.base`
+//    div from `var(--m3e-search-bar-container-color, surfaceContainerHigh)`
+//    (decompiled node_modules/@m3e/web/dist/search.js). Default = a heavy
+//    gray pill against the sheet.
+// 2. The slotted `Input` is a kit `.sb-input`, which components.scss gives
+//    its OWN `background-color: var(--text-field-background-color)` —
+//    live-measured as `rgb(85,85,85)` in dark mode, i.e. a LIGHTER gray
+//    rectangle floating inside the bar's pill. `bare` does not strip it.
+//
+// Correct split: the INPUT goes fully transparent so it reads as text on
+// the bar rather than a nested box, and the BAR keeps a real — but subtle —
+// container color so it still has a visible boundary/affordance. The bar's
+// fill is derived from `--root-color` (the theme's foreground) rather than
+// hardcoded, so it lifts off the sheet by the same small amount in both
+// light and dark themes instead of only working in one.
+//
+// Inert until client/components/search_sheet.tsx exists (sibling
+// reconciliation slice) — matches modals.scss's already-landed
+// `#sb-search-sheet`/`.sb-search-sheet-bar` scaffolding, zero-conflict.
+#sb-search-sheet {
+  --m3e-search-bar-container-color: color-mix(
+    in srgb,
+    var(--root-color) 9%,
+    transparent
+  );
+
+  .sb-input {
+    background-color: transparent;
+  }
+}
+
+// search_sheet.tsx's result/history list — not a .sb-modal-box (it's a
+// bottom sheet, not a <dialog>), so it needs its own selector root, but
+// reuses the exact same --modal-* tokens as the .sb-modal-box block above
+// rather than a second palette. Inert until search_sheet.tsx exists.
+.sb-search-sheet-list {
+  .sb-hint {
+    color: var(--modal-hint-color);
+    background-color: var(--modal-hint-background-color);
+  }
+
+  --m3e-list-item-supporting-text-color: var(--modal-description-color);
+
+  .sb-selected-option {
+    --m3e-list-item-container-color: var(
+      --modal-selected-option-background-color
+    );
+    --m3e-list-item-label-text-color: var(--modal-selected-option-color);
+    --m3e-list-item-supporting-text-color: var(
+      --modal-selected-option-description-color
+    );
   }
 }
 
@@ -188,28 +323,63 @@
     }
   }
 
+  // Slash-command / editor autocomplete tooltip (CM6 `.cm-tooltip-autocomplete`,
+  // wired in `codemirror/editor_state.ts`'s `autocompletion()`). No clean hook
+  // to swap CM's own <ul>/<li> for real m3e-menu/m3e-list-item elements —
+  // `@codemirror/autocomplete`'s `completionTooltip` only exposes classname
+  // hooks (`optionClass`/`tooltipClass`/`addToOptions`), not a DOM/tag swap —
+  // so this is a token-driven CSS reskin, not an element swap. CM appends the
+  // tooltip inside `.cm-editor` (no `parent` set on `tooltips()`), which lives
+  // inside `editor_ui.tsx`'s `<m3e-theme>` wrapper, so `--md-sys-color-*`
+  // inherits here like any other reskinned surface.
   .cm-editor .cm-tooltip-autocomplete {
-    background-color: var(--root-background-color);
-    color: var(--modal-color);
+    // Named local custom props (not inlined into background-color/color
+    // directly) so a `getComputedStyle` read can compare them against
+    // `--md-sys-color-*` as literal-vs-literal (e2e-verifiable, same
+    // pattern as `--m3e-outlined-chip-outline-color` above) instead of
+    // fighting rgb()-vs-hex formatting on the resolved CSS property.
+    --sb-autocomplete-surface-color: var(--md-sys-color-surface-container);
+    --sb-autocomplete-on-surface-color: var(--md-sys-color-on-surface);
+    background-color: var(--sb-autocomplete-surface-color);
+    color: var(--sb-autocomplete-on-surface-color);
+    border: none;
+    border-radius: var(--md-sys-shape-corner-value-small, 8px);
+    box-shadow:
+      0px 1px 2px 0px
+        color-mix(in srgb, var(--md-sys-color-shadow, #000) 30%, transparent),
+      0px 2px 6px 2px
+        color-mix(in srgb, var(--md-sys-color-shadow, #000) 15%, transparent);
+    overflow: hidden;
+    padding: 4px 0;
+
+    li {
+      margin: 0 4px;
+      border-radius: var(--md-sys-shape-corner-value-extra-small, 4px);
+    }
 
     li .cm-completionDetail {
-      color: var(--editor-completion-detail-color);
+      color: var(--md-sys-color-on-surface-variant);
     }
 
     li[aria-selected] .cm-completionDetail,
     li:hover .cm-completionDetail {
-      color: var(--editor-completion-detail-selected-color);
+      color: inherit;
     }
 
-    ul:hover li[aria-selected] {
-      background: transparent;
-      color: var(--modal-color);
-    }
+    // `!important`: CM's own baseTheme ships
+    // `&light .cm-tooltip-autocomplete ul li[aria-selected] { background: #17c }`
+    // via an injected StyleModule with higher selector specificity
+    // (`.cm-editor.cm-light …`) than anything reachable from here — the only
+    // reliable way to fully own the selection color is to out-rank it.
+    --sb-autocomplete-selected-color: var(--md-sys-color-secondary-container);
+    --sb-autocomplete-on-selected-color: var(
+      --md-sys-color-on-secondary-container
+    );
 
-    ul li:hover,
-    ul li[aria-selected]:hover {
-      background: #17c;
-      color: white;
+    li[aria-selected],
+    li:hover {
+      background-color: var(--sb-autocomplete-selected-color) !important;
+      color: var(--sb-autocomplete-on-selected-color) !important;
     }
   }
 
@@ -236,6 +406,12 @@
   }
 }
 
+// Still live: client/codemirror/hashtag.ts and frontmatter_folding.ts both
+// render `<a class="sb-hashtag" data-tag-name="...">` for the editing-mode
+// decoration. Only client/markdown_renderer/markdown_render.ts's read-mode
+// preview has migrated to `<m3e-assist-chip data-tag-name="...">` (see the
+// chip rules below) — both paths are simultaneously live on this main, so
+// both rule sets stay.
 .sb-hashtag,
 .hashtag {
   color: var(--editor-hashtag-color);
@@ -244,6 +420,49 @@
   cursor: pointer;
 }
 
+// Tag pills (m3e-assist-chip, see markdown_renderer/markdown_render.ts's
+// Hashtag case — already live in read-mode preview). The chip itself
+// supplies the pill shape/border/click affordance — this only picks the
+// color, so provenance-style tags read as visually distinct pills. Falls
+// back to this file's existing hashtag color tokens for any tag not in the
+// palette below.
+m3e-assist-chip[data-tag-name] {
+  --m3e-outlined-chip-outline-color: var(--editor-hashtag-border-color);
+  --m3e-chip-label-text-color: var(--editor-hashtag-color);
+  vertical-align: middle;
+}
+
+// Provenance-style tags (task/issue/approach/…) mapped onto the M3 system
+// color roles editor_ui.tsx's `m3e-theme` already generates at runtime, so
+// this needs no new colors of its own — just picking which role per tag.
+m3e-assist-chip[data-tag-name="task"],
+m3e-assist-chip[data-tag-name="event"] {
+  --m3e-outlined-chip-outline-color: var(--md-sys-color-primary);
+  --m3e-chip-label-text-color: var(--md-sys-color-primary);
+}
+
+m3e-assist-chip[data-tag-name="issue"],
+m3e-assist-chip[data-tag-name="ping"] {
+  --m3e-outlined-chip-outline-color: var(--md-sys-color-error);
+  --m3e-chip-label-text-color: var(--md-sys-color-error);
+}
+
+m3e-assist-chip[data-tag-name="approach"],
+m3e-assist-chip[data-tag-name="person"],
+m3e-assist-chip[data-tag-name="contact"] {
+  --m3e-outlined-chip-outline-color: var(--md-sys-color-secondary);
+  --m3e-chip-label-text-color: var(--md-sys-color-secondary);
+}
+
+m3e-assist-chip[data-tag-name="idea"] {
+  --m3e-outlined-chip-outline-color: var(--md-sys-color-tertiary);
+  --m3e-chip-label-text-color: var(--md-sys-color-tertiary);
+}
+
+// Still live: client/codemirror/at_mention.ts renders `<a class=
+// "sb-at-mention" data-mention-name="...">`. The fork provides no
+// replacement for at-mentions at all (its chip rules only cover hashtag-style
+// provenance tags) — deleting these would leave at-mentions unstyled.
 .sb-at-mention {
   color: var(--editor-at-mention-color);
   background-color: var(--editor-at-mention-background-color);
@@ -294,6 +513,7 @@ tbody tr:nth-of-type(even) {
 .sb-line-blockquote {
   background-color: var(--editor-blockquote-background-color);
   color: var(--editor-blockquote-color);
+  border-left: 1px solid var(--editor-blockquote-border-color);
 }
 
 .sb-comment-block {
@@ -319,14 +539,14 @@ tbody tr:nth-of-type(even) {
   color: var(--editor-code-color);
 }
 
+// font-weight: bold moved to a Tailwind class (client/style.ts's tag map
+// already carries "sb-directive-mark font-bold" / "sb-directive font-bold").
 .sb-directive-mark {
   color: var(--editor-directive-mark-color);
-  font-weight: bold;
 }
 
 .sb-directive {
   color: var(--editor-directive-color);
-  font-weight: bold;
 }
 
 .sb-highlight {
@@ -434,23 +654,10 @@ tbody tr:nth-of-type(even) {
   color: var(--editor-frontmatter-marker-color);
 }
 
-.sb-emphasis {
-  font-style: italic;
-}
-
-.sb-strong {
-  font-weight: 900;
-}
-
-.sb-sub {
-  vertical-align: sub;
-  font-size: smaller;
-}
-
-.sb-sup {
-  vertical-align: super;
-  font-size: smaller;
-}
+// .sb-emphasis/.sb-strong/.sb-sub/.sb-sup: var-free typography, migrated to
+// Tailwind classes on client/style.ts's tag map (italic/font-black/align-*/
+// text-[smaller], grep-confirmed already present) — no rules left here, only
+// the tag-map class strings remain.
 
 .sb-line-code-outside .sb-code-info {
   color: var(--editor-code-info-color);
@@ -506,17 +713,15 @@ a.sb-wiki-link-ambiguous,
   font-size: 80%;
 }
 
+// Layout/shape (border-width, radius, padding, font-size, flex, cursor)
+// already moved to Tailwind classes at footnote.ts's call site
+// (FOOTNOTE_REF_LAYOUT_CLASSES, grep-confirmed); color-bearing declarations
+// (including the un-themed #f3eeee background — a pre-existing dark-mode
+// bug, left as-is, out of scope for this pass) stay here.
 .sb-footnote-ref {
   color: var(--meta-subtle-color);
-  border: 1px solid var(--meta-subtle-color);
-  border-radius: 3px;
-  padding: 0 2px;
-  font-size: 0.75em;
+  border-color: var(--meta-subtle-color);
   background-color: #f3eeee;
-  display: inline-flex;
-  align-items: center;
-  vertical-align: middle;
-  cursor: pointer;
 }
 
 .sb-footnote-ref-unresolved {

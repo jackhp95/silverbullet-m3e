@@ -1,3 +1,34 @@
+// Reconciliation note (slice-6-styles, 2026-09-23): the m3e-reskin fork tip
+// (4cfc3763) rewrote large parts of this file — most significantly an
+// #sb-main → m3e-drawer-container + #sb-page-scroll auto-height-editor
+// restructuring (docs/plans/2026-09-22-appbar-large-frontmatter-scroll-snap.md,
+// leaves L5/L6/L7/L9/L10) and a .sb-modal/.sb-modal-backdrop → <m3e-dialog
+// dismissible> migration for the plug showPanel("modal") surface. BOTH are
+// paired with TSX/TS changes (editor_ui.tsx markup, navigator.ts/
+// content_manager.ts/client.ts scroll-tracking repoint) that have not landed
+// on this worktree's main — confirmed via `grep -rn` across client/:
+// editor_ui.tsx still renders plain `<div id="sb-main">`/`<div id="sb-editor"
+// />`, no `PAGE_SCROLL_CONTAINER_ID`/`#sb-page-scroll` exists in any .ts file,
+// and navigator/ui/panels.tsx + navigator/ui/components/revision_preview.tsx
+// still render `.sb-modal-backdrop`/`.sb-modal-centered`/
+// `.sb-modal-paint-pending` directly. The scroll-snap plan doc itself treats
+// this file's cleanup as its own leaf (L10), sequenced AFTER the TS leaves —
+// so doing L10 alone, here, ahead of them would be premature per the plan's
+// own ordering, not just risky. Deferred both wholesale (kept main's
+// #sb-main/#sb-editor/.sb-modal* blocks unchanged) rather than half-landing;
+// landed only fork's genuinely new, non-overlapping additions (the m3e-dialog
+// .sb-panel rule below is inert until that migration lands) and confirmed-dead
+// deletions (.sb-bottom-iframe/.sb-top-iframe/.sb-hidden/.sb-preview/
+// .sb-markdown-toolbar — zero call sites anywhere in client/, grep-verified).
+//
+// The five `@use` partials below (navigator/revision_preview/dock_menu/
+// page_widget/view_content) are NOT part of this reconciliation slice (only
+// the 8 files listed in the slice-6-styles brief are); fork's tree deletes
+// them (consolidated/replaced elsewhere in its own history), but their
+// partial files (client/styles/_navigator.scss etc.) still exist on this
+// main with real content and are still the only styling for live features
+// (page navigator, revision preview, dock menu, page widget, view content),
+// so their `@use` lines are kept.
 @use "tokens";
 @use "editor";
 @use "modals";
@@ -14,6 +45,71 @@
 @use "page_widget";
 @use "view_content";
 
+// m3e-icon (Material Symbols) renders text-as-ligature against a font named
+// exactly "Material Symbols Outlined" — it does not ship or inject that font
+// itself (only doc'd guidance is a Google Fonts CDN <link>). Without this,
+// m3e-icon silently falls back to rendering the icon `name` as literal text.
+// Self-hosted (client/fonts/) for the same offline-first reason as the
+// iA-Mono faces (theme.scss's `@use "fonts"` → _fonts.scss, untouched by this
+// reconciliation slice — out of its 8-file scope, already works, not moved).
+@font-face {
+  font-family: "Material Symbols Outlined";
+  src: url("MaterialSymbolsOutlined.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+// Monaspace Neon — GitHub's open-source (SIL OFL 1.1) monospace superfamily's
+// flagship sub-family — self-hosted static per-weight/style faces (same
+// convention as the iA-Mono faces in _fonts.scss). License:
+// client/fonts/LICENSE-Monaspace.txt (SIL OFL 1.1).
+@font-face {
+  font-family: "Monaspace Neon";
+  src: url("MonaspaceNeon-Regular.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Monaspace Neon";
+  src: url("MonaspaceNeon-Bold.woff2") format("woff2");
+  font-weight: bold;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Monaspace Neon";
+  src: url("MonaspaceNeon-Italic.woff2") format("woff2");
+  font-weight: normal;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "Monaspace Neon";
+  src: url("MonaspaceNeon-BoldItalic.woff2") format("woff2");
+  font-weight: bold;
+  font-style: italic;
+}
+
+// Roboto — Google's open-source (Apache License 2.0) typeface, Material's own
+// default — self-hosted static woff2s (latin, normal + bold only — read-only
+// chrome/body text, not an editing surface). License:
+// client/fonts/LICENSE-Roboto.txt (Apache License 2.0).
+@font-face {
+  font-family: "Roboto";
+  src: url("Roboto-Regular.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Roboto";
+  src: url("Roboto-Bold.woff2") format("woff2");
+  font-weight: bold;
+  font-style: normal;
+}
+
 html,
 body {
   margin: 0;
@@ -21,6 +117,18 @@ body {
   padding: 0;
   width: 100%;
   overflow: hidden;
+  // Baseline for anything the app doesn't explicitly style — most notably
+  // m3e-snackbar, which M3eSnackbar.open() appends directly to
+  // `document.body` (confirmed in node_modules/@m3e/web/dist/snackbar.js:
+  // `document.body.append(snackbar)`), i.e. as a SIBLING of #sb-root, not a
+  // descendant — so it never inherits #sb-root's own font-family and falls
+  // all the way back to the browser's true UA-default. Root cause, not a
+  // per-component patch: fix it once at the true document root so any future
+  // top-layer/body-appended m3e surface (menus, dialogs, tooltips) inherits
+  // sane theming by default. Uses --chrome-font (not a static font) since a
+  // reload/status snackbar is exactly the kind of transient, content-state-
+  // adjacent chrome the editable/read-only cue is meant to reach.
+  font-family: var(--chrome-font);
   background-color: var(--top-background-color);
 }
 
@@ -36,19 +144,8 @@ body {
   flex: 1;
 }
 
-.sb-bottom-iframe {
-  width: 100%;
-  margin-top: 10px;
-  border: 1px solid var(--editor-widget-background-color);
-  border-radius: 4px;
-}
-
-.sb-top-iframe {
-  width: 100%;
-  margin-top: 10px;
-  border: 1px solid var(--editor-widget-background-color);
-  border-radius: 4px;
-}
+// DEAD: .sb-bottom-iframe/.sb-top-iframe — zero call sites anywhere in
+// client/ or plugs/ (grep-verified). Both rules deleted.
 
 #sb-main {
   display: flex;
@@ -93,9 +190,21 @@ body {
   }
 }
 
-.sb-hidden {
-  display: none;
+// The showPanel("modal") plug panel's future <m3e-dialog> host (not yet
+// wired — editor_ui.tsx still renders the .sb-modal/.sb-modal-backdrop pair
+// below): only the plug's Panel iframe needs a local rule once that lands —
+// backdrop/scrim/border/elevation/mobile-inset become the component's own.
+// Inert until `<m3e-dialog>` exists in that markup; zero-conflict to land now
+// (namespaced under an element this file doesn't otherwise reference).
+m3e-dialog .sb-panel {
+  height: 100%;
+
+  iframe {
+    background-color: initial;
+  }
 }
+
+// DEAD: .sb-hidden — zero call sites anywhere in client/ (grep-verified).
 
 // Keep 600px in step with `MOBILE_MEDIA_QUERY` in `client/lib/mobile.ts`.
 @media only screen and (max-width: 600px) {
@@ -184,13 +293,21 @@ body {
   }
 }
 
+// Structure kept as main's original (top_bar.tsx hasn't migrated this to
+// Tailwind classes — no `flex items-baseline flex-none text-left pt-[3px]
+// whitespace-pre-wrap` at its call site, confirmed via grep — so the full
+// property set below is still load-bearing, not just font-family). Token
+// swapped from --ui-font to --chrome-font per fork's real, self-contained
+// intent: this is content-adjacent chrome (the page-title prefix), so it
+// should carry the same editable/read-only cue as the rest of the chrome
+// font family, not the static UI font.
 .sb-page-prefix {
   display: flex;
   align-items: baseline;
   flex: 0 0 auto;
   text-align: left;
   padding-top: 3px;
-  font-family: var(--ui-font);
+  font-family: var(--chrome-font);
   white-space: pre-wrap;
   height: 36px;
   line-height: 36px;
@@ -209,32 +326,19 @@ body {
   }
 }
 
-.sb-panel {
-  iframe {
-    display: block;
-    background-color: var(--root-background-color);
-    border: 0;
-    width: 100%;
-    height: 100%;
-    padding: 0;
-    margin: 0;
-  }
+// border/width/height/padding/margin moved to Tailwind classes (`border-0
+// w-full h-full p-0 m-0`, confirmed already present) at panel.tsx's
+// IFramePanel iframe call site; `display:block` was never one of the
+// properties Tailwind's utilities above replicate, but a plain `<iframe>` is
+// already `display:inline` (baseline-gap prone), and nothing currently
+// depends on that gap (panel.tsx's own wrapper controls sizing), so dropping
+// it matches fork's reduction. Only the theme-token background-color stays.
+.sb-panel iframe {
+  background-color: var(--root-background-color);
 }
 
-.sb-preview {
-  position: relative;
-}
-
-.sb-markdown-toolbar {
-  position: absolute;
-  opacity: 0;
-  transition: opacity 0.2s;
-  width: 100%;
-  display: flex;
-  justify-content: flex-end;
-  box-sizing: border-box;
-}
-
-.sb-markdown-toolbar:hover {
-  opacity: 1;
-}
+// DEAD: .sb-preview — zero call sites anywhere in the repo.
+//
+// DEAD: .sb-markdown-toolbar(:hover) — orphaned by a rename; the live
+// floating toolbar is .sb-floating-toolbar (top.scss), styled by
+// floating_toolbar.tsx (confirmed live). Both rules deleted.

@@ -1,5 +1,32 @@
 /* Shared UI components. Built on theme.scss tokens. Framework-independent. */
 
+// Reconciliation note (slice-6-styles, 2026-09-23): the m3e-reskin fork tip
+// (4cfc3763) rewrote this file heavily — real box-painting CSS for
+// `.sb-button-danger`/`.sb-button-icon`/`.sb-badge`/`.sb-alert*`/`.sb-input`/
+// `.sb-select`/`.sb-tabs`/`.sb-tab`/`.sb-url-input`/`.sb-url-affix` collapsed
+// down to `--m3e-*`/Tailwind-utility scaffolding, on the assumption that
+// `Button`/`Checkbox`/`Tabs`/`Alert`/`Badge`/`Input` (plug-api/ui) and their
+// call sites had already swapped to `<m3e-button>`/`<m3e-checkbox>`/
+// `<m3e-tabs>`/`<m3e-snackbar>`/`<m3e-chip>` markup, or moved layout to
+// Tailwind classes at the call site. Confirmed via direct read of every
+// plug-api/ui/*.tsx source file (not just grep) that none of those swaps
+// have landed on this main except `Progress` (see its own note below,
+// c60c7f50 already migrated it to `m3e-linear-progress-indicator`) — `Button`
+// still renders plain `<button>`/`<a>`, `Checkbox` a plain `<input
+// type=checkbox>`, `Alert` a plain `<div>`, `Badge` a plain `<span>`, `Tabs`
+// (plug-api/ui/tabs.tsx) a plain `<div>`/`<a>`/`<button>` tree with ZERO
+// current call sites anywhere in client/ (dead-but-not-yet-wired component).
+// `UrlPrefixInput`'s real call site is `BindingFields.tsx`, not the
+// `SpaceForm.tsx` fork's comments assume, and adds none of the Tailwind
+// classes fork's deletions rely on. Per this reconciliation's own
+// methodology: kept main's real box-painting CSS wherever grep proved a live
+// plain-element consumer still depends on it (all of the above); landed only
+// fork's genuinely new, non-overlapping `--m3e-*` custom-property scaffolding
+// (inert on a plain element, harmless, forward-compatible — same technique
+// already established by modals.scss's `.sb-button-error`/main.scss's
+// `.sb-panel`) and the one deletion (`.sb-progress`/`.sb-progress-bar`) whose
+// underlying component swap is actually confirmed landed.
+
 button,
 input,
 select,
@@ -70,6 +97,31 @@ textarea,
     opacity: 0.5;
     cursor: default;
   }
+
+  // Forward scaffolding from the m3e-reskin fork (4cfc3763): inert on this
+  // main's plain `<button class="sb-button sb-button-danger">` (grep-
+  // confirmed live consumers: UsersView/GitSyncPage/AuthenticationView/
+  // SpaceForm's `variant="danger"` Button calls) — these custom properties
+  // have no effect until Button.tsx migrates to `<m3e-button>`, at which
+  // point the box-painting properties above become dead and these take over.
+  // Same technique as modals.scss's `.sb-button-error`.
+  --m3e-filled-button-container-color: var(--danger-color);
+  --m3e-filled-button-label-text-color: var(--danger-contrast-color);
+  --m3e-filled-button-hover-label-text-color: var(--danger-contrast-color);
+  --m3e-filled-button-hover-state-layer-color: var(--danger-contrast-color);
+  --m3e-filled-button-focus-label-text-color: var(--danger-contrast-color);
+  --m3e-filled-button-focus-state-layer-color: var(--danger-contrast-color);
+  --m3e-filled-button-pressed-label-text-color: var(--danger-contrast-color);
+  --m3e-filled-button-pressed-state-layer-color: var(--danger-contrast-color);
+}
+
+// Forward scaffolding, same reasoning as above — inert until Button.tsx
+// migrates `variant="primary"` to `<m3e-button>` (currently a plain
+// `<button>`/`<a>`, box-painted by the `.sb-button, .sb-button-primary` base
+// block above via the --color/--background-color bridge).
+.sb-button-primary {
+  --m3e-filled-button-container-color: var(--primary-button-background-color);
+  --m3e-filled-button-label-text-color: var(--primary-button-color);
 }
 
 .sb-button-icon {
@@ -102,6 +154,17 @@ textarea,
   cursor: default;
 }
 
+// Fork (4cfc3763) reskinned this to `border: 0; border-radius: 0.5em;
+// font-size: 0.9em;` and dropped the `:focus-visible` rule below, with a
+// "MUST STAY (a)" comment saying no `<m3e-text-field>` is wired into these
+// call sites yet — true here too (input.tsx confirmed unconditionally plain
+// `<input class="sb-input">`, no `bare`-mode split). Deferred the cosmetic
+// reskin itself (not just the class-bridge decision fork's comment was
+// about): landing it here alone would visually mismatch the button block
+// above, which stays square/13px for the same reason (m3e-button not wired,
+// see its own note), and it would silently drop the only focus indicator
+// this control has with no replacement offered. Revisit alongside the
+// button reskin once an actual <m3e-*> form-field swap lands.
 .sb-input,
 .sb-select {
   padding: 0.3em 0.6em;
@@ -127,6 +190,13 @@ textarea,
   padding-right: 1.2em;
 }
 
+// CM-only: styles the raw `<input type=checkbox>` CodeMirror's task-list
+// widget renders inline in editable document content (client/codemirror/
+// task.ts). plug-api/ui's Checkbox component also still renders a plain
+// `<input type="checkbox" class="sb-checkbox">` on this main (checkbox.tsx
+// confirmed, no `<m3e-checkbox>` swap landed — c60c7f50's own note says that
+// swap was audited and reverted, deferred to land alongside its consumers),
+// so this rule stays load-bearing for both.
 .sb-checkbox {
   width: 16px;
   height: 16px;
@@ -134,6 +204,26 @@ textarea,
   cursor: pointer;
 }
 
+// Forward scaffolding (4cfc3763): zero current consumer (no `<m3e-checkbox>`
+// anywhere in client/) — lands ahead of the eventual Checkbox.tsx swap noted
+// above, non-overlapping with `.sb-checkbox` so it's harmless either way.
+.m3e-checkbox {
+  vertical-align: middle;
+}
+
+// plug-api/ui/tabs.tsx (`Tabs`) has ZERO call sites anywhere in client/ right
+// now (grep-confirmed) — a component landed ahead of its own consumer, same
+// pattern as client/lib/scroll_snap.ts. It still renders a plain
+// `<div class="sb-tabs">`/`<a|button class="sb-tab">` tree, not
+// `<m3e-tabs>`/`<m3e-tab>`, so fork's `:not(m3e-tabs)`/`:not(m3e-tab)`
+// scoping + cosmetic reskin are premature here — and adding `:not(m3e-tab)`
+// specifically would raise `.sb-tab`'s specificity via the type-selector
+// argument, which would flip cascade order against the later
+// `.sb-section-link, .sb-tab { font-size: 13px; }` override further down
+// this file (both currently 0,1,0; `:not(type)` bumps this block to 0,1,1).
+// Kept unchanged, including the display:flex box below, which fork deleted
+// on the assumption Tailwind classes were added at a call site that does not
+// yet exist.
 .sb-tabs {
   display: flex;
   gap: 0;
@@ -161,6 +251,13 @@ textarea,
   }
 }
 
+// plug-api/ui/alert.tsx's `Alert` still renders a plain
+// `<div class="sb-alert sb-alert-{variant}">` on this main — a stray comment
+// in client/spaces_ui/space_fields.tsx ("Alert renders `m3e-snackbar`
+// (Task D)") describes fork's own already-migrated state, contradicted by
+// the actual component source (checked directly, not just grepped); c60c7f50
+// also confirms Alert's swap "stay[s] on main's originals since th[at] swap
+// remain[s] deferred". Kept main's full rule set (fork deleted all of it).
 .sb-alert {
   padding: 8px 12px;
   font-size: 0.85em;
@@ -186,6 +283,13 @@ textarea,
   border-color: var(--alert-info-border-color);
 }
 
+// Badge.tsx still renders a plain `<span class="sb-badge">` on this main
+// (c60c7f50's own note: the `<m3e-chip>` swap was "audited and reverted...
+// deferred to Slice 6 alongside their consumers" — UsersView.tsx/
+// AccessGrid.tsx are conflict-surface files, not yet migrated). Kept main's
+// full box CSS; added fork's `--m3e-chip-*` tokens as inert scaffolding
+// (a plain `<span>` ignores unconsumed custom properties) for whenever that
+// swap lands.
 .sb-badge {
   flex-shrink: 0;
   display: inline-flex;
@@ -196,21 +300,26 @@ textarea,
   background-color: var(--badge-background-color);
   color: var(--badge-color);
   border-radius: 2px;
+
+  --m3e-chip-container-height: 18px;
+  --m3e-chip-padding-start: 6px;
+  --m3e-chip-padding-end: 6px;
+  --m3e-chip-label-text-font-size: 10px;
+  --m3e-chip-label-text-font-weight: 500;
+  --m3e-chip-label-text-color: var(--badge-color);
+  --m3e-outlined-chip-outline-color: transparent;
 }
 
-.sb-progress {
-  width: 100%;
-  height: 4px;
-  background-color: var(--subtle-background-color);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.sb-progress-bar {
-  height: 100%;
-  background-color: var(--ui-accent-color);
-  transition: width 150ms ease;
-}
+// `.sb-progress`/`.sb-progress-bar` removed (2026-09-23): unlike every other
+// deletion fork proposed in this file, this one's underlying swap IS
+// confirmed landed — c60c7f50 already migrated plug-api/ui/progress.tsx to
+// render `<m3e-linear-progress-indicator class="sb-progress" value={pct}
+// max={100}>` directly (verified by reading the file), a single self-
+// painting custom element with no nested `.sb-progress-bar` child anymore.
+// The old div-based box CSS (width/height/background/border-radius/overflow)
+// no longer has a matching light-DOM structure to style; fork's own
+// SCSS-reduction audit reached the same conclusion for the same reason and
+// dropped the rule with no replacement, which this adopts as-is.
 
 /* Subtle and inherits the button's text color. */
 .sb-kbd {
@@ -219,6 +328,17 @@ textarea,
   opacity: 0.6;
 }
 
+// Fork's deletions here assume Tailwind utility classes were added at
+// `SpaceForm.tsx`'s call site and that `.sb-url-input .sb-input` never
+// matches. Neither holds on this main: the real call site is
+// `BindingFields.tsx` (grep-confirmed; SpaceForm.tsx doesn't reference
+// UrlPrefixInput/sb-url-input at all), and `UrlPrefixInput`'s own markup
+// (plug-api/ui/url_prefix_input.tsx) adds no extra classes — `<div
+// class="sb-url-input"><span class="sb-url-affix">…</span><Input .../></div>`
+// with the affix/input as direct children and no wrapper Tailwind classes.
+// `Input` also still unconditionally emits `sb-input` (no `bare`-mode split
+// like fork's version), so `.sb-url-input .sb-input` is real, not dead. Kept
+// this whole block unchanged.
 .sb-url-input {
   display: flex;
   align-items: stretch;

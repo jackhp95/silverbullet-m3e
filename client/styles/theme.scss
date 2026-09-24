@@ -2,6 +2,68 @@
 
 @use "tokens";
 
+// Reconciliation note (slice-6-styles, 2026-09-23): the m3e-reskin fork tip
+// (4cfc3763) re-audited this file and its claims mostly hold up (16 genuinely
+// dead custom-property pairs deleted, the 4x duplicated admonition
+// width/display logic collapsed to one shared selector list, the read-only
+// font swap + --chrome-font token added — the last two are NOT
+// forward-looking scaffolding: client/styles/main.scss and modals.scss
+// already reference `--chrome-font`, and main.scss already self-hosts the
+// Monaspace Neon / Roboto @font-face declarations fork's --editor-font /
+// html[data-read-only="on"] rules assume — so adding this token here
+// completes an already-in-flight migration rather than anticipating one).
+//
+// But several of fork's OTHER deletions describe fork's OWN codebase state,
+// which has drifted ahead of what's landed on this main — grep across
+// client/ found a live, unmigrated consumer in each case, so main's value is
+// kept:
+//   - `@use "fonts";`: this file is the ONLY `@use "fonts"` in client/styles
+//     (grep-confirmed) — Sass's `@use` doesn't re-export by default, so
+//     dropping it here (as fork does) would silently remove _fonts.scss's
+//     content from the compiled bundle if it defines anything. Kept.
+//   - `--text-field-focus-color`: live in client/styles/_navigator.scss,
+//     components.scss, and management.scss. Kept.
+//   - `--alert-{error,warning,info}-{color,background-color,border-color}`
+//     (9 tokens): live in components.scss, _navigator.scss, _page_widget.scss,
+//     editor.scss. Kept, both light and dark.
+//   - `--editor-external-edit-color`/`--editor-external-caret-color`: live in
+//     editor.scss. Kept, both light and dark.
+//   - `--notifications-background-color`/`-border-color`/
+//     `--notification-{info,error,warning}-background-color`: colors.scss's
+//     still-live `.sb-notifications`/`.sb-notification-*` rules (see that
+//     file's reconciliation note — top_bar.tsx hasn't migrated to
+//     m3e-snackbar) read these. Kept main's color-mix-based light values
+//     AND kept the same color-mix formula for dark (declined fork's
+//     alternate hardcoded dark literals — light has no fork counterpart to
+//     pair them with, so keeping both themes on the original formula stays
+//     internally consistent).
+//   - dark theme's `--ui-accent-color: #79a9f2` / `--ui-accent-contrast-color:
+//     #13243e`: fork deletes these, reasoning that _tokens.scss's
+//     unconditional value is "byte-identical" to the dark override — true in
+//     fork's own tokens.scss (#464cfc there), but THIS worktree's
+//     client/styles/_tokens.scss unconditionally sets
+//     `--ui-accent-color: #3569b8` (a light-tuned value, not dark-safe) with
+//     no fork-side single-accent-color migration having landed. Deleting the
+//     dark override would revert dark mode to the light-tuned accent color —
+//     a real regression. Kept main's dark override; also kept main's single
+//     `--ui-accent-text-color: var(--ui-accent-color)` line rather than
+//     fork's added `color-mix(…, white 50%)` variant, since that mix was
+//     tuned against fork's #464cfc (a more saturated color needing lightening
+//     for text-on-dark use) — main's already-dark-tuned #79a9f2 doesn't need
+//     the same treatment, and double-lightening it wasn't grep-verifiable as
+//     correct for this main. If tokens.scss's own reconciliation later lands
+//     a single unconditional accent color, this pairing should be revisited.
+//
+// Fixed two of fork's own asymmetric dead-code deletions (removed from one
+// theme block but left dangling, still referenced, in the other) rather than
+// carrying the inconsistency forward: `--success-color` and
+// `--action-button-active-color` were deleted from the light `html` block
+// but left defined (unused) in the dark block — both are genuinely
+// zero-consumer (grep-confirmed) in EITHER theme, so removed from both for
+// symmetry. Likewise restored `--editor-hashtag-background-color` in the
+// light block (fork deleted only there, keeping it in dark) since
+// colors.scss's still-live `.sb-hashtag` rule (see that file's note) reads
+// it in both themes.
 html {
   --ui-accent-text-color: var(--ui-accent-color);
   --text-field-focus-color: color-mix(in srgb, var(--ui-accent-color) 45%, var(--ui-surface-border-color));
@@ -20,15 +82,15 @@ html {
   --ui-surface-background-color: var(--root-background-color);
   --ui-surface-color: var(--root-color);
   --ui-surface-subtle-color: var(--subtle-color);
-  --ui-surface-border-color: #d8dce1;
+  --ui-surface-border-color: #ddd;
   --ui-surface-section-background-color: var(--subtle-background-color);
   --ui-surface-hover-background-color: var(--subtle-background-color);
 
   --root-background-color: #fff;
-  --root-color: #20252d;
+  --root-color: inherit;
 
   --top-color: inherit;
-  --top-background-color: #eee;
+  --top-background-color: #e1e1e1;
   --top-border-color: #cacaca;
   --top-sync-error-color: var(--top-color);
   --top-sync-error-background-color: #fdf8cb;
@@ -36,27 +98,27 @@ html {
   --top-unsaved-color: #5e5e5e;
   --top-loading-color: #7a7a7a;
 
-  --panel-background-color: #f6f7f8;
-  --panel-border-color: var(--ui-surface-border-color);
+  --panel-background-color: #fff;
+  --panel-border-color: #fff;
 
   --bhs-background-color: #fff;
   --bhs-border-color: rgb(193, 193, 193);
 
   --modal-color: inherit;
   --modal-background-color: #fff;
-  --modal-border-color: var(--ui-surface-border-color);
-  --modal-backdrop-color: transparent;
+  --modal-border-color: rgb(108, 108, 108);
+  --modal-backdrop-color: rgba(0, 0, 0, 0.15);
   --modal-header-label-color: var(--ui-accent-text-color);
   --modal-help-background-color: #eee;
   --modal-help-color: #555;
-  --modal-selected-option-background-color: color-mix(in srgb, var(--ui-accent-color) 12%, var(--modal-background-color));
-  --modal-selected-option-color: var(--root-color);
+  --modal-selected-option-background-color: var(--ui-accent-color);
+  --modal-selected-option-color: var(--ui-accent-contrast-color);
   --modal-hint-background-color: #212476;
   --modal-hint-color: #eee;
   --modal-hint-inactive-background-color: #e1e1e1;
   --modal-hint-inactive-color: #111;
   --modal-description-color: #6b6b6b;
-  --modal-selected-option-description-color: var(--subtle-color);
+  --modal-selected-option-description-color: #e6e6e6;
 
   --notifications-background-color: inherit;
   --notifications-border-color: var(--ui-surface-border-color);
@@ -64,14 +126,14 @@ html {
   --notification-error-background-color: color-mix(in srgb, var(--alert-error-color) 10%, var(--modal-background-color));
   --notification-warning-background-color: color-mix(in srgb, var(--alert-warning-color) 10%, var(--modal-background-color));
 
-  --button-background-color: #f6f7f8;
-  --button-hover-background-color: #edf0f3;
-  --button-color: var(--root-color);
-  --button-border-color: var(--ui-surface-border-color);
+  --button-background-color: #eee;
+  --button-hover-background-color: #e0e0e0;
+  --button-color: black;
+  --button-border-color: #6c6c6c;
   --primary-button-background-color: var(--ui-accent-color);
   --primary-button-hover-background-color: color-mix(in srgb,
       var(--ui-accent-color),
-      black 18%);
+      black 35%);
   --primary-button-color: var(--ui-accent-contrast-color);
   --primary-button-border-color: transparent;
 
@@ -84,15 +146,12 @@ html {
   --action-button-background-color: transparent;
   --action-button-color: #292929;
   --action-button-hover-color: #0772be;
-  --action-button-active-color: #0772be;
 
   --editor-caret-color: black;
   --editor-selection-background-color: #d7e1f6;
   --editor-panels-bottom-color: inherit;
   --editor-panels-bottom-background-color: #e1e1e1;
   --editor-panels-bottom-border-color: #cacaca;
-  --editor-completion-detail-color: #555;
-  --editor-completion-detail-selected-color: #d2d2d2;
   --editor-list-bullet-color: rgb(150, 150, 150);
   --editor-heading-color: #333;
   --editor-heading-meta-color: var(--meta-subtle-color);
@@ -113,12 +172,6 @@ html {
   --editor-wiki-link-page-color: var(--link-color);
   --editor-wiki-link-page-missing-color: var(--link-missing-color);
   --editor-wiki-link-page-invalid-color: var(--link-invalid-color);
-  --editor-wiki-link-color: #8f96c2;
-  --editor-command-button-color: inherit;
-  --editor-command-button-background-color: #e3dfdf;
-  --editor-command-button-hover-background-color: inherit;
-  --editor-command-button-meta-color: var(--meta-subtle-color);
-  --editor-command-button-border-color: gray;
   --editor-line-meta-color: var(--meta-subtle-color);
   --editor-meta-color: var(--meta-color);
   --editor-table-head-background-color: #333;
@@ -160,13 +213,34 @@ html {
   --editor-panels-bottom-button-active-background-image: linear-gradient(#b4b4b4,
       #d0d3d6);
 
-  --ui-font: "iA-Mono", "Menlo", monospace;
-  --editor-font: "iA-Mono", "Menlo";
+  --ui-font:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+    "Segoe UI Symbol", "Noto Color Emoji";
+  // The read-only-aware counterpart to --ui-font, for chrome that visually
+  // relates to "am I looking at editable content" (the page-title editor,
+  // the search/filter view — see the html[data-read-only="on"] rule below
+  // and its consumers in top.scss/main.scss/modals.scss — modals.scss and
+  // main.scss already reference --chrome-font, grep-confirmed). Deliberately
+  // a SEPARATE variable from --ui-font rather than making --ui-font itself
+  // read-only-aware: --ui-font is still the base font for persistent chrome
+  // that's present regardless of document state (dialog buttons, settings
+  // screens, the space manager — components.scss's shared button/input rule,
+  // _standalone.scss) and a global flip there would be a much bigger blast
+  // radius than the edit-vs-view cue this is meant to be. Defaults to
+  // --ui-font itself while editing, so nothing needs to duplicate the sans
+  // stack.
+  --chrome-font: var(--ui-font);
+  // Editable-state default: Monaspace Neon (GitHub's open-source monospace
+  // superfamily's flagship sub-family, self-hosted client/fonts/
+  // MonaspaceNeon-*.woff2 — main.scss already ships the @font-face rules for
+  // this, grep-confirmed), with the old iA-Mono/Menlo stack kept as fallback.
+  --editor-font: "Monaspace Neon", "iA-Mono", "Menlo";
   --editor-width: 800px;
 
+  /* Shared component tokens */
   --danger-color: #dc3545;
   --danger-contrast-color: #fff;
-  --success-color: #16a34a;
   --alert-error-background-color: #fef2f2;
   --alert-error-color: #dc3545;
   --alert-error-border-color: #fecaca;
@@ -176,8 +250,8 @@ html {
   --alert-info-background-color: #eaf4fd;
   --alert-info-color: #0b4a7a;
   --alert-info-border-color: #cfe6fb;
-  --badge-background-color: #edf0f3;
-  --badge-color: #535d69;
+  --badge-background-color: #e8e8ff;
+  --badge-color: #464cfc;
 }
 
 html[data-theme="light"] {
@@ -205,10 +279,10 @@ html[data-theme="light"] {
   --ui-surface-border-color: #343b44;
 
   --root-background-color: #111;
-  --root-color: #e9edf2;
+  --root-color: #fff;
 
   --top-color: #fff;
-  --top-background-color: #222;
+  --top-background-color: #262626;
   --top-border-color: rgb(62, 62, 62);
   --top-sync-error-color: var(--top-color);
   --top-sync-error-background-color: #622626;
@@ -216,27 +290,27 @@ html[data-theme="light"] {
   --top-unsaved-color: #c7c7c7;
   --top-loading-color: #c7c7c7;
 
-  --panel-background-color: #191919;
+  --panel-background-color: #111;
   --panel-border-color: rgb(62, 62, 62);
 
   --bhs-background-color: #111;
   --bhs-border-color: rgb(62, 62, 62);
 
-  --modal-color: var(--root-color);
-  --modal-background-color: #191919;
-  --modal-border-color: var(--ui-surface-border-color);
-  --modal-backdrop-color: transparent;
+  --modal-color: #ccc;
+  --modal-background-color: #262626;
+  --modal-border-color: #6c6c6c;
+  --modal-backdrop-color: rgba(0, 0, 0, 0.45);
   --modal-header-label-color: var(--ui-accent-text-color);
   --modal-help-background-color: #333;
   --modal-help-color: #ccc;
-  --modal-selected-option-background-color: color-mix(in srgb, var(--ui-accent-color) 12%, var(--modal-background-color));
-  --modal-selected-option-color: var(--root-color);
+  --modal-selected-option-background-color: var(--ui-accent-color);
+  --modal-selected-option-color: #eee;
   --modal-hint-background-color: #212476;
   --modal-hint-color: #eee;
   --modal-hint-inactive-background-color: #353535;
   --modal-hint-inactive-color: #ccc;
   --modal-description-color: #969696;
-  --modal-selected-option-description-color: var(--subtle-color);
+  --modal-selected-option-description-color: #e6e6e6;
 
   --notifications-background-color: #333;
   --notifications-border-color: var(--ui-surface-border-color);
@@ -244,14 +318,14 @@ html[data-theme="light"] {
   --notification-error-background-color: color-mix(in srgb, var(--alert-error-color) 10%, var(--modal-background-color));
   --notification-warning-background-color: color-mix(in srgb, var(--alert-warning-color) 10%, var(--modal-background-color));
 
-  --button-background-color: #20242a;
-  --button-hover-background-color: #292f36;
-  --button-color: var(--root-color);
-  --button-border-color: var(--ui-surface-border-color);
+  --button-background-color: #555;
+  --button-hover-background-color: #777;
+  --button-color: white;
+  --button-border-color: #666;
   --primary-button-background-color: var(--ui-accent-color);
   --primary-button-hover-background-color: color-mix(in srgb,
       var(--ui-accent-color),
-      black 18%);
+      black 35%);
   --primary-button-color: var(--ui-accent-contrast-color);
   --primary-button-border-color: transparent;
 
@@ -264,15 +338,12 @@ html[data-theme="light"] {
   --action-button-background-color: transparent;
   --action-button-color: #adadad;
   --action-button-hover-color: #37a1ed;
-  --action-button-active-color: #37a1ed;
 
   --editor-caret-color: #fff;
   --editor-selection-background-color: #d7e1f630;
   --editor-panels-bottom-color: #fff;
   --editor-panels-bottom-background-color: #262626;
   --editor-panels-bottom-border-color: rgb(62, 62, 62);
-  --editor-completion-detail-color: #aaa;
-  --editor-completion-detail-selected-color: #d2d2d2;
   --editor-list-bullet-color: rgb(150, 150, 150);
   --editor-heading-color: #d1d1d1;
   --editor-heading-meta-color: var(--meta-subtle-color);
@@ -292,12 +363,6 @@ html[data-theme="light"] {
   --editor-wiki-link-page-color: var(--link-color);
   --editor-wiki-link-page-missing-color: var(--link-missing-color);
   --editor-wiki-link-page-invalid-color: var(--link-invalid-color);
-  --editor-wiki-link-color: #8f96c2;
-  --editor-command-button-color: #fff;
-  --editor-command-button-background-color: #555;
-  --editor-command-button-hover-background-color: #777;
-  --editor-command-button-meta-color: var(--meta-subtle-color);
-  --editor-command-button-border-color: #666;
   --editor-line-meta-color: var(--meta-subtle-color);
   --editor-meta-color: var(--meta-color);
   --editor-table-head-background-color: rgba(72, 72, 72, 0.4);
@@ -305,7 +370,7 @@ html[data-theme="light"] {
   --editor-table-even-background-color: rgba(72, 72, 72, 0.3);
   --editor-blockquote-background-color: var(--subtle-background-color);
   --editor-blockquote-color: var(--subtle-color);
-  --editor-blockquote-border-color: rgb(128, 128, 128);
+  --editor-blockquote-border-color: rgb(74, 74, 74);
   --editor-comment-background-color: rgba(105, 105, 105, 0.05);
   --editor-comment-border-color: rgb(90, 90, 90);
   --editor-code-background-color: var(--subtle-background-color);
@@ -337,9 +402,9 @@ html[data-theme="light"] {
   --editor-panels-bottom-button-active-background-image: linear-gradient(#111,
       #333);
 
+  /* Shared component tokens */
   --danger-color: #f87171;
   --danger-contrast-color: #fff;
-  --success-color: #4ade80;
   --alert-error-background-color: rgba(220, 53, 69, 0.1);
   --alert-error-color: #f87171;
   --alert-error-border-color: rgba(220, 53, 69, 0.3);
@@ -349,10 +414,18 @@ html[data-theme="light"] {
   --alert-info-background-color: #14324f;
   --alert-info-color: #8fc4ef;
   --alert-info-border-color: rgba(143, 196, 239, 0.3);
-  --badge-background-color: #242a31;
-  --badge-color: #b9c2cd;
+  --badge-background-color: rgba(70, 76, 252, 0.2);
+  --badge-color: #8b8eff;
 }
 
+// Kept the @mixin dark-theme + @include structure (rather than fork's flat
+// html[data-theme="dark"] { ... } rewrite): the @media (prefers-color-scheme:
+// dark) block right below also @includes dark-theme, giving standalone/PWA
+// installs (client/editor_ui.tsx's body.sb-standalone, grep-confirmed live —
+// see also client/styles/_standalone.scss) automatic dark mode from the OS
+// preference when no explicit data-theme is set. Fork's rewrite drops this
+// block with no replacement; flattening the mixin here would silently lose
+// that feature.
 html[data-theme="dark"] {
   @include dark-theme;
 }
@@ -363,71 +436,79 @@ html[data-theme="dark"] {
   }
 }
 
+// Read-only mode: swap the editable-state fonts (Monaspace Neon in the
+// editor content, the neutral --ui-font sans stack in content-adjacent
+// chrome) for Roboto — Material's own default typeface (self-hosted
+// client/fonts/Roboto-*.woff2, grep-confirmed already shipped by main.scss)
+// — as a visual edit-vs-view cue: editing reads as "raw text, in a
+// mono/neutral face"; read-only reads as "Material-rendered content, in
+// Material's own face." Toggled live via
+// document.documentElement.dataset.readOnly, set from editor_ui.tsx's
+// isReadOnly, the same boolean that drives TopBar's readOnly prop and
+// CodeMirror's editable state — so this stays in lockstep with the real
+// state rather than a separate guess. --chrome-font's old stack (--ui-font)
+// rides along as the fallback for whichever Roboto face weight isn't
+// matched, same convention as --editor-font's iA-Mono/Menlo fallback above.
+html[data-read-only="on"] {
+  --editor-font: "Roboto", var(--ui-font);
+  --chrome-font: "Roboto", var(--ui-font);
+}
+
 html[data-markdown-syntax-rendering="on"] {
   --editor-meta-color: unset;
   --editor-directive-mark-color: unset;
 
-  #sb-main .cm-editor .sb-lua-directive-block:not(.sb-lua-top-widget):not(.sb-lua-bottom-widget):not(.sb-inline-content) {
+  // NOT migrated: var-free layout (margin-top), so mechanically Tailwind's
+  // domain, but the selector is state-conditional (ancestor data-attribute)
+  // + sibling-exclusion (:not() x3) on a class lua_widget.ts applies
+  // unconditionally. A correct Tailwind equivalent needs an arbitrary
+  // variant encoding the same ancestor+:not() combination at the className
+  // call site — deferred rather than risk a silent-breakage imprecise
+  // selector translation.
+  #sb-main
+    .cm-editor
+    .sb-lua-directive-block:not(
+      .sb-lua-top-widget
+    ):not(
+      .sb-lua-bottom-widget
+    ):not(
+      .sb-inline-content
+    ) {
     margin-top: 0.5em;
   }
 }
 
-.sb-admonition[admonition="note" i] {
-  .sb-admonition-type {
-    &::before {
-      width: var(--admonition-width) !important;
-    }
-
-    * {
-      display: none;
-    }
+// Admonition width-toggle + child-hide is identical across all 4 types (was
+// duplicated verbatim per type); only --admonition-icon/-color differ.
+.sb-admonition[admonition="note" i] .sb-admonition-type,
+.sb-admonition[admonition="warning" i] .sb-admonition-type,
+.sb-admonition[admonition="danger" i] .sb-admonition-type,
+.sb-admonition[admonition="success" i] .sb-admonition-type {
+  &::before {
+    width: var(--admonition-width) !important;
   }
 
+  * {
+    display: none;
+  }
+}
+
+.sb-admonition[admonition="note" i] {
   --admonition-icon: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>');
   --admonition-color: #00b8d4;
 }
 
 .sb-admonition[admonition="warning" i] {
-  .sb-admonition-type {
-    &::before {
-      width: var(--admonition-width) !important;
-    }
-
-    * {
-      display: none;
-    }
-  }
-
   --admonition-icon: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>');
   --admonition-color: #ff9100;
 }
 
 .sb-admonition[admonition="danger" i] {
-  .sb-admonition-type {
-    &::before {
-      width: var(--admonition-width) !important;
-    }
-
-    * {
-      display: none;
-    }
-  }
-
   --admonition-icon: url('data:image/svg+xml,<svg  width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-x-octagon"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>');
   --admonition-color: #d50000;
 }
 
 .sb-admonition[admonition="success" i] {
-  .sb-admonition-type {
-    &::before {
-      width: var(--admonition-width) !important;
-    }
-
-    * {
-      display: none;
-    }
-  }
-
   --admonition-icon: url('data:image/svg+xml,<svg  width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-check-circle"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>');
   --admonition-color: #00c853;
 }
