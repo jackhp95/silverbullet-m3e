@@ -71,4 +71,22 @@ test.describe("hashtag tag pills (m3e-assist-chip)", () => {
     // representation rather than assuming browser URL normalization.
     await sbPage.waitForURL(/\/tag(%3A|:)task$/);
   });
+
+  test("clicking a tag pill navigates in-app, not via a full page load", async ({
+    sbPage,
+  }) => {
+    // editor_state.ts treats `[data-tag-name]` like a link: it cancels the
+    // chip's native href and dispatches `page:click`. Without that, the
+    // browser follows the href and reloads the page, dropping this marker.
+    await sbPage.evaluate(() => {
+      (globalThis as any).__tagClickMarker = true;
+    });
+    const chip = sbPage.locator('m3e-assist-chip[data-tag-name="task"]');
+    await chip.waitFor({ state: "attached", timeout: 10_000 });
+    await chip.click();
+    await sbPage.waitForURL(/\/tag(%3A|:)task$/);
+    expect(
+      await sbPage.evaluate(() => (globalThis as any).__tagClickMarker),
+    ).toBe(true);
+  });
 });
