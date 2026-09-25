@@ -2,7 +2,7 @@ import type { Hook } from "./types.ts";
 import { EventEmitter } from "./event.ts";
 import type { SandboxFactory } from "./sandboxes/sandbox.ts";
 import { Plug } from "./plug.ts";
-import { InMemoryManifestCache, type ManifestCache } from "./manifest_cache.ts";
+import type { ManifestCache } from "./manifest_cache.ts";
 import {
   builtinPlugNames,
   builtinPlugPaths,
@@ -55,7 +55,12 @@ export class System<HookT> extends EventEmitter<SystemEvents<HookT>> {
   ) {
     super();
     if (!options.manifestCache) {
-      options.manifestCache = new InMemoryManifestCache();
+      options.manifestCache = {
+        async getManifest(plug) {
+          await plug.sandbox.init();
+          return plug.sandbox.manifest!;
+        },
+      };
     }
   }
 
@@ -99,7 +104,6 @@ export class System<HookT> extends EventEmitter<SystemEvents<HookT>> {
    * @param args an array of arguments to pass to the function
    */
   invokeFunction(name: string, args: any[]): Promise<any> {
-    // Some sanity type checks
     if (typeof name !== "string") {
       throw new Error(
         `invokeFunction: function name should be a string, got ${typeof name}`,
@@ -112,7 +116,6 @@ export class System<HookT> extends EventEmitter<SystemEvents<HookT>> {
     }
     const [plugName, functionName] = name.split(".");
     if (!functionName) {
-      // Sanity check
       throw new Error(`Missing function name: ${name}`);
     }
     const plug = this.loadedPlugs.get(plugName);
@@ -169,7 +172,6 @@ export class System<HookT> extends EventEmitter<SystemEvents<HookT>> {
       throw new Error("Plug tried to overwrite internal plug");
     }
 
-    // Validate the manifest
     let errors: string[] = [];
     for (const feature of this.enabledHooks) {
       errors = [...errors, ...feature.validateManifest(manifest)];

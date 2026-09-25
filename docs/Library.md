@@ -5,7 +5,7 @@ references:
 - plugs/configuration-manager/libraries.ts
 - libraries/Library/Std/Infrastructure/Share.md
 ---
-SilverBullet is designed to be [[Extensions|extensible]]. In fact, a lot of functionality in SilverBullet is implemented through [[Space Lua]] embedded in [[Meta Page|Meta Pages]], other functionality is implemented using [[Plugs]]. 
+SilverBullet is designed to be [[Extensions|extensible]]. In fact, a lot of functionality in SilverBullet is implemented through [[Space Lua]] embedded in [[Meta Page|Meta Pages]], other functionality is implemented using [[Plugs]].
 
 A big part of the fun of SilverBullet is building your own extensions, big or small. Libraries are the way to [[Share]] those extensions. Both for you to [[Library/Development|publish your own]] libraries, and to pull in other people’s creations.
 

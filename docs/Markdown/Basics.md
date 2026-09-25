@@ -38,7 +38,7 @@ When you click the checkbox, it will toggle its state and replace the ` ` inside
 * [TO DO] This task is still to be done
 
 # Headers
-Markdown supports various levels of headings, which generally are created by prefixing a line with one or more `#`. The more `#`‘s the deeper the header nesting. 
+Markdown supports various levels of headings, which generally are created by prefixing a line with one or more `#`. The more `#`‘s the deeper the header nesting.
 
 # Quotes
 You can use block quotes by prefixing lines with `>`:

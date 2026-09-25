@@ -1,371 +1,64 @@
-.sb-modal-box {
-  margin-top: 60px;
-  padding: 0;
-  width: 700px;
-  max-width: 90%;
-  border-radius: 8px;
-  overflow: hidden;
-  box-sizing: border-box;
-
-  &::backdrop {
-    background-color: var(--modal-backdrop-color);
-  }
-
-  @media only screen and (max-width: 600px) {
-    margin-top: 8px;
-    width: 100%;
-    max-width: 100%;
-    max-height: calc(100vh - 16px);
-    border-radius: 0;
-  }
-
-  .sb-header {
-    padding: 13px 10px 10px 10px;
-    display: flex;
-
-    label {
-      margin: 3px;
-    }
-
-    .sb-input {
-      flex-grow: 1;
-      min-width: 0;
-      background-color: transparent;
-      padding: 0;
-      border-radius: 0;
-
-      &:focus {
-        box-shadow: none;
-      }
-    }
-  }
-
-  .sb-help-text {
-    padding: 5px;
-  }
-
-  .sb-result-list {
-    max-height: 250px;
-    overflow-y: scroll;
-
-    // No .sb-icon/.sb-description sizing/position rules here anymore: both
-    // are now slotted into an m3e-list-item (leading / supporting-text —
-    // see client/components/filter.tsx), which already owns that box model
-    // — see the .sb-option comment below for why duplicating it here was
-    // the source of the "unpolished" spacing.
-  }
-
-  // m3e-list-item (not a bare div) owns its own padding/min-height/line-box
-  // via --m3e-list-item-* one-/two-line tokens, derived automatically from
-  // which named slots (leading/supporting-text/trailing) are actually
-  // populated (node_modules/@m3e/web/dist/list.js — M3eListItemElement's
-  // :host(:is(:state(--one-line)))/(--two-line) rules). The old plain-div
-  // implementation needed its own padding/line-height here; now that host
-  // padding stacks ON TOP of the component's own — the doubled, inconsistent
-  // icon/name/hint/description spacing Jack flagged. Only `cursor` and the
-  // selected-state shape belong here; box model is the component's job.
-  .sb-option {
-    cursor: pointer;
-  }
-
-  // Selected-state background/text color are set via the --m3e-list-item-*
-  // cssprops in colors.scss (not here — see that file's comment for why a
-  // plain `background-color`/`color` on the host doesn't reliably theme a
-  // component's shadow-DOM-slotted content). This is purely the shape: a
-  // rounded tonal pill for the highlighted row, matching Material list-
-  // selection convention. 8px to match .sb-modal-box's own border-radius
-  // above — this app has no dedicated corner/shape token yet.
-  .sb-selected-option {
-    --m3e-list-item-container-shape: 8px;
-  }
-
-  .sb-hint {
-    // No float/margin-top here: m3e-list-item's own trailing slot is a flex
-    // child (display:flex; justify-content:center when populated — see
-    // list.js), so `float` was silently ignored on it (floats don't apply
-    // to flex items) — dead CSS from the old plain-div layout, where
-    // float-right was how a bare span got pulled to the row's right edge.
-    // Only the chip's own visual treatment belongs here now.
-    padding: 3px 5px;
-    border-radius: 5px;
-  }
-}
-
-// m3e-search-view (client/components/filter.tsx) keeps the .sb-modal-box
-// class so its .sb-help-text/.sb-result-list/.sb-option/.sb-hint child
-// theming above (and colors.scss's color/border/shadow rules) still apply,
-// but it must NOT also get .sb-modal-box's own outer box chrome —
-// m3e-search-view (mode="fullscreen") already renders its own native
-// container/elevation, and stacking both was the "container within a
-// container within a container" bug. Element+class beats the bare class
-// selector, so this wins regardless of source order.
-m3e-search-view.sb-modal-box {
-  margin-top: 0;
-  padding: 0;
-  width: auto;
-  max-width: none;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-  background-color: transparent;
-  overflow: visible;
-
-  &::backdrop {
-    background-color: transparent;
-  }
-
-  // Content-adjacent chrome (this whole view exists to find/jump to a page
-  // or command), so it honors the editable/read-only font cue via
-  // --chrome-font (theme.scss). Set once here rather than per light-DOM
-  // class: font-family is an ordinary inherited property, and inheritance
-  // for slotted content follows the *light*-DOM parent chain (this element
-  // → the <Input>/m3e-list/m3e-list-item/.sb-* descendants in filter.tsx),
-  // not the shadow tree — confirmed none of those descendants' own rules
-  // (here or in colors.scss) set font-family themselves, so nothing blocks
-  // the cascade. The one exception is the actual <input> element, which
-  // components.scss's shared `input { font-family: var(--ui-font); }` rule
-  // matches directly (a direct match always beats an inherited value,
-  // regardless of the ancestor rule's specificity) — hence the explicit
-  // override just below.
-  font-family: var(--chrome-font);
-
-  .sb-filter-input {
-    font-family: var(--chrome-font);
-  }
-
-  // Jack flagged the fullscreen cover as "fully opaque" and asked whether a
-  // transparent/scrim-style cover is supported. Confirmed by reading the
-  // compiled component (node_modules/@m3e/web/dist/search.js): fullscreen
-  // mode has NO separate scrim/backdrop layer at all — the docked-only
-  // `--m3e-search-view-docked-scrim-color`/`-opacity` tokens the .d.ts
-  // documents only apply to `:host(:is(:state(--docked)))` rules there is
-  // no `::backdrop` styling under `:state(--fullscreen)` anywhere in that
-  // stylesheet. What fullscreen actually paints is its own solid
-  // `.view:popover-open` background via `--m3e-search-view-container-color`
-  // (":host(:is(:state(--fullscreen)):not([contained])) .view:popover-open
-  // { background-color: containerColor }" — same source), and that cssprop
-  // IS documented as applying outside docked mode too (the .d.ts's
-  // `--m3e-search-view-docked-*` props are separately named from this
-  // general one). So a translucent override of this token is the real,
-  // supported lever — not a fight with the component — and the editor
-  // content is still genuinely present underneath (this is a native
-  // Popover-API top-layer element, not a fresh page), so translucency here
-  // reads as a real scrim over real content, not a fake gradient. Docked
-  // mode was deliberately ruled out for this (see the mode="fullscreen"
-  // comment in filter.tsx) rather than reintroducing the box-nesting bug
-  // just to get a scrim layer this token already gives us.
-  --m3e-search-view-container-color: color-mix(
-    in srgb,
-    var(--modal-background-color) 92%,
-    transparent
-  );
-}
-
-// The item-creation bottom sheet's body (client/components/
-// item_capture_sheet.tsx) stacks an m3e-segmented-button, an m3e-form-field,
-// and an m3e-button — plain block-level custom elements with no spacing
-// cssprop of their own between SIBLINGS (checked SegmentedButtonElement.d.ts/
-// FormFieldElement.d.ts: only internal/self padding+shape tokens, nothing for
-// gap-to-next-sibling) — so with zero app CSS they were flush against each
-// other (flagged live 2026-09-16). Layout-only concern, bottom rung of the
-// styling ladder: plain flex + gap.
-.sb-item-capture-sheet-body {
+.sb-header {
+  padding: 13px 10px 10px 10px;
   display: flex;
-  flex-direction: column;
-  gap: 16px;
 
-  m3e-form-field {
-    width: 100%;
+  label {
+    margin: 3px;
+  }
+
+  .sb-input {
+    flex-grow: 1;
+    min-width: 0;
+    background-color: transparent;
+    padding: 0;
+    border-radius: 0;
+
+    &:focus {
+      box-shadow: none;
+    }
   }
 }
 
-// search_sheet.tsx's consolidated search bottom sheet body. Same "plain
-// flex + gap" bottom rung as .sb-item-capture-sheet-body above (no m3e
-// component here declares a sibling-gap cssprop of its own either).
-// Result-row theming (.sb-option/.sb-selected-option/.sb-hint/.sb-name/
-// .sb-description) reuses the exact class names + --modal-* tokens the old
-// .sb-modal-box result list already uses (see colors.scss's matching
-// block) rather than inventing a second palette — this sheet just isn't a
-// <dialog>-based .sb-modal-box, so it needs its own (non-outer-chrome)
-// selector root instead of piggybacking on that class.
-//
-// Root selector corrected from a stale `.sb-search-sheet-body` (a class
-// search_sheet.tsx has never rendered — the real host is `.sb-search-sheet-
-// view`, on `m3e-search-view`) and the child selector from a stale
-// `.sb-search-sheet-result-list` to the component's actual
-// `.sb-search-sheet-list`. That mismatch meant this entire block was dead —
-// `.sb-option`/`.sb-selected-option`/`.sb-hint` never matched anything, so
-// rows/hints fell back to bare, non-m3e-consistent default styling
-// (live-testing feedback #4).
-// The search sheet's mode picker is an `m3e-list` of `m3e-list-item`s split by
-// `m3e-divider`s, opened by the search bar's leading icon button (Jack's
-// round-4 direction — see search_sheet.tsx's mode-model comment). Because the
-// list is a plain list rather than a self-positioning `m3e-menu`, it needs a
-// small amount of CSS here — but strictly the layout-and-reset kind (the bottom
-// rung of the styling ladder). Everything about how the ROWS look comes from
-// `m3e-list-item`'s own cssprops via the shared `.sb-option`/
-// `.sb-selected-option` tokens in colors.scss, not from here.
-//
-// Notably ABSENT, and deliberately so: the old
-// `&:not(:popover-open) { display: none }` counter-rule. It existed because the
-// list used to be rendered permanently, where `m3e-list`'s author-origin
-// `:host { display: flex }` beat the UA popover stylesheet's closed-state
-// `display: none`. The list is now conditionally rendered — it does not exist
-// while closed — so that cascade fight cannot happen and the rule stays gone
-// instead of being carried forward as cargo.
-.sb-search-sheet-mode-list {
-  // `top`/`left` are set imperatively per-open from the trigger's live
-  // bounding rect (search_sheet.tsx's open effect); only the parts that do not
-  // depend on the trigger live here.
-  position: fixed;
-  // The UA popover stylesheet centers popovers with `margin: auto` and gives
-  // them a `border`/`padding`/`background-color: canvas` box. Reset those so
-  // the element reads as an app surface rather than a native popup frame.
-  margin: 0;
-  border: none;
-  padding: 4px 0;
-  min-width: 180px;
-  background-color: var(--modal-background-color);
-  border-radius: 12px;
-  box-shadow: var(--modal-elevation-shadow, 0 2px 8px rgb(0 0 0 / 30%));
-  overflow: hidden;
+.sb-help-text {
+  padding: 5px;
+}
 
-  .sb-option {
-    cursor: pointer;
+.sb-result-list {
+  max-height: 250px;
+  overflow-y: scroll;
+
+  .sb-icon {
+    padding: 0 8px 0 5px;
+    position: relative;
+    top: 3px;
   }
 
-  // `m3e-list-item` has no `Focusable` mixin and so paints no focus ring of its
-  // own (dist/list.js — only the `m3e-list-option`/`m3e-list-item-button`
-  // subclasses embed `m3e-focus-ring`). The rows are keyboard-reachable via a
-  // roving tabindex, so they need a visible focus indicator from us.
-  m3e-list-item:focus-visible {
-    outline: 2px solid var(--modal-selected-option-background-color);
-    outline-offset: -2px;
+  .sb-description {
+    font-size: 75%;
   }
 }
 
-// Floating section-switcher toolbar — pinned to the bottom edge of a bottom
-// sheet. Used by the navigation sheet (`navigation_sheet.tsx`); the search
-// sheet no longer has a floating switcher at all.
-//
-// Layout-only CSS (bottom rung of the styling ladder): every bit of the
-// toolbar's own appearance (fill, elevation, corner radius, the buttons'
-// filled/standard variants) comes from `m3e-toolbar`/`m3e-icon-button`'s own
-// attributes, set in the JSX. `position: absolute` resolves against the
-// `m3e-bottom-sheet` host, which the component itself already positions —
-// live-verified, not assumed. No height/`vh` is involved: the sheet sizes
-// itself through its own `detents` API, and this rule only insets the toolbar
-// from whatever bottom edge that produces.
-.sb-sheet-section-toolbar {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 1;
+.sb-option,
+.sb-selected-option {
+  padding: 8px;
+  cursor: pointer;
+  line-height: 20px;
 }
 
-// Bottom padding is room for the last row to scroll clear of the floating
-// `.sb-sheet-section-toolbar` overlaying the sheet's lower edge (toolbar
-// height + its 16px inset) instead of sitting under it.
-.sb-navigation-sheet-body {
-  padding: 0 16px 80px;
+.sb-option .sb-hint,
+.sb-selected-option .sb-hint {
+  float: right;
+  margin-right: 0;
+  margin-top: -4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  border-radius: 4px;
 }
 
-// The sheet is now a plain vertical stack of direct children — bar, body,
-// floating toolbar — instead of one `m3e-search-view` that owned (and
-// collapsed) its own results region. All layout-only; appearance comes from
-// the m3e components' own attributes + cssprops.
-//
-// No scroll container of our own is declared here: `m3e-bottom-sheet`'s
-// shadow tree already provides one (`.base` flex column > `.header` +
-// `.body { overflow: auto; flex: 1 1 auto }` > `.content` > the default
-// slot — read off the live element, not assumed). Our children are slotted
-// into `.content` and simply flow inside that existing scroller, so adding
-// a second one would just nest two scrollbars.
-#sb-search-sheet {
-  // The sheet's own surface, pinned to the app's floating-surface token so
-  // the sticky bar backdrop below can match it exactly from one source
-  // rather than hardcoding the component's default.
-  --m3e-bottom-sheet-container-color: var(--modal-background-color);
-}
-
-// Sticky so the bar stays put while results scroll under it inside the
-// sheet's own `.body` scroller. It needs an opaque backdrop for that (the
-// bar's own container color is a translucent tint), hence the same token
-// the sheet surface itself uses above.
-.sb-search-sheet-bar {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  margin: 0 16px;
-  padding-bottom: 12px;
-  background-color: var(--modal-background-color);
-}
-
-// No floating toolbar overlays this sheet any more (the mode picker moved
-// into the search bar's leading button), so the old 80px bottom reservation
-// for it is gone — results now use the sheet's full height.
-.sb-search-sheet-body {
-  padding: 0 16px 16px;
-
-  .sb-search-sheet-empty {
-    padding: 12px 4px;
-  }
-
-  .sb-option {
-    cursor: pointer;
-  }
-
-  .sb-selected-option {
-    --m3e-list-item-container-shape: 8px;
-  }
-
-  .sb-hint {
-    padding: 3px 5px;
-    border-radius: 5px;
-  }
-}
-
-// basic_modals.tsx's Prompt()/Confirm() — m3e-dialog's default slot renders
-// content full-width by default (no box-model opinion of its own beyond
-// padding), but m3e-form-field's own host is `inline-flex` (verified against
-// FormFieldElement.d.ts), so it needs an explicit width — same reasoning as
-// .sb-item-capture-sheet-body's m3e-form-field rule above.
-.sb-prompt-field {
-  width: 100%;
-}
-
-// No `.sb-dialog-actions` rule: Prompt()/Confirm()'s actions row is now
-// `class="flex justify-end gap-2"` directly on the slotted div in
-// client/components/basic_modals.tsx. The rule it replaced was
-// `display: flex; justify-content: flex-end; gap: 8px` — pure layout glue
-// with no M3E or CodeMirror content, i.e. bucket (a) of
-// docs/plans/2026-09-19-tailwind-m3e-bridge-and-custom-css-audit.md.
-// `gap-2` is 0.5rem against a 16px root = the same 8px.
-//
-// (The reason a rule is needed at all is still worth knowing: the
-// "Confirmation dialog with header and actions" composition in the m3e
-// dialog card documents a plain flex row as the pattern. m3e-dialog's own
-// ::slotted([slot="actions"]) rule right-aligns and gaps its direct slotted
-// children, but that is Shadow-DOM CSS and cannot reach further-nested
-// content, so this *inner* row still needs its own layout.)
-//
-// This is the Phase 1 proof-of-pipeline conversion. Note what it bought
-// beyond deleting four lines: the identical rule was duplicated in
-// _standalone.scss, because app.scss never @uses modals.scss and the two
-// bundles are deliberately separate. Utilities are emitted into both
-// bundles from one scan, so that duplication is gone structurally rather
-// than by convention.
-
-// Confirm()'s destructive action: recolor a `filled` m3e-button to the
-// Material error role. No dedicated "danger"/"destructive" variant exists on
-// m3e-button (verified against @m3e/web 2.7.12's Custom Elements Manifest —
-// ButtonVariant is elevated | filled | tonal | outlined | text only); the
-// `--m3e-*-button-*` custom properties are the sanctioned per-instance
-// override point (per the m3e skill's styling ladder), and `--md-sys-color-
-// error`/`-on-error` are real generated tokens (confirmed against
-// node_modules/@material/material-color-utilities's DynamicColors — every
-// M3 scheme includes an error role, not an app-specific invention).
+// m3e-button has no built-in destructive variant; this fills that gap for
+// Confirm()'s destructive action via --md-sys-color-error tokens.
 .sb-button-error {
   --m3e-filled-button-container-color: var(--md-sys-color-error);
   --m3e-filled-button-label-text-color: var(--md-sys-color-on-error);

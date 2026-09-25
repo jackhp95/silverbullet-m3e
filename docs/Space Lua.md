@@ -39,7 +39,7 @@ Each `space-lua` block has its own local scope. However, following Lua semantics
 ## Definition loading
 Your `space-lua` definitions are constantly being indexed as part of the [[Object Index]] with the [[Object/space-lua]] tag. There is nothing you have to do for this, other than be a bit patient for things to start working when you initialize a fresh client.
 
-When your client boots, or if you explicitly run the `System: Reload` command, all these scripts are executed in sequence. 
+When your client boots, or if you explicitly run the `System: Reload` command, all these scripts are executed in sequence.
 
 It is possible to **control load order** of Space Lua scripts using the special `-- priority: <number>` comment in Space Lua code. For instance:
 
@@ -59,7 +59,7 @@ The order used is determined by this [[Space Lua/Integrated Query|query]] (also 
 
 This means that the higher the priority, the earlier the script is loaded. That also means that if you want to override previously defined definitions you need to a set a _lower_ priority (or in most cases: simply omit the priority comment).
 
-Here are the conventions used by the [[Library/Std]] library:
+Here are the conventions used by the [[^Library/Std]] library:
 
 * `priority: 100` for config definitions (schemas)
 * `priority: 50` for setting really core and root variables (like `template.*` APIs) that will be used by other scripts
@@ -78,6 +78,13 @@ When iterating on a `space-lua` block, follow this loop:
 
 > **note** Note
 > Lua examples in the docs use `lua` fenced blocks (not `space-lua`) so they are not activated on the docs site itself; when using snippets in your own space, change `lua` to `space-lua`. See the note at the top of this page.
+
+## Runaway scripts
+A `space-lua` definition (or any other Lua execution: an expression, a widget, a command) is given a small time budget on the browser's main thread. This only counts time the script is actually **busy computing**: loop iterations, function calls, table access, and the like. It never counts time a script spends **waiting** — on an [[API/editor#editor.prompt|editor.prompt]], a network call, or the [[Object Index]] — however long that wait takes, since the main thread is free to do other things in the meantime.
+
+For `space-lua` definitions and commands, if busy time runs past the budget, SilverBullet offers to **Stop** it, with a **Keep going** option if it's just doing legitimately heavy work. Meanwhile the rest of the editor stays responsive. If you choose to stop a `space-lua` definition, it is **quarantined**: disabled on every subsequent reload, with a banner naming it and a **Re-enable** button. Editing the script (and reloading) lifts the quarantine automatically, since the quarantine is tied to the script's exact contents — no separate step needed. Widgets and `${…}` expressions are instead stopped automatically and replaced with a "Lua timeout" message inline.
+
+This budget cannot help with a single stdlib call that never returns on its own (e.g. an enormous `string.rep`), or with memory exhaustion.
 
 # Expressions
 One SilverBullet specific [[Markdown]] [[Markdown/Extensions]] is the `${lua expression}` syntax that you can use in your pages. This syntax will [[Live Preview]] to the evaluation of that Lua expression.

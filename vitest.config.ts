@@ -7,7 +7,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   resolve: {
     alias: [
-      // @silverbulletmd/silverbullet/* → local plug-api/ files
       {
         find: /^@silverbulletmd\/silverbullet\/lib\/(.*)$/,
         replacement: path.resolve(__dirname, "plug-api/lib/$1.ts"),
@@ -32,7 +31,6 @@ export default defineConfig({
         find: "@silverbulletmd/silverbullet/ui",
         replacement: path.resolve(__dirname, "plug-api/ui/index.ts"),
       },
-      // fuse → fuse.js
       {
         find: "fuse",
         replacement: "fuse.js",
@@ -47,6 +45,7 @@ export default defineConfig({
       "dist",
       "client_bundle",
       "e2e",
+      "browser-tests",
       "docs",
       "server",
       // Exclude helper test files (no test() blocks, only export helper functions)

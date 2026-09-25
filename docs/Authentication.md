@@ -1,5 +1,5 @@
 ---
-tags: getting-started
+tags: administration
 references:
 - bin/silverbullet/src/config.rs
 - bin/silverbullet/src/server.rs
@@ -15,10 +15,11 @@ How you authenticate depends on how the server is running (see [[Space Manager#B
 # Accounts
 When the server runs in the default [[Space Manager|multi-space]] mode, authentication is account-based:
 
-* Every person has an **account** (username + password).
-* Each [[Space]] is either **public** (no login) or requires login, and lists the **members** allowed in. Admins can reach every space and the admin UI.
+* Every person has an **account** (username + password), plus an optional **Full name** and **Email** — set by an admin when creating the account or on its detail page, or by the account holder on their own **Profile** page. Both are used to attribute [[Revisions#Automatic commits|revision-history commits]] and as the presence label other clients see for concurrent edits.
+* Each [[Space]] has an [[Space Manager#Access|access level]] — `none`, `read`, or `write` — for visitors with no account, plus per-member `read`/`write` roles. Admins can reach every space and the admin UI.
 * Accounts, spaces, and access are all managed in the `/.spaces` surface, which every account can open (admins additionally get the Users tab and space create/edit screens).
 * When no space is bound to `/`, the server root provides an account-facing index of the spaces available to the current user.
+* Every space offers a login page, including one that permits anonymous access — signing in there costs nothing extra a non-member wouldn’t already have, but it grants identity: attribution on the pages you write, and a profile menu that knows who you are. Signing in as a member instead grants whatever that account’s role allows.
 
 # Single-space mode
 [[Space Manager#Single-space mode|Single-space mode]] serves one folder as one space, authenticated the classic way: a single set of credentials set via the `SB_USER` environment variable in `username:password` form.
@@ -45,3 +46,7 @@ For programmatic access via the [[HTTP API]], you can use bearer token authentic
 Alternatively, or in addition, you can use an [[Authentication Proxy]] to delegate authentication to an external system (like Authelia, Authentik, or a reverse proxy's built-in auth). This is common in more complex self-hosted setups. In accounts mode, pair a proxy with **public** spaces so the proxy owns identity; in single-space mode, put the proxy in front of an open server.
 
 For all authentication-related configuration options, see [[Install/Configuration#Authentication]].
+
+## Single sign-on
+
+Account-managed servers can connect Google Workspace, Pocket ID, or another OpenID Connect provider alongside local accounts. See [[Single Sign-On]] for web setup, user provisioning and central login.

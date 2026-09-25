@@ -5,6 +5,9 @@ import {
   sync,
 } from "@silverbulletmd/silverbullet/syscalls";
 
+let lastProgress = -1;
+let lastProgressAt = 0;
+
 export async function syncSpaceCommand() {
   await editor.flashNotification("Syncing space...");
   await sync.performSpaceSync();
@@ -19,7 +22,6 @@ export async function syncFileCommand() {
 
 export async function spaceSyncComplete(message: { operations: number }) {
   if (message.operations > 0) {
-    // Update the page list
     await space.listFiles();
   }
 
@@ -42,21 +44,18 @@ export async function updateSyncStatus(event: {
     totalFiles: number;
   };
 }) {
-  // Update the status in the UI
   const percentage = Math.round(
     (event.status.filesProcessed / event.status.totalFiles) * 100,
   );
   if (percentage >= 99) {
-    // Just hide it
-    await editor.showProgress();
+    await editor.hideProgress("sync");
+    lastProgressAt = 0;
   } else {
-    await editor.showProgress(percentage, "sync");
+    const now = Date.now();
+    if (lastProgress !== percentage || now - lastProgressAt >= 1000) {
+      lastProgress = percentage;
+      lastProgressAt = now;
+      await editor.showProgress("sync", percentage);
+    }
   }
-}
-
-export async function reportSyncConflict({ path }: { path: string }) {
-  await editor.flashNotification(
-    `Sync: conflict detected for ${path} - conflict copy created`,
-    "error",
-  );
 }

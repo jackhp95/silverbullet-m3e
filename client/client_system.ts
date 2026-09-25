@@ -1,3 +1,4 @@
+import { BasenameIndex } from "@silverbulletmd/silverbullet/lib/resolve_path";
 import { PlugNamespaceHook } from "./plugos/hooks/plug_namespace.ts";
 import type { SilverBulletHooks } from "@silverbulletmd/silverbullet/type/manifest";
 import type { EventHook } from "./plugos/hooks/event.ts";
@@ -46,20 +47,48 @@ import { SpaceLuaEnvironment } from "./space_lua.ts";
 import type { ILuaFunction } from "./space_lua/runtime.ts";
 import { builtinPlugPaths } from "../plugs/builtin_plugs.ts";
 import { registerEditorCommands } from "./editor_commands.ts";
+import { registerPushCommands } from "./push_toggle.ts";
 import { ServiceRegistry } from "./service_registry.ts";
 import { serviceRegistrySyscalls } from "./plugos/syscalls/service_registry.ts";
 import type { ObjectIndex } from "./data/object_index.ts";
+import { searchSyscalls } from "./plugos/syscalls/search.ts";
+import { iconSyscalls } from "./plugos/syscalls/icon.ts";
+import { navigatorSyscalls } from "./plugos/syscalls/navigator.ts";
+import { setRevisionsAvailable } from "./navigator/builtins.ts";
+import { registerNavigatorCommands } from "./navigator/commands.ts";
+import { restoreDocks, setViewDefaults } from "./navigator/navigator.ts";
+import { clearScriptViews, setLuaEnvSource } from "./navigator/registry.ts";
+import { listQuarantined, unquarantine } from "./space_lua/quarantine.ts";
+import {
+  BUSY_LIMIT_COMMAND_MS,
+  type LuaBudget,
+  makeLuaBudget,
+} from "./space_lua/budget.ts";
+import { offerStopNotification } from "./space_lua/budget_ui.ts";
+import { setBoundaryBudgetFactory } from "./space_lua/runtime.ts";
+import {
+  mergeLegacyDocks,
+  normalizeViewDefaults,
+  type ViewDefaultsTable,
+} from "./navigator/view_defaults.ts";
+import type { Config } from "./config.ts";
 
-const mqTimeout = 10000; // 10s
+const mqTimeout = 10000;
 const mqTimeoutRetry = 3;
+
+function resolveViewDefaults(config: Config): ViewDefaultsTable {
+  return mergeLegacyDocks(
+    normalizeViewDefaults(config.get("view.defaults", {})),
+    config.get("view.docks", {}),
+    config.get("navigator.docks", {}),
+  );
+}
 
 /**
  * Handles the extension-related mechanisms of the client by wrapping a PlugOS System object as well as Space Lua environments
  */
 export class ClientSystem {
-  // PlugOS system
   system!: System<SilverBulletHooks>;
-  // ... and hooks
   commandHook!: CommandHook;
   slashCommandHook!: SlashCommandHook;
   namespaceHook!: PlugNamespaceHook;
@@ -69,18 +98,17 @@ export class ClientSystem {
 
   serviceRegistry!: ServiceRegistry;
 
-  // Space Lua
   spaceLuaEnv: SpaceLuaEnvironment;
   readonly scriptCommands = new Map<string, Command>();
-  // Code widgets registered from Space Lua (language -> definition)
   readonly luaCodeWidgets = new Map<
     string,
     { language: string; render: ILuaFunction }
   >();
   scriptsLoaded: boolean = false;
+  private loadLuaScriptsInFlight: Promise<void> | undefined;
+  private lastNotifiedQuarantineRefs: string | null = null;
 
-  // Known files (for UI)
-  readonly allKnownFiles = new Set<string>();
+  readonly allKnownFiles = new BasenameIndex();
   public knownFilesLoaded: boolean = false;
 
   constructor(
@@ -98,37 +126,48 @@ export class ClientSystem {
       ),
     });
 
-    this.spaceLuaEnv = new SpaceLuaEnvironment(this.system, objectIndex);
+    this.spaceLuaEnv = new SpaceLuaEnvironment(
+      this.system,
+      objectIndex,
+      this.client,
+    );
     this.serviceRegistry = new ServiceRegistry(this.eventHook, client.config);
 
     setInterval(() => {
       mq.requeueTimeouts(mqTimeout, mqTimeoutRetry, true).catch(console.error);
-    }, 20000); // Look to requeue every 20s
+    }, mqTimeout / 2);
 
     this.system.addHook(this.eventHook);
 
-    // Plug page namespace hook
     this.namespaceHook = new PlugNamespaceHook();
     this.system.addHook(this.namespaceHook);
 
-    // Code widget hook
     this.codeWidgetHook = new CodeWidgetHook();
     this.system.addHook(this.codeWidgetHook);
 
-    // Document editor hook
     this.documentEditorHook = new DocumentEditorHook();
     this.system.addHook(this.documentEditorHook);
 
-    // Command hook
     this.commandHook = new CommandHook(this.readOnlyMode, this.scriptCommands);
     registerEditorCommands(client, this.commandHook);
+    registerPushCommands(client, this.commandHook);
+    const gitAvailable =
+      !!this.client.bootConfig.revisions &&
+      this.client.bootConfig.revisions !== "disabled";
+    const revisionsAvailable = !this.readOnlyMode && gitAvailable;
+    setRevisionsAvailable(revisionsAvailable, gitAvailable);
+    registerNavigatorCommands(
+      this.commandHook,
+      revisionsAvailable,
+      gitAvailable,
+    );
+    setViewDefaults(resolveViewDefaults(this.client.config));
     this.commandHook.on({
       commandsUpdated: (commandMap) => {
         this.client.ui?.viewDispatch({
           type: "update-commands",
           commands: commandMap,
         });
-        // Replace the key mapping compartment (keybindings)
         this.client.editorView.dispatch({
           effects: this.client.commandKeyHandlerCompartment?.reconfigure(
             createCommandKeyBindings(this.client),
@@ -139,16 +178,31 @@ export class ClientSystem {
 
     this.slashCommandHook = new SlashCommandHook(this.client);
 
-    // MQ hook
     this.mqHook = new MQHook(this.system, this.mq, this.client.config);
     this.system.addHook(this.mqHook);
 
-    // Syscall hook
     this.system.addHook(new SyscallHook());
 
     this.eventHook.addLocalListener("editor:reloadState", async () => {
       await this.reloadState();
     });
+
+    this.eventHook.addLocalListener("editor:init", () => restoreDocks());
+
+    setBoundaryBudgetFactory(() =>
+      makeLuaBudget({
+        busyLimitMs: BUSY_LIMIT_COMMAND_MS,
+        onLimit: (b) => this.offerStopBoundary(b),
+      }),
+    );
+  }
+
+  private offerStopBoundary(budget: LuaBudget) {
+    offerStopNotification(
+      this.client.ui,
+      "A Lua script has been running for a while",
+      budget,
+    );
   }
 
   init() {
@@ -156,7 +210,13 @@ export class ClientSystem {
     this.system.addHook(this.commandHook);
     this.system.addHook(this.slashCommandHook);
 
-    // Syscalls available to all plugs
+    // Client code reusing plug-facing helpers (the navigator's built-in
+    // views) reaches syscalls through plug-api's late-bound global.
+    (globalThis as any).syscall = (name: string, ...args: any[]) =>
+      this.system.localSyscall(name, args);
+
+    setLuaEnvSource(() => this.spaceLuaEnv.env);
+
     this.system.registerSyscalls(
       [],
       eventSyscalls(this.eventHook, this.client),
@@ -170,7 +230,6 @@ export class ClientSystem {
       languageSyscalls(),
       jsonschemaSyscalls(),
       indexSyscalls(this.objectIndex, this.client),
-      //commandSyscalls(client),
       luaSyscalls(this.system, () => this.spaceLuaEnv.env),
       mqSyscalls(this.mq),
       serviceRegistrySyscalls(this.serviceRegistry),
@@ -179,12 +238,13 @@ export class ClientSystem {
       syncSyscalls(this.client),
       clientStoreSyscalls(this.ds),
       configSyscalls(this.client.config),
+      searchSyscalls(),
+      iconSyscalls(),
+      navigatorSyscalls(),
     );
 
     if (!this.readOnlyMode) {
-      // Write syscalls
       this.system.registerSyscalls([], spaceWriteSyscalls(this.client));
-      // Syscalls that require some additional permissions
       this.system.registerSyscalls(
         ["fetch"],
         sandboxFetchSyscalls(this.client),
@@ -194,7 +254,17 @@ export class ClientSystem {
     }
   }
 
-  async loadLuaScripts() {
+  async loadLuaScripts(): Promise<void> {
+    if (this.loadLuaScriptsInFlight) {
+      return this.loadLuaScriptsInFlight;
+    }
+    this.loadLuaScriptsInFlight = this.loadLuaScriptsImpl().finally(() => {
+      this.loadLuaScriptsInFlight = undefined;
+    });
+    return this.loadLuaScriptsInFlight;
+  }
+
+  private async loadLuaScriptsImpl() {
     if (this.client.bootConfig.disableSpaceLua) {
       console.info("Space Lua scripts are disabled, skipping loading scripts");
       return;
@@ -206,13 +276,43 @@ export class ClientSystem {
       return;
     }
     this.client.config.clear();
+    clearScriptViews();
     try {
       await this.spaceLuaEnv.reload();
     } catch (e: any) {
       console.error("Error loading Lua script:", e.message);
     }
 
-    // Reset the space script commands
+    const disabled = listQuarantined();
+    if (disabled.length > 0) {
+      const notifiedKey = disabled.slice().sort().join(",");
+      if (notifiedKey !== this.lastNotifiedQuarantineRefs) {
+        this.lastNotifiedQuarantineRefs = notifiedKey;
+        this.client.ui.flashNotification(
+          `${disabled.length} Lua script${
+            disabled.length === 1 ? "" : "s"
+          } disabled: ${disabled.join(", ")}`,
+          "warning",
+          {
+            timeout: 0,
+            actions: [
+              {
+                name: "Re-enable",
+                run: () => {
+                  for (const ref of disabled) {
+                    unquarantine(ref);
+                  }
+                  void this.loadLuaScripts();
+                },
+              },
+            ],
+          },
+        );
+      }
+    } else {
+      this.lastNotifiedQuarantineRefs = null;
+    }
+
     this.scriptCommands.clear();
     for (const [name, command] of Object.entries(
       this.client.config.get<Record<string, Command>>("commands", {}),
@@ -220,7 +320,6 @@ export class ClientSystem {
       this.scriptCommands.set(name, command);
     }
 
-    // Reset + collect Space Lua code widgets
     this.luaCodeWidgets.clear();
     for (const [language, def] of Object.entries(
       this.client.config.get<
@@ -232,12 +331,14 @@ export class ClientSystem {
       }
     }
 
-    // Make scripted (slash) commands available
     this.commandHook.throttledBuildAllCommandsAndEmit();
     this.slashCommandHook.throttledBuildAllCommands();
     this.mqHook.throttledReloadQueues();
 
+    setViewDefaults(resolveViewDefaults(this.client.config));
+
     this.scriptsLoaded = true;
+    performance.mark("sb:scripts-loaded");
     this.client.maybeDispatchWidgetsReady();
   }
 
@@ -250,23 +351,58 @@ export class ClientSystem {
     await this.system.unloadAll();
 
     let allPlugs = await space.listPlugs();
-    // console.log("All plugs", allPlugs);
     if (this.client.bootConfig.disablePlugs) {
-      // Only keep builtin plugs
       allPlugs = allPlugs.filter(({ name }) => builtinPlugPaths.includes(name));
 
       console.warn("Not loading custom plugs as `disablePlugs` has been set");
     }
 
+    const failed: { name: string; lastModified: number }[] = [];
     await Promise.all(
       allPlugs.map((fileMeta) =>
-        this.loadPlugFromPath(fileMeta.name, fileMeta.lastModified).catch((e) =>
-          console.error(
-            `Could not load plug ${fileMeta.name} error: ${e.message}`,
-          ),
+        this.loadPlugFromPath(fileMeta.name, fileMeta.lastModified).catch(
+          (e) => {
+            console.error(
+              `Could not load plug ${fileMeta.name} error: ${e.message}`,
+            );
+            failed.push({
+              name: fileMeta.name,
+              lastModified: fileMeta.lastModified,
+            });
+          },
         ),
       ),
     );
+    if (failed.length > 0) {
+      this.retryFailedPlugs(failed, 1);
+    }
+  }
+
+  private retryFailedPlugs(
+    plugs: { name: string; lastModified: number }[],
+    attempt: number,
+  ) {
+    const delayMs = attempt * 10000;
+    console.warn(
+      `Retrying ${plugs.length} failed plug load(s) in ${delayMs}ms (attempt ${attempt}/3)`,
+    );
+    setTimeout(async () => {
+      const stillFailing: { name: string; lastModified: number }[] = [];
+      for (const plug of plugs) {
+        try {
+          await this.loadPlugFromPath(plug.name, plug.lastModified);
+          console.log(`Plug ${plug.name} loaded on retry`);
+        } catch (e: any) {
+          console.error(
+            `Retry failed for plug ${plug.name} error: ${e.message}`,
+          );
+          stillFailing.push(plug);
+        }
+      }
+      if (stillFailing.length > 0 && attempt < 3) {
+        this.retryFailedPlugs(stillFailing, attempt + 1);
+      }
+    }, delayMs);
   }
 
   localSyscall(name: string, args: any[]) {
@@ -278,6 +414,7 @@ export class ClientSystem {
       "Now loading space scripts, custom styles and rebuilding editor state",
     );
     await this.loadLuaScripts();
+    await restoreDocks();
     await this.client.loadCustomStyles();
     this.client.rebuildEditorState();
   }

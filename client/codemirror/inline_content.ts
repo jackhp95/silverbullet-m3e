@@ -1,34 +1,35 @@
-import type { EditorState, Range } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
+import type { EditorState, Range } from "@codemirror/state";
 import { Decoration } from "@codemirror/view";
+import { parseToRef } from "@silverbulletmd/silverbullet/lib/ref";
 import {
-  decoratorStateField,
-  invisibleDecoration,
-  isCursorInRange,
-  widgetRenderMode,
-} from "./util.ts";
+  isLocalURL,
+  resolveMarkdownLink,
+} from "@silverbulletmd/silverbullet/lib/resolve";
+import {
+  nameFromTransclusion,
+  parseTransclusion,
+  resolveTransclusionUrl,
+} from "@silverbulletmd/silverbullet/lib/transclusion";
+import { renderToText } from "@silverbulletmd/silverbullet/lib/tree";
 import type { Client } from "../client.ts";
-import { LuaWidget } from "./lua_widget.ts";
-import { LoadingWidget } from "./loading_widget.ts";
+import { parse } from "../markdown_parser/parse_tree.ts";
+import { buildExtendedMarkdownLanguage } from "../markdown_parser/parser.ts";
 import {
   createMediaElement,
   expandMarkdown,
   readTransclusionContent,
 } from "../markdown_renderer/inline.ts";
 import { renderMarkdownToHtml } from "../markdown_renderer/markdown_render.ts";
+import { LoadingWidget } from "./loading_widget.ts";
+import { LuaWidget } from "./lua_widget.ts";
 import {
-  isLocalURL,
-  resolveMarkdownLink,
-} from "@silverbulletmd/silverbullet/lib/resolve";
-import { buildExtendedMarkdownLanguage } from "../markdown_parser/parser.ts";
-import { parse } from "../markdown_parser/parse_tree.ts";
-import { renderToText } from "@silverbulletmd/silverbullet/lib/tree";
-import {
-  nameFromTransclusion,
-  parseTransclusion,
-} from "@silverbulletmd/silverbullet/lib/transclusion";
-import { parseToRef } from "@silverbulletmd/silverbullet/lib/ref";
-import { buildTranslateUrls } from "./widget_util.ts";
+  decoratorStateField,
+  invisibleDecoration,
+  isCursorInRange,
+  widgetRenderMode,
+} from "./util.ts";
+import { buildResolveTransclusion, buildTranslateUrls } from "./widget_util.ts";
 
 export function inlineContentPlugin(client: Client) {
   return decoratorStateField((state: EditorState) => {
@@ -50,6 +51,11 @@ export function inlineContentPlugin(client: Client) {
         if (!transclusion) {
           return;
         }
+        resolveTransclusionUrl(
+          transclusion,
+          client.currentPath(),
+          client.clientSystem.allKnownFiles,
+        );
 
         const renderingSyntax =
           client.ui.viewState.uiOptions.markdownSyntaxRendering;
@@ -93,6 +99,7 @@ export function inlineContentPlugin(client: Client) {
                   );
                 }
 
+                const resolveTransclusion = buildResolveTransclusion(client);
                 try {
                   let content;
                   try {
@@ -111,7 +118,10 @@ export function inlineContentPlugin(client: Client) {
                       nameFromTransclusion(transclusion),
                       parse(mdLang, result.text, result.offset),
                       client.clientSystem.spaceLuaEnv,
-                      { syntaxExtensions },
+                      {
+                        syntaxExtensions,
+                        resolveTransclusion,
+                      },
                     );
                     content = {
                       html: renderMarkdownToHtml(
@@ -122,6 +132,7 @@ export function inlineContentPlugin(client: Client) {
                             true,
                           ),
                           translateUrls: buildTranslateUrls(client),
+                          resolveTransclusion,
                         },
                         client.ui.viewState.allPages,
                       ),
@@ -140,14 +151,18 @@ export function inlineContentPlugin(client: Client) {
                   return {
                     _isWidget: true,
                     display: "block",
-                    cssClasses: ["sb-inline-content"],
+                    // margin/overflow moved to Tailwind utilities — see
+                    // editor.scss's audit note.
+                    cssClasses: ["sb-inline-content", "m-0", "overflow-hidden"],
                     ...content,
                   };
                 } catch (e: any) {
                   return {
                     _isWidget: true,
                     display: "block",
-                    cssClasses: ["sb-inline-content"],
+                    // margin/overflow moved to Tailwind utilities — see
+                    // editor.scss's audit note.
+                    cssClasses: ["sb-inline-content", "m-0", "overflow-hidden"],
                     markdown: `**Error:** ${e.message}`,
                   };
                 }

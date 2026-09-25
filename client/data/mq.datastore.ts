@@ -15,6 +15,8 @@ export type ProcessingMessage = MQMessage & {
   ts: number;
 };
 
+const DEFAULT_LEASE_RENEW_INTERVAL = 2000;
+
 const queuedPrefix = ["mq", "queued"];
 const processingPrefix = ["mq", "processing"];
 const dlqPrefix = ["mq", "dlq"];
@@ -34,35 +36,54 @@ export class QueueWorker {
    * This is the main loop of the worker, whenever it exits the loop it means the worker has stopped
    */
   async run() {
+    let drainPending = true;
     try {
       while (true) {
         if (this.stopping) {
           break;
         }
-        // Poll for messages
         const messages = await this.mq.poll(
           this.queue,
           this.options.batchSize || 1,
         );
         if (messages.length > 0) {
-          // We have messages, process them, then immediately loop to poll again
-          await this.callback(messages);
+          drainPending = true;
+          // We have messages, process them, then immediately loop to poll
+          // again. A throwing callback must not kill the worker — its queue
+          // would silently never be processed again for the session.
+          const renew = setInterval(() => {
+            this.mq
+              .renewLease(
+                this.queue,
+                messages.map((m) => m.id),
+              )
+              .catch(console.error);
+          }, this.options.leaseRenewIntervalMs || DEFAULT_LEASE_RENEW_INTERVAL);
+          try {
+            await this.callback(messages);
+          } catch (e) {
+            console.error(
+              `Error in queue "${this.queue}" worker callback (worker continues)`,
+              e,
+            );
+          } finally {
+            clearInterval(renew);
+          }
         } else {
-          // No messages, wait to be woken up or a timeout
-          void this.mq.eventHook.dispatchEvent(
-            `mq:emptyQueue:${this.queue}`,
-            this.queue,
-          );
+          if (drainPending) {
+            drainPending = false;
+            void this.mq.eventHook.dispatchEvent(
+              `mq:emptyQueue:${this.queue}`,
+              this.queue,
+            );
+          }
           try {
             await race([
-              // Wait to be woken up explicitly
               new Promise<void>((resolve, reject) => {
                 this.stopReject = reject;
                 this.mq.queueWorker(this.queue, resolve, reject);
               }),
-              // Or a poll interval timeout
               sleep(this.options.pollInterval || 1000).then(() => {
-                // Remove self from waiters
                 this.mq.removeQueuedWorker(this.queue, this.stopReject!);
               }),
             ]);
@@ -104,7 +125,6 @@ export class DataStoreMQ {
     public eventHook: EventHook,
   ) {}
 
-  /// Worker management
   public queueWorker(
     queue: string,
     resolve: () => void,
@@ -115,7 +135,6 @@ export class DataStoreMQ {
       waiters = [];
       this.queueWaiters.set(queue, waiters);
     }
-    // console.log("[mq]", "Queuing a worker for queue", queue);
     waiters.push({ resolve, reject });
   }
 
@@ -126,11 +145,9 @@ export class DataStoreMQ {
   wakeupWorker(queue: string) {
     const waiters = this.queueWaiters.get(queue);
     if (waiters && waiters.length > 0) {
-      // console.log("[mq]", "Waking up a worker for queue", queue);
       const { resolve } = waiters.shift()!;
       resolve();
       if (waiters.length === 0) {
-        // Clean up empty arrays
         this.queueWaiters.delete(queue);
       }
     }
@@ -144,7 +161,6 @@ export class DataStoreMQ {
         waiters.splice(index, 1);
       }
       if (waiters.length === 0) {
-        // Let's not keep empty arrays around
         this.queueWaiters.delete(queue);
       }
     }
@@ -197,7 +213,6 @@ export class DataStoreMQ {
       return [];
     }
 
-    // Put them in the processing queue
     await this.ds.batchSet(
       messages.map((m) => ({
         key: [...processingPrefix, queue, m.id],
@@ -207,12 +222,10 @@ export class DataStoreMQ {
         },
       })),
     );
-    // Delete them from the queued queue
     await this.ds.batchDelete(
       messages.map((m) => [...queuedPrefix, queue, m.id]),
     );
 
-    // Return them
     return messages;
   }
 
@@ -228,7 +241,6 @@ export class DataStoreMQ {
     callback: (messages: MQMessage[]) => Promise<void> | void,
   ): QueueWorker {
     const worker = new QueueWorker(this, queue, options, callback);
-    // Start the worker asynchronously
     void worker.run();
     return worker;
   }
@@ -244,6 +256,26 @@ export class DataStoreMQ {
     await this.ds.batchDelete(
       ids.map((id) => [...processingPrefix, queue, id]),
     );
+  }
+
+  /**
+   * Pushes out the processing lease on messages a consumer is still working
+   * on, so `requeueTimeouts` distinguishes a slow consumer from a dead one.
+   */
+  async renewLease(queue: string, ids: string[]) {
+    if (ids.length === 0) {
+      return;
+    }
+    const keys = ids.map((id) => [...processingPrefix, queue, id]);
+    const existing = await this.ds.batchGet<ProcessingMessage>(keys);
+    const now = Date.now();
+    const updates: KV<ProcessingMessage>[] = [];
+    existing.forEach((message, i) => {
+      if (message) {
+        updates.push({ key: keys[i], value: { ...message, ts: now } });
+      }
+    });
+    await this.ds.batchSet(updates);
   }
 
   async requeueTimeouts(

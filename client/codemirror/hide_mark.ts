@@ -59,8 +59,6 @@ export function hideMarksPlugin() {
           const innerTree = node.toTree();
           innerTree.iterate({
             enter({ type, from: markFrom, to: markTo }) {
-              // Check for mark types and push the replace
-              // decoration
               if (!markTypes.includes(type.name)) return;
               widgets.push(
                 invisibleDecoration.range(from + markFrom, from + markTo),
@@ -74,8 +72,6 @@ export function hideMarksPlugin() {
   });
 }
 
-// HEADINGS
-
 export function hideHeaderMarkPlugin() {
   return decoratorStateField((state) => {
     const widgets: any[] = [];
@@ -84,7 +80,6 @@ export function hideHeaderMarkPlugin() {
         if (!type.name.startsWith("ATXHeading")) {
           return;
         }
-        // Get the active line
         const line = state.sliceDoc(from, to);
         if (line === "#") {
           // Empty header, potentially a tag, style it as such
@@ -98,15 +93,19 @@ export function hideHeaderMarkPlugin() {
           return;
         }
         if (isCursorInRange(state, [from, to])) {
+          // A line decoration anchored anywhere but a line start is discarded
+          // in silence, and a heading inside a blockquote or a list item does
+          // not start at one.
           widgets.push(
-            Decoration.line({ class: "sb-header-inside" }).range(from),
+            Decoration.line({ class: "sb-header-inside" }).range(
+              state.doc.lineAt(from).from,
+            ),
           );
           return;
         }
 
         const spacePos = line.indexOf(" ");
         if (spacePos === -1) {
-          // Not complete header
           return;
         }
         widgets.push(invisibleDecoration.range(from, from + spacePos + 1));

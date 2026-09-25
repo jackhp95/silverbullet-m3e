@@ -122,10 +122,10 @@ pub async fn handle_auth_post(
         same_site: "Lax",
     };
 
-    let redirect = if form.from.is_empty() {
-        format!("{}/", login.host_url_prefix())
-    } else {
+    let redirect = if is_same_origin_path(&form.from) {
         form.from.clone()
+    } else {
+        format!("{}/", login.host_url_prefix())
     };
 
     let mut resp = Json(json!({ "status": "ok", "redirect": redirect })).into_response();
@@ -135,6 +135,18 @@ pub async fn handle_auth_post(
         append_cookie(&mut resp, "refreshLogin", "true", &opts);
     }
     resp
+}
+
+/// Whether `path` is a path on this origin, and so safe to hand back as the
+/// post-login redirect. The login page assigns it to `location.href`, which
+/// happily follows an absolute URL to another site and *executes* a
+/// `javascript:` one, so only a single-slash-rooted path qualifies: `//host`
+/// and `/\host` are protocol-relative URLs in a browser, not paths.
+fn is_same_origin_path(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix('/') else {
+        return false;
+    };
+    !rest.starts_with('/') && !rest.starts_with('\\')
 }
 
 fn json_error(message: &str) -> Response {
@@ -148,8 +160,10 @@ fn append_cookie(resp: &mut Response, name: &str, value: &str, opts: &CookieOpti
     }
 }
 
-/// `GET /.logout` — clear the session + refresh cookies and 302 to `/.auth`.
 pub async fn handle_logout(State(state): State<Arc<ServerState>>, headers: HeaderMap) -> Response {
+    if !crate::auth::browser_sessions::logout_allowed(&headers) {
+        return (StatusCode::FORBIDDEN, "Cross-origin logout refused").into_response();
+    }
     let page_prefix = state
         .login
         .as_ref()
@@ -162,6 +176,17 @@ pub async fn handle_logout(State(state): State<Arc<ServerState>>, headers: Heade
         .unwrap_or_else(|| state.host_url_prefix.clone());
 
     let host = request_host(&headers);
+    if let Some(login) = &state.login {
+        if let Some(token) = crate::auth::cookie_value(
+            &headers,
+            &crate::auth::scoped_auth_cookie_name(&host, &session_prefix),
+        ) {
+            if let Err(error) = login.revoke_browser_session(&token) {
+                tracing::error!("could not revoke browser session: {error}");
+                return (StatusCode::INTERNAL_SERVER_ERROR, "Could not sign out").into_response();
+            }
+        }
+    }
     let secure = is_secure_request(&headers);
     let del = CookieOptions {
         path: format!("{session_prefix}/"),
@@ -211,8 +236,6 @@ mod tests {
         assert!(html.contains(r#"<base href="/prefix/""#), "{html}");
         assert!(html.contains("My Space"), "space name rendered: {html}");
 
-        // The page is a Preact bundle now; its config crosses over as data
-        // attributes on #root.
         assert!(
             html.contains(r#"data-space-name="My Space""#),
             "space name attribute: {html}"
@@ -332,6 +355,51 @@ mod tests {
         assert_eq!(v["status"], "error");
     }
 
+    async fn redirect_after_login(from: &'static str) -> String {
+        let body: &'static str =
+            Box::leak(format!("username=alice&password=s3cret&from={from}").into_boxed_str());
+        let resp = post_login(auth_state("alice:s3cret"), body).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["status"], "ok", "login itself must still succeed");
+        v["redirect"].as_str().unwrap().to_string()
+    }
+
+    /// The login page assigns this value to `location.href`, so anything the
+    /// browser will follow off-origin -- or execute -- must never survive.
+    #[tokio::test]
+    async fn a_hostile_from_never_reaches_the_redirect() {
+        for from in [
+            "javascript:alert(1)",
+            "JaVaScRiPt:alert(1)",
+            " javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "https://evil.example/phish",
+            "//evil.example/phish",
+            "/\\evil.example/phish",
+            "\\/evil.example/phish",
+            "https:/evil.example",
+        ] {
+            assert_eq!(
+                redirect_after_login(from).await,
+                "/",
+                "`from={from}` must fall back to the space root"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_ordinary_relative_from_is_preserved() {
+        assert_eq!(redirect_after_login("/notes/today").await, "/notes/today");
+        assert_eq!(
+            redirect_after_login("/notes/today?edit=1").await,
+            "/notes/today?edit=1"
+        );
+    }
+
     #[tokio::test]
     async fn remember_me_also_sets_refresh_cookie() {
         let resp = post_login(
@@ -407,5 +475,31 @@ mod tests {
             "cleared: {cookie}"
         );
         assert!(cookie.contains("Max-Age=0"));
+    }
+    #[tokio::test]
+    async fn logout_rejects_cross_origin_requests() {
+        for (name, value) in [
+            ("origin", "https://elsewhere.example"),
+            ("referer", "https://elsewhere.example/link"),
+            ("sec-fetch-site", "cross-site"),
+            ("sec-fetch-site", "same-site"),
+        ] {
+            let response = crate::build_router(auth_state("river:secret"))
+                .oneshot(
+                    Request::builder()
+                        .uri("/.logout")
+                        .header("host", "localhost:3000")
+                        .header(name, value)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            assert!(response
+                .headers()
+                .get(axum::http::header::SET_COOKIE)
+                .is_none());
+        }
     }
 }

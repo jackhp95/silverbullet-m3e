@@ -1,21 +1,22 @@
-import type { EditorState, Range } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
+import type { EditorState, Range } from "@codemirror/state";
 import { Decoration, WidgetType } from "@codemirror/view";
+import type { ParseTree } from "@silverbulletmd/silverbullet/lib/tree";
+import type { Client } from "../client.ts";
+import { lezerToParseTree } from "../markdown_parser/parse_tree.ts";
+import { expandMarkdown } from "../markdown_renderer/inline.ts";
+import { renderMarkdownToHtml } from "../markdown_renderer/markdown_render.ts";
+import { matchHtmlTagPairs, parseHtmlTag } from "./html_element.ts";
 import {
   decoratorStateField,
   invisibleDecoration,
   isCursorInRange,
 } from "./util.ts";
-import { renderMarkdownToHtml } from "../markdown_renderer/markdown_render.ts";
-import { expandMarkdown } from "../markdown_renderer/inline.ts";
-import type { ParseTree } from "@silverbulletmd/silverbullet/lib/tree";
-import { lezerToParseTree } from "../markdown_parser/parse_tree.ts";
-import type { Client } from "../client.ts";
 import {
   attachWidgetEventHandlers,
+  buildResolveTransclusion,
   buildTranslateUrls,
 } from "./widget_util.ts";
-import { matchHtmlTagPairs, parseHtmlTag } from "./html_element.ts";
 
 /**
  * Widget that renders an HTMLBlock or a slice of inline HTML as HTML, by
@@ -46,11 +47,16 @@ class HtmlWidget extends WidgetType {
 
   toDOM(): HTMLElement {
     const dom = document.createElement(this.inline ? "span" : "div");
-    dom.classList.add("sb-html-widget");
+    // font-normal/display moved here as Tailwind utilities — see
+    // editor.scss's audit note.
+    dom.classList.add("sb-html-widget", "font-normal");
     if (this.inline) {
-      dom.classList.add("sb-html-widget-inline");
+      dom.classList.add("sb-html-widget-inline", "inline");
+    } else {
+      dom.classList.add("block");
     }
 
+    const resolveTransclusion = buildResolveTransclusion(this.client);
     void expandMarkdown(
       this.client.space,
       this.client.currentName(),
@@ -58,12 +64,14 @@ class HtmlWidget extends WidgetType {
       this.client.clientSystem.spaceLuaEnv,
       {
         syntaxExtensions: this.client.config.get("syntaxExtensions", {}),
+        resolveTransclusion,
       },
     ).then((t) => {
       dom.innerHTML = renderMarkdownToHtml(t, {
         annotationPositions: true,
         shortWikiLinks: this.client.config.get("shortWikiLinks", true),
         translateUrls: buildTranslateUrls(this.client),
+        resolveTransclusion,
       });
       setTimeout(() => {
         attachWidgetEventHandlers(dom, this.client, this.sourceText);
@@ -152,7 +160,6 @@ export function htmlInlinePlugin(client: Client) {
       enter: (node) => {
         if (!inlineHostBlocks.has(node.name)) return;
 
-        // Collect HTMLTag children of this paragraph.
         const tagInfos: {
           from: number;
           to: number;
@@ -186,7 +193,6 @@ export function htmlInlinePlugin(client: Client) {
         const { pairs, voidElements } = matchHtmlTagPairs(tagInfos);
         if (pairs.length === 0 && voidElements.length === 0) return;
 
-        // Lazily compute the paragraph ParseTree once if any range qualifies.
         let paragraphTree: ParseTree | null = null;
         const getParagraphTree = (): ParseTree => {
           if (!paragraphTree) {

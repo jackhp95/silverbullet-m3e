@@ -16,7 +16,11 @@ import "./m3e-jsx.d.ts";
 // Matching this fork's own established convention (filter.tsx,
 // item_capture_sheet.tsx, basic_modals.tsx, top_bar.tsx all self-import their
 // own `@m3e/web/*` tags) — every real DOM-side consumer of `Button` must add
-// `import "@m3e/web/button";` itself.
+// `import "@m3e/web/button";` itself. (For the app's own bundles this has
+// since been centralized one level up, at each browser entry point — see
+// client/editor_ui.tsx's `@m3e/web/*` imports for why — but the underlying
+// per-file rule below still governs anything reached from plug UI panel
+// bundles, which register per-consumer instead.)
 
 export type ButtonVariant = "default" | "primary" | "danger" | "icon";
 
@@ -82,4 +86,25 @@ export function Button({
       {shortcut ? <span class="sb-kbd">{shortcut}</span> : null}
     </m3e-button>
   );
+}
+
+// Added after this file's m3e-button swap (4cfc3763) landed on the fork —
+// a plain native `<a>` styled with the same VARIANT_CLASS hooks, for the
+// nav-link call sites (SpaceList/UsersView) that need real link semantics
+// (href/target/download), not a button. m3e-button DOES support `href` (it
+// renders as an `<a>` internally when one is set — see ButtonElement.d.ts),
+// but these call sites predate that swap and were never migrated off a bare
+// `<a>`; left as-is rather than folded into Button, since ButtonLink's own
+// props (Omit<"a">, no `variant?: ButtonVariant` beyond styling) don't need
+// any of m3e-button's surface.
+export type ButtonLinkProps = Omit<JSX.IntrinsicElements["a"], "class"> & {
+  variant?: ButtonVariant;
+  class?: string;
+};
+export function ButtonLink({
+  variant = "default",
+  class: extra,
+  ...props
+}: ButtonLinkProps) {
+  return <a {...props} class={cx(VARIANT_CLASS[variant], extra)} />;
 }

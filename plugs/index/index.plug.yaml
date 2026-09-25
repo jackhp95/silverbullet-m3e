@@ -85,8 +85,8 @@ functions:
     path: ./queue.ts:processIndexQueue
     mqSubscriptions:
       - queue: indexQueue
-        batchSize: 3
-        autoAck: true
+        batchSize: 8
+        autoAck: false
 
   indexDocument:
     path: "./document.ts:indexDocument"
@@ -116,8 +116,19 @@ functions:
     events:
       - editor:complete
 
-  frontmatterTagComplete:
-    path: tags.ts:frontmatterTagComplete
+  atMentionComplete:
+    path: identity.ts:atMentionComplete
+    events:
+      - editor:complete
+
+  resolveAtMention:
+    path: identity.ts:resolveAtMention
+
+  listIdentities:
+    path: identity.ts:listIdentities
+
+  frontmatterValueComplete:
+    path: frontmatter_value_complete.ts:frontmatterValueComplete
     events:
       - editor:complete
 
@@ -185,6 +196,21 @@ functions:
     path: lint.ts:lintAnchors
     events:
       - editor:lint
+
+  requalifyAfterSave:
+    path: requalify.ts:requalifyAfterSave
+    events:
+      - page:saved
+
+  invalidateOnFileAppeared:
+    path: invalidate.ts:invalidateOnFileAppeared
+    events:
+      - file:changed
+
+  invalidateOnFileDeleted:
+    path: invalidate.ts:invalidateOnFileDeleted
+    events:
+      - file:deleted
 
   # X-Ray editor lens
   xrayInfo:

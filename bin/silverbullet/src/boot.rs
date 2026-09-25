@@ -40,7 +40,10 @@ impl SwappableRouter {
 /// bound for the process's whole life: once the wizard's `POST
 /// /.setup/api/complete` provisions the root, a background task builds the full
 /// multi-space stack and swaps it into the live router in place.
-pub async fn run_setup_server(config: crate::config::Config) -> Result<(), String> {
+pub(crate) async fn run_setup_server(
+    config: crate::config::Config,
+    shutdown: crate::server::Shutdown,
+) -> Result<(), String> {
     use silverbullet_server::multi::setup_api::{build_setup_router, SetupState};
 
     use crate::embed::{ClientAssets, EmbeddedSpace};
@@ -66,6 +69,7 @@ pub async fn run_setup_server(config: crate::config::Config) -> Result<(), Strin
     let state = Arc::new(SetupState {
         root: root.clone(),
         client_bundle: Box::new(EmbeddedSpace::<ClientAssets>::new()),
+        version: crate::VERSION.to_string(),
         index_template: crate::DEFAULT_INDEX_MD.to_string(),
         on_complete: Box::new(move || signal.notify_one()),
         complete_lock: tokio::sync::Mutex::new(()),
@@ -73,11 +77,15 @@ pub async fn run_setup_server(config: crate::config::Config) -> Result<(), Strin
 
     let (handle, outer) = SwappableRouter::new(build_setup_router(state));
 
-    // Wait for setup to finish, then hot-swap the multi stack into place.
+    // Wait for setup to finish, then hot-swap the multi stack into place. The
+    // swapped-in stack's spaces need the same shutdown signal as the wizard's
+    // own `with_graceful_shutdown` below, so its `rx` is cloned before
+    // `shutdown.future` is consumed by `axum::serve`.
     let swap_config = config.clone();
+    let swap_shutdown_rx = shutdown.rx.clone();
     tokio::spawn(async move {
         ready.notified().await;
-        match crate::multi::build_multi_stack(&swap_config).await {
+        match crate::multi::build_multi_stack(&swap_config, Some(swap_shutdown_rx)).await {
             Ok((router, log)) => {
                 handle.swap(router);
                 tracing::info!("setup complete: now serving multi-space: {log}");
@@ -96,7 +104,7 @@ pub async fn run_setup_server(config: crate::config::Config) -> Result<(), Strin
         .map_err(|e| format!("failed to listen on {addr}: {e}"))?;
     tracing::info!("SilverBullet setup wizard running: http://{addr}/.setup/");
     axum::serve(listener, outer)
-        .with_graceful_shutdown(crate::server::shutdown_signal())
+        .with_graceful_shutdown(shutdown.future)
         .await
         .map_err(|e| format!("server error: {e}"))
 }
@@ -155,12 +163,8 @@ pub fn detect(
                     .into(),
             );
         }
-        // No users.json at all: the root is only half-configured (a hand-written
-        // spaces.json), so run the setup wizard to mint the admin account. It
-        // loads the existing spaces.json and adds to it, leaving those spaces
-        // intact. A users.json that exists but holds no admin can't be fixed
-        // that way — `run_setup` refuses once users.json is there — so say so
-        // rather than looping the operator through a wizard that will 400.
+        // Missing users.json can be repaired by setup, preserving existing spaces.
+        // An existing file without an admin cannot: run_setup refuses to overwrite it.
         match silverbullet_server::multi::users::UsersConfig::load(&folder.join("users.json"))? {
             None => {
                 tracing::info!(
@@ -193,7 +197,6 @@ pub fn detect(
             rd.flatten()
                 .any(|e| !e.file_name().to_string_lossy().starts_with('.'))
         })
-        // Missing folder: treat exactly like an existing empty folder.
         .unwrap_or(false);
     if non_empty {
         tracing::info!("boot mode: single-space (folder is not empty)");
@@ -227,9 +230,7 @@ mod tests {
         }
 
         let (handle, outer) = SwappableRouter::new(answering(418));
-        // Before the swap the outer service answers with the initial router.
         assert_eq!(status(&outer).await, 418);
-        // After swapping, the very same outer service answers with the new one.
         handle.swap(answering(200));
         assert_eq!(status(&outer).await, 200);
     }
@@ -250,7 +251,7 @@ mod tests {
     async fn run_setup_server_rejects_unix_socket() {
         let dir = tempfile::tempdir().unwrap();
         let config = test_config(dir.path().to_str().unwrap(), Some("/tmp/sb.sock"));
-        let err = run_setup_server(config)
+        let err = run_setup_server(config, crate::server::Shutdown::install())
             .await
             .expect_err("must reject SB_UNIX_SOCKET");
         assert!(err.contains("SB_UNIX_SOCKET"), "{err}");
@@ -327,12 +328,10 @@ mod tests {
     fn spaces_json_means_multi_and_users_json_gates_it() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("spaces.json"), "{}").unwrap();
-        // No users.json at all -> run setup to mint the admin account.
         assert!(matches!(
             detect(dir.path(), false, &env(&[])).unwrap(),
             BootMode::Setup
         ));
-        // A users.json holding an admin account -> serve multi-space.
         std::fs::write(
             dir.path().join("users.json"),
             r#"{"root":{"passwordHash":"$argon2id$x","admin":true}}"#,
@@ -351,11 +350,9 @@ mod tests {
     fn spaces_json_with_adminless_users_json_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("spaces.json"), "{}").unwrap();
-        // Empty users.json ({}): zero accounts, so zero admins.
         std::fs::write(dir.path().join("users.json"), "{}").unwrap();
         let err = detect(dir.path(), false, &env(&[])).expect_err("no admin must fail");
         assert!(err.contains("no admin account"), "{err}");
-        // Only non-admin accounts is the same story.
         std::fs::write(
             dir.path().join("users.json"),
             r#"{"bob":{"passwordHash":"$argon2id$x","admin":false}}"#,

@@ -21,6 +21,8 @@ ${query[[from g = index.pages("guide") select templates.pageItem(g)]]}
 # Installation and deployment
 * [[Install]]: Installation instructions for various setups
 * [[Authentication]]: Securing your instance
+* [[Security]]: the trust model behind multi-space deployments
+* [[Security Profiles]]: which deployment shape fits your situation
 * [[TLS]]: the part where we walk through options to expose SilverBullet via HTTPS.
 * [[Troubleshooting]]: When things don't go as planned
 * [[CLI]]: Command-line interface for interacting with SilverBullet
@@ -36,6 +38,8 @@ These are the core concepts used in SilverBullet (also see the [[Glossary]]):
 * [[Document]]
 * [[Folder]]
 * [[Library]]
+* [[Collaboration]]
+* [[Revisions]]
 
 # User interface
 SilverBullet’s UI is minimalist by design. Let’s look at the few UI elements and how to use them.
@@ -55,6 +59,7 @@ SilverBullet’s UI is minimalist by design. Let’s look at the few UI elements
     * [[Markdown/Admonition]]
     * [[Task]]
     * [[Markdown/Syntax Highlighting]]
+    * [[Markdown/Comment]]
     * [[Markdown/Fenced Code Block]]
 * [[Slash Command]]
 * [[Outlines]]

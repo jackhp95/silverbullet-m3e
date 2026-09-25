@@ -1,10 +1,8 @@
 ---
-description: Your content is yours. You store it, nobody else gets access.
+description: Your content is yours. You store it, and you decide who else gets in.
 awesomeness: 7
 tags: feature
 ---
-SilverBullet is private because you [[Self Hosted|self host]] it, enabled [[Authentication]] and are not giving anybody else the username and password (_right!?_).
+SilverBullet is [[Self Hosted]], and has [[Zero Tracking]]. This means that your data is fully in your control, it is [[Data Sovereignty]] at work.
 
-_You_ are in control of the server it runs on, and communication between your browser and your server is secured via [[TLS]]. It is a way to be [[Data Sovereignty|data sovereign]].
-
-SilverBullet does not support end-to-end encryption yet (although you can enable [[Client Encryption]]). Therefore, you are in charge of securing your server using standard security practices (e.g. by enabling disk encryption to encrypt your disk).
+Private does not need to mean it’s just you. A [[Space]] may have any number of members.

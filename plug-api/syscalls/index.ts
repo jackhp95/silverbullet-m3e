@@ -1,8 +1,8 @@
+import { syscall } from "@silverbulletmd/silverbullet/syscall";
 import type {
   LuaCollectionQuery,
   LuaQueryCollection,
 } from "../../client/space_lua/query_collection.ts";
-import { syscall } from "@silverbulletmd/silverbullet/syscall";
 import type { ObjectValue } from "../../plug-api/types/index.ts";
 /**
  * Exposes the SilverBullet object indexing system
@@ -78,10 +78,10 @@ export function links(): Promise<LuaQueryCollection> {
 }
 
 /**
- * Returns all relation objects as a query collection.
+ * Returns all relation objects, optionally filtered by kind, as a query collection.
  */
-export function relations(): Promise<LuaQueryCollection> {
-  return syscall("index.relations");
+export function relations(kind?: string): Promise<LuaQueryCollection> {
+  return syscall("index.relations", kind);
 }
 
 /**
@@ -117,6 +117,16 @@ export function paragraphs(tagName?: string): Promise<LuaQueryCollection> {
  */
 export function tables(tagName?: string): Promise<LuaQueryCollection> {
   return syscall("index.tables", tagName);
+}
+
+/**
+ * Whether a full indexing pass has ever completed for this space. False on a
+ * fresh client, and for as long as the first index takes on a large one --
+ * during which every object query answers with whatever has been indexed so
+ * far. Code that has to work in that window reads the space directly instead.
+ */
+export function isAvailable(): Promise<boolean> {
+  return syscall("index.isAvailable");
 }
 
 /**
@@ -174,6 +184,13 @@ export function reindexSpace(): Promise<void> {
   return syscall("index.reindexSpace");
 }
 
+/**
+ * Drops every indexed object belonging to a file.
+ */
+export function clearFileIndex(path: string): Promise<void> {
+  return syscall("index.clearFileIndex", path);
+}
+
 export function deleteObject(
   page: string,
   tag: string,
@@ -186,6 +203,7 @@ export type {
   AnchorHit,
   ResolveAnchorResult,
 } from "../../plugs/index/types.ts";
+
 import type { ResolveAnchorResult } from "../../plugs/index/types.ts";
 
 /**

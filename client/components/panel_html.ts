@@ -67,6 +67,11 @@ globalThis.addEventListener("message", (message) => {
       }
 
       break;
+    case "theme":
+      if (data.theme) {
+        document.documentElement.setAttribute("data-theme", data.theme);
+      }
+      break;
   }
 });
 

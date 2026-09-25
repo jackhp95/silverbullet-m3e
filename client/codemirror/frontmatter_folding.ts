@@ -9,10 +9,10 @@ import { type EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import YAML from "js-yaml";
 import type { Client } from "../client.ts";
 import { tagPrefix } from "../../plugs/index/constants.ts";
-// NOTE: no `m3e-assist-chip`/ref-navigation imports here — V5b (2026-09-22)
-// removed the folded-frontmatter tag-chip placeholder; frontmatterFoldTags/
-// frontmatterFoldTagTarget stay (still exported + tested), but nothing in
-// this file renders them into DOM anymore.
+import {
+  encodePageURI,
+  parseToRef,
+} from "@silverbulletmd/silverbullet/lib/ref";
 
 export type FrontmatterFoldByDefault = "never" | "long" | "always";
 
@@ -119,36 +119,6 @@ export function findFrontmatterBlock(
   return block;
 }
 
-/**
- * Locates the document position of a top-level frontmatter key's own line
- * (the `key:` line itself, not any indented continuation of a block value)
- * inside `block`. Returns `undefined` if the block has no such key. Used by
- * `FrontMatterPanel` (L4) to move the cursor to a specific key's line when
- * a property row is activated — a line-based scan, deliberately not a
- * structural YAML-position API, matching the "ad-hoc but honest" approach
- * `findFrontmatterBlock` and `content_manager.ts`'s `frontMatterRegex`
- * already take elsewhere in this codebase.
- */
-export function frontmatterKeyLinePos(
-  state: EditorState,
-  block: FrontmatterBlock,
-  key: string,
-): number | undefined {
-  const startLine = state.doc.lineAt(block.from).number;
-  const endLine = state.doc.lineAt(Math.max(block.from, block.to - 1)).number;
-  for (let lineNumber = startLine + 1; lineNumber < endLine; lineNumber++) {
-    const line = state.doc.line(lineNumber);
-    if (/^[ \t]/.test(line.text)) {
-      continue; // indented continuation line of a prior key's block value
-    }
-    const match = /^([\w.$-]+):/.exec(line.text);
-    if (match && match[1] === key) {
-      return line.from;
-    }
-  }
-  return undefined;
-}
-
 export function selectionIntersectsRange(
   state: EditorState,
   from: number,
@@ -162,20 +132,23 @@ export function selectionIntersectsRange(
   });
 }
 
-// V5b (2026-09-22): frontmatter always auto-folds while the selection is
-// outside it, regardless of the space's `"never"/"long"/"always"` config —
-// the inline property list (FrontMatterPanel, L4) is now the only rendering
-// of frontmatter a reader sees, so the old "don't fold at all" opt-out no
-// longer has a chip-placeholder to opt out of. `config`/`lines` are kept in
-// the signature (rather than narrowed away) so callers and the config type
-// itself don't need to change shape for a behavior that may become
-// configurable again later.
 export function shouldAutoFoldFrontmatter(args: {
   config: FrontmatterFoldingConfig;
   lines: number;
   selectionInside: boolean;
 }): boolean {
-  return !args.selectionInside;
+  if (args.selectionInside) {
+    return false;
+  }
+
+  switch (args.config.foldByDefault) {
+    case "always":
+      return true;
+    case "long":
+      return args.lines > args.config.foldByDefaultLines;
+    case "never":
+      return false;
+  }
 }
 
 export function prepareFrontmatterFoldPlaceholder(
@@ -264,14 +237,6 @@ export function frontmatterFoldPlaceholderDOM(
   element.title = view.state.phrase("unfold");
 
   if (prepared.type === "frontmatter") {
-    // V5b (2026-09-22): fully hide frontmatter instead of a chip placeholder
-    // — the inline property list (FrontMatterPanel, L4) is now the only
-    // rendering of frontmatter a reader sees, so this placeholder paints
-    // nothing (no tag chips, no "N lines hidden" status text). The
-    // click-to-unfold wiring is unchanged: clicking the (empty) placeholder
-    // still unfolds the range and places the cursor at `editPos`, which
-    // remains the fallback affordance for block-style values a structured
-    // editor can't represent (§4/L4.3's "Edit as YAML" escape hatch).
     element.classList.add("cm-frontmatterFoldPlaceholder");
     element.addEventListener("pointerdown", (event) => {
       event.preventDefault();
@@ -286,6 +251,37 @@ export function frontmatterFoldPlaceholderDOM(
       });
       view.focus();
     };
+    if (prepared.tags.length > 0) {
+      for (const tag of prepared.tags) {
+        const target = frontmatterFoldTagTarget(client, tag);
+        const tagElement = document.createElement("a");
+        tagElement.className = "sb-hashtag";
+        tagElement.dataset.tagName = tag;
+        tagElement.href = `/${encodePageURI(target)}`;
+        tagElement.rel = "tag";
+        tagElement.textContent = `#${tag}`;
+        tagElement.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const ref = parseToRef(target);
+          if (client && ref) {
+            void client.navigate(ref, false, event.ctrlKey || event.metaKey);
+          }
+        });
+        element.appendChild(tagElement);
+        element.append(" ");
+      }
+      element.lastChild?.remove();
+    }
+    const status = document.createElement("span");
+    status.className = "cm-frontmatterFoldStatus";
+    status.textContent = `${prepared.lines} frontmatter lines hidden`;
+    element.appendChild(status);
+    element.title = `${prepared.lines} folded frontmatter lines`;
+    element.setAttribute(
+      "aria-label",
+      `${prepared.lines} folded frontmatter lines`,
+    );
     return element;
   }
   element.textContent = frontmatterFoldPlaceholderText(prepared);

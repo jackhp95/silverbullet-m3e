@@ -4,10 +4,12 @@ import {
   autocompletion,
   closeBrackets,
   closeBracketsKeymap,
+  type Completion,
 } from "@codemirror/autocomplete";
 import {
   codeFolding,
   foldEffect,
+  forceParsing,
   indentOnInput,
   indentUnit,
   LanguageDescription,
@@ -47,9 +49,12 @@ import { postScriptPrefacePlugin } from "./top_bottom_panels.ts";
 import { lazyLanguages, languageFor, loadLanguageFor } from "../languages.ts";
 import { plugLinter } from "./lint.ts";
 import { readOnlyCursorActive } from "./util.ts";
+import { isValidEditor } from "../lib/command_filters.ts";
 import { buildExtendedMarkdownLanguage } from "../markdown_parser/parser.ts";
 import { safeRun } from "@silverbulletmd/silverbullet/lib/async";
 import { codeCopyPlugin } from "../codemirror/code_copy.ts";
+import { externalPresence } from "./external_presence.ts";
+import { conflictMarkers } from "./conflict_markers.ts";
 import { disableSpellcheck } from "../codemirror/spell_checking.ts";
 import type { ClickEvent } from "@silverbulletmd/silverbullet/type/client";
 import {
@@ -58,6 +63,9 @@ import {
   frontmatterFoldPlaceholderDOM,
   prepareFrontmatterFoldPlaceholder,
 } from "./frontmatter_folding.ts";
+import { createIconElement } from "../lib/icon.ts";
+
+type DecoratedCompletion = Completion & { icon?: unknown };
 
 // Annotation marking a transaction whose changes came from outside the
 // editor's edit stream (e.g. a page re-fetch from storage), so the
@@ -72,6 +80,7 @@ export function createEditorState(
   selection?: EditorSelection,
 ): EditorState {
   let touchCount = 0;
+  let lastMouseDown: { x: number; y: number } | null = null;
 
   // Ugly: keep the commandKeyHandler compartment in the client, to be replaced
   // later once more commands are loaded
@@ -90,7 +99,6 @@ export function createEditorState(
   client.undoHistoryCompartment = new Compartment();
   const undoHistory = client.undoHistoryCompartment.of([history()]);
 
-  // Build the markdown language with any custom syntax extensions
   client.markdownLanguageCompartment = new Compartment();
   const markdownLanguageExtension = client.markdownLanguageCompartment.of(
     buildMarkdownLanguageExtension(client),
@@ -98,7 +106,6 @@ export function createEditorState(
 
   const vimMode = client.ui.viewState.uiOptions.vimMode;
 
-  // If vim mode is requested, load it async and reconfigure the compartment
   if (vimMode) {
     void enableVimMode(client);
   }
@@ -132,7 +139,6 @@ export function createEditorState(
       // bindings wont trigger if they have the same keys.
       commandKeyBindings,
 
-      // Vim mode compartment — starts empty, loaded async if needed
       client.vimCompartment.of([]),
       readOnlyExtensions,
 
@@ -153,6 +159,19 @@ export function createEditorState(
             return "";
           }
         },
+        addToOptions: [
+          {
+            position: 20,
+            render(completion) {
+              return (
+                createIconElement(
+                  (completion as DecoratedCompletion).icon,
+                  "sb-page-decoration-icon",
+                ) ?? null
+              );
+            },
+          },
+        ],
       }),
       EditorView.contentAttributes.of({
         spellcheck: "true",
@@ -161,6 +180,8 @@ export function createEditorState(
       }),
       inlineContentPlugin(client),
       codeCopyPlugin(client),
+      externalPresence(),
+      conflictMarkers(client),
       highlightSpecialChars(),
       undoHistory,
       dropCursor(),
@@ -170,13 +191,6 @@ export function createEditorState(
           frontmatterFoldPlaceholderDOM(view, onclick, prepared, client),
       }),
       frontmatterFoldingExtension(client),
-      // Keeps <FrontMatterPanel> (client/components/front_matter_panel.tsx)
-      // in sync with the document — registered unconditionally here (not
-      // appended once from the component's mount effect) because every
-      // navigation replaces the whole EditorState via `setState`, which
-      // would silently drop a one-time `appendConfig`. See
-      // `frontMatterSyncExtension`'s own doc comment (frontmatter_folding.ts)
-      // for the full rationale.
       frontMatterSyncExtension(() => client.onFrontMatterChanged?.()),
       indentUnits,
       indentOnInput(),
@@ -193,7 +207,7 @@ export function createEditorState(
         { selector: "ATXHeading5", class: "sb-line-h5" },
         { selector: "ATXHeading6", class: "sb-line-h6" },
         { selector: "ListItem", class: "sb-line-li", nesting: true },
-        { selector: "Blockquote", class: "sb-line-blockquote" },
+        { selector: "Blockquote", class: "sb-line-blockquote", nesting: true },
         { selector: "Task", class: "sb-line-task" },
         { selector: "CodeBlock", class: "sb-line-code" },
         { selector: "FencedCode", class: "sb-line-fenced-code" },
@@ -219,9 +233,6 @@ export function createEditorState(
               const touch = event.changedTouches.item(0)!;
               if (!event.altKey && event.target instanceof Element) {
                 // prevent the browser from opening the link twice
-                // `m3e-assist-chip` (tag pills, see hashtag.ts) isn't a real
-                // `<a>` so `closest("a")` alone would miss it; it always
-                // carries `data-tag-name` same as the old anchor did.
                 const parentA = event.target.closest("a, [data-tag-name]");
                 if (parentA) {
                   event.preventDefault();
@@ -257,12 +268,31 @@ export function createEditorState(
           touchCount = 0;
         },
 
+        mousedown: (event: MouseEvent) => {
+          lastMouseDown = { x: event.clientX, y: event.clientY };
+        },
+
         click: (event: MouseEvent, view: EditorView) => {
           const pos = view.posAtCoords(event);
           if (event.button !== 0) {
             return;
           }
           if (!pos) {
+            return;
+          }
+          // Releasing a drag-selection also produces a `click` (on the common
+          // ancestor of the mousedown/mouseup targets). Only treat it as a
+          // click when the pointer stayed put since mousedown; a missing
+          // mousedown means it landed on a widget, so the targets differed.
+          const mouseDown = lastMouseDown;
+          lastMouseDown = null;
+          if (
+            !mouseDown ||
+            Math.hypot(
+              event.clientX - mouseDown.x,
+              event.clientY - mouseDown.y,
+            ) > 4
+          ) {
             return;
           }
           safeRun(async () => {
@@ -276,9 +306,7 @@ export function createEditorState(
                 y: event.y,
               })!,
             };
-            // Make sure <a> tags (and m3e-assist-chip tag pills, which carry
-            // `data-tag-name` but aren't real anchors) are clicked without
-            // moving the cursor there
+            // Make sure <a> tags are clicked without moving the cursor there
             if (!event.altKey && event.target instanceof Element) {
               const parentA = event.target.closest("a, [data-tag-name]");
               if (parentA) {
@@ -304,7 +332,6 @@ export function createEditorState(
       }),
       ViewPlugin.fromClass(
         class {
-          // Track file changed during an IME composition session
           private composingDirty = false;
 
           update(update: ViewUpdate): void {
@@ -321,16 +348,13 @@ export function createEditorState(
               }
             }
             if (update.docChanged) {
-              // Skip saving if the change came from outside the editor (e.g. storage reload)
               if (
                 update.transactions.some((t) => t.annotation(externalUpdate))
               ) {
                 return;
               }
 
-              // Defer save and event dispatch during IME composition
               if (update.view.composing) {
-                // Mark dirty so we flush when composition ends
                 this.composingDirty = true;
                 client.ui.viewDispatch({ type: "page-changed" });
                 return;
@@ -350,7 +374,6 @@ export function createEditorState(
               client.save().catch((e) => console.error("Error saving", e));
               this.composingDirty = false;
             } else if (this.composingDirty && !update.view.composing) {
-              // Flush now because composition ended without file changes
               this.composingDirty = false;
               client.contentManager.debouncedUpdateEvent();
               client.save().catch((e) => console.error("Error saving", e));
@@ -365,18 +388,26 @@ export function createEditorState(
   });
 }
 
-// TODO: Move this elsewhere
-export function isValidEditor(
-  currentEditor: string | undefined,
-  requiredEditor: string | undefined,
-): boolean {
-  return (
-    requiredEditor === undefined ||
-    (currentEditor === undefined && requiredEditor === "page") ||
-    requiredEditor === "any" ||
-    currentEditor === requiredEditor ||
-    (currentEditor !== undefined && requiredEditor === "notpage")
-  );
+/**
+ * Synchronously parse the region of the document that is about to become
+ * visible, so live-preview decorations are present on the first paint instead
+ * of flashing raw markdown. A fresh editor state only parses the first ~3000
+ * characters; the background parser resumes after an idle pause (a fixed
+ * 500ms in WebKit, which lacks requestIdleCallback). Must be called in the
+ * same task as `setState`/navigation, before the browser paints.
+ *
+ * `scrollTop` is the scroll position that is about to be restored, if any.
+ */
+export function forceParseVisibleRegion(view: EditorView, scrollTop?: number) {
+  let upto = view.viewport.to;
+  if (scrollTop) {
+    upto = Math.max(
+      upto,
+      view.lineBlockAtHeight(scrollTop + view.scrollDOM.clientHeight).to,
+    );
+  }
+  upto = Math.max(upto, view.state.selection.main.to);
+  forceParsing(view, Math.min(view.state.doc.length, upto + 2500), 100);
 }
 
 export function createCommandKeyBindings(client: Client): Extension {
@@ -384,7 +415,6 @@ export function createCommandKeyBindings(client: Client): Extension {
   const vimMode = client.ui.viewState.uiOptions.vimMode;
   const readOnly = client.isReadOnlyMode();
 
-  // Then add bindings for plug commands
   for (const def of client.clientSystem.commandHook
     .buildAllCommands()
     .values()) {
@@ -415,7 +445,6 @@ export function createCommandKeyBindings(client: Client): Extension {
             client.reportError(e, "key");
           })
           .then((returnValue: any) => {
-            // Always be focusing the editor after running a command UNLESS it returns false
             if (returnValue !== false) {
               client.focus();
             }
@@ -423,8 +452,6 @@ export function createCommandKeyBindings(client: Client): Extension {
 
         return true;
       };
-      // Only create a generic key handler (non-mac specific) when
-      // EITHER we're not on a mac, or we're on a mac AND not specific mac key binding is set
       if (def.key && (!isMacLike || (isMacLike && !def.mac))) {
         if (Array.isArray(def.key)) {
           for (const key of def.key) {
@@ -434,7 +461,6 @@ export function createCommandKeyBindings(client: Client): Extension {
           commandKeyBindings.push({ key: def.key, run });
         }
       }
-      // Only set mac key handlers if we're on a mac, because... you know, logic
       if (def.mac && isMacLike) {
         if (Array.isArray(def.mac)) {
           for (const key of def.mac) {

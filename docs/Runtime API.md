@@ -1,36 +1,32 @@
 ---
-tags: maturity/experimental
+tags: maturity/experimental administration
 references:
 - bin/silverbullet/src/server.rs
 - bin/sb/src/commands/query.rs
 ---
-
-The Runtime API lets you interact with SilverBullet programmatically over HTTP: evaluate Lua expressions and run scripts from the command line, scripts, or external tools.
+The Runtime API lets you interact with a SilverBullet client programmatically via HTTP.
 
 Requests are evaluated via Chrome DevTools Protocol (CDP) in a headless Chrome instance, which does the actual execution so all results reflect the live client state.
 
 > **note** Note
-> The [[CLI]] provides a convenient command-line interface for the Runtime API — evaluate Lua, run scripts, open a REPL, and more, without writing raw HTTP requests.
-
-> **note** Note
-> The Runtime API is not available in read-only mode (`SB_READ_ONLY`).
+> The [[CLI]] provides a convenient command-line interface for the Runtime API — evaluate Lua, run scripts, and more, without writing raw HTTP requests.
 
 # Setup
-The Runtime API is enabled automatically when Chrome or Chromium is detected on your system — no configuration needed.
+The Runtime API is enabled automatically when Chrome, Chromium, or Chromium headless shell is detected on your system — no configuration needed. Auto-detection prefers headless shell when it is available on `PATH`.
 
-If Chrome isn't auto-detected, set the path explicitly:
+If Chrome is not auto-detected, for some reason, set the path explicitly:
 ```
 SB_CHROME_PATH=/usr/bin/chromium
 ```
 
-To explicitly disable the Runtime API, set `SB_RUNTIME_API=0`.
+In single-instance mode, set `SB_RUNTIME_API=0` to disable the Runtime API. In multi-space mode this variable is ignored: use the **Enable runtime API** toggle in the administrator’s **Server** tab. Each writer has an independent **Runtime API** permission in the space’s access grid. Existing writers default to enabled unless explicitly opted out.
 
 # Docker setup
-Use the `-runtime-api` Docker image variant, which includes Chromium:
+The default Docker image includes Chromium headless shell, so no special image variant is required:
 ```yaml
 services:
   silverbullet:
-    image: ghcr.io/silverbulletmd/silverbullet:latest-runtime-api
+    image: ghcr.io/silverbulletmd/silverbullet:latest
     environment:
       - SB_USER=me:secret        # optional
       - SB_AUTH_TOKEN=mytoken    # optional, for API auth
@@ -40,9 +36,9 @@ services:
       - "3000:3000"
 ```
 
-The `-runtime-api` image automatically persists the Chrome profile in `/space/.chrome-data`, avoiding re-indexing on container restarts.
+The image stores isolated temporary Chrome profiles under `/space/.chrome-data`. A new runtime receives a fresh profile and rebuilds its client index; profiles are removed on Reset, permission revocation, or server shutdown. Administrative Stop retains the profile for reuse within the current server lifetime.
 
-The base Docker image (`ghcr.io/silverbulletmd/silverbullet`) does **not** include Chromium and is significantly smaller (~64MB vs ~766MB).
+Use a `-slim` tag such as `latest-slim` if you do not need the Runtime API and want a smaller image without Chromium. The old `-runtime-api` tags remain available as compatibility aliases for the default image.
 
 # Endpoints
 
@@ -71,15 +67,6 @@ curl -d 'local pages = query[[from tags.page limit 3 select table.select(_, "nam
 return pages' \
      http://localhost:3000/.runtime/lua_script
 # => {"result":[{"name":"index"},{"name":"Projects"},{"name":"TODO"}]}
-```
-
-## Screenshot
-`GET /.runtime/screenshot`
-
-Captures the current viewport of the headless Chrome instance as a PNG image.
-
-```bash
-curl -o screenshot.png http://localhost:3000/.runtime/screenshot
 ```
 
 ## Console logs
@@ -125,6 +112,7 @@ All error responses are JSON with `Content-Type: application/json` and an `error
 
 Status codes used across the Runtime API:
 
+* **403** — The caller lacks Write or Runtime API permission.
 * **400** — Empty request body: `{"error": "Request body is required"}`.
 * **500** — Lua/JS execution error (the evaluated code threw, e.g. a Lua error): `{"error": "<error message>", "code": "script_error"}`. The message is the concise client error (e.g. `attempt to call a nil value`); the full stack is available in the runtime console log.
 * **503** — Runtime API not enabled or no headless browser running: `{"error": "Runtime API is not enabled"}` or `{"error": "...", "code": "bridge_unavailable"}`.
@@ -133,12 +121,15 @@ Status codes used across the Runtime API:
 # How it works
 As documented in [[Architecture]], the vast majority of SilverBullet’s power is implemented in the client. However, there are use cases for programmatically accessing your space with all of SilverBullet (client’s) power.
 
-When the Runtime API is enabled, the server launches a headless (invisible by default) Chrome process upon the first request to an `/.remote` endpoint. This browser loads the full SilverBullet client, exactly like a regular browser tab, but without a visible window (with some memory optimizations). The client boots normally: it loads all plugs, Lua code and navigates to the index page.
+When the Runtime API is enabled, the first request to an `/.runtime/` endpoint starts a separate headless Chrome process for that user and space. Each runtime has its own temporary profile, cookies, browser storage, and console log. It loads the full SilverBullet client with the originating user’s identity and permissions. Removing Write or runtime access, disabling the account, or switching runtime off stops the affected browser and invalidates its credentials.
 
 Once ready, the server communicates with the browser directly via Chrome DevTools Protocol (CDP). Because Lua code runs inside a real SilverBullet client, it has access to the full API surface — `editor.*`, `space.*`, queries, and everything else available to in-page scripts and widgets. The results reflect live client state.
 
 ## Debugging
-Set `SB_CHROME_SHOW=1` to run Chrome with a visible window — useful for watching what the headless client is doing. Set `SB_CHROME_DATA_DIR` to a path to persist the Chrome profile between restarts (avoids re-indexing on each restart).
+Set `SB_CHROME_SHOW=1` to run Chrome with a visible window — useful for watching what the headless client is doing. Set `SB_CHROME_DATA_DIR` to choose the parent directory for isolated temporary profiles. Startup logs report the detected Chrome executable or that Chrome is unavailable.
 
 ## Resource usage
-Headless Chrome spawns several processes (browser, network, storage, and renderer). With the full SilverBullet client loaded and indexed, expect roughly **150–200 MB** of total RSS across all Chrome processes. The SilverBullet server itself adds ~30 MB on top of this.
+Headless Chrome spawns several processes (browser, network, storage, and renderer) for each active user and space pair. Additional runtimes therefore cost a whole browser, not just a tab. Browsers start lazily so unused runtime permissions consume no Chrome processes.
+
+## Managing runtimes
+Server administrators can open **Admin → Runtimes** to see each instantiated runtime's space, user, status, CPU, estimated memory, and profile disk usage. The list refreshes while visible and includes stopped runtimes with retained profiles. Viewing it does not start Chrome.

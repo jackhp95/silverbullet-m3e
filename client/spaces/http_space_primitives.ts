@@ -10,8 +10,64 @@ import {
   wrongSpacePathError,
 } from "@silverbulletmd/silverbullet/constants";
 import { headersToFileMeta } from "../lib/util.ts";
+import { etagForHash, hashFromEtag } from "./revision.ts";
 
 const defaultFetchTimeout = 30000; // 30 seconds
+
+export type WritePrecondition =
+  | { type: "matchesHash"; hash: string }
+  | { type: "notExists" };
+
+export class PreconditionFailedError extends Error {}
+
+/** The caller is authenticated but lacks the access level this route needs. */
+export class PermissionDeniedError extends Error {
+  constructor() {
+    super("You do not have permission to do that");
+    this.name = "PermissionDeniedError";
+  }
+}
+
+export type ReconcileRequest = {
+  baseHash: string;
+  baseText: string;
+  proposedHash: string;
+  proposedText: string;
+  source?: string;
+};
+
+export type ReconcileRevision = {
+  algorithm: string;
+  hash: string;
+  size: number;
+  lastModified: number;
+};
+
+export type ReconcileResponse =
+  | {
+      status: "applied" | "merged" | "conflicted";
+      revision: ReconcileRevision;
+      text: string;
+    }
+  | { status: "retry"; revision: ReconcileRevision };
+
+export class ReconcileIneligibleError extends Error {}
+
+export function parseReconcileResponse(
+  status: number,
+  body: unknown,
+): ReconcileResponse | null {
+  if (status === 404 || status === 405) {
+    return null;
+  }
+  if (status === 409 || status === 413) {
+    throw new ReconcileIneligibleError(`Reconcile ineligible: ${status}`);
+  }
+  if (status !== 200) {
+    throw new Error(`Failed to reconcile: ${status}`);
+  }
+  return body as ReconcileResponse;
+}
 
 // WebKit (Safari, WKWebView) strips custom response headers (X-Last-Modified,
 // etc.) when it recognizes a file extension in the URL. Encoding the last dot
@@ -50,7 +106,19 @@ export class HttpSpacePrimitives implements SpacePrimitives {
     readonly expectedSpacePath: string,
     private authErrorCallback: (message: string, ...args: any[]) => void,
     private bearerToken?: string,
+    // Best-effort attribution (never load-bearing): sent as X-Client-Id/
+    // X-Source on mutating requests only (PUT/DELETE/reconcile), never GETs.
+    private clientId?: string,
+    private source?: string,
+    private connectivityCallback?: (isOnline: boolean) => void,
   ) {}
+
+  private clientHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {};
+    if (this.clientId) headers["X-Client-Id"] = this.clientId;
+    if (this.source) headers["X-Source"] = this.source;
+    return headers;
+  }
 
   public async authenticatedFetch(
     url: string,
@@ -81,8 +149,10 @@ export class HttpSpacePrimitives implements SpacePrimitives {
       options.redirect = "manual";
       const result = await fetch(url, options);
       if (result.status >= 500 && result.status < 600) {
+        this.connectivityCallback?.(false);
         throw offlineError;
       }
+      this.connectivityCallback?.(true);
       const redirectHeader = result.headers.get("location");
 
       if (result.type === "opaqueredirect" && !redirectHeader) {
@@ -93,59 +163,56 @@ export class HttpSpacePrimitives implements SpacePrimitives {
           "You are not authenticated, reloading to reauthenticate",
           "reload",
         );
-        // console.log("Unregistering service workers", redirectHeader);
-        // await unregisterServiceWorkers();
-        // location.reload();
-        // Let's throw to avoid any further processing
         throw Error("Not authenticated");
       }
-
-      // console.log("Got response", result.status, result.statusText, result.url);
 
       // Attempting to handle various authentication proxies
       if (result.status >= 300 && result.status < 400) {
         if (redirectHeader) {
-          // Got a redirect
           this.authErrorCallback(
             "Received an authentication redirect",
             redirectHeader,
           );
-          // location.href = redirectHeader;
           throw new Error("Redirected");
         } else {
           console.error("Got a redirect status but no location header", result);
         }
       }
-      // Check for unauthorized status
-      if (result.status === 401 || result.status === 403) {
-        // If it came with a redirect header, we'll redirect to that URL
+      if (result.status === 403) {
+        throw new PermissionDeniedError();
+      }
+      if (result.status === 401) {
+        // An anonymous visitor refused a write gets 401+Location per spec, but
+        // signing in is not the remedy for a write that will stay refused —
+        // routing it through the auth callback throws them to the login page
+        // mid-session. Only a refused *read* means "you need to sign in".
+        const method = (options.method ?? "GET").toUpperCase();
+        if (method !== "GET" && method !== "HEAD") {
+          throw new PermissionDeniedError();
+        }
         if (redirectHeader) {
-          console.log(
-            "Received unauthorized status and got a redirect via the API so will redirect to URL",
-            result.url,
-          );
           this.authErrorCallback("You are not authenticated ", redirectHeader);
-          // location.href = redirectHeader;
-          throw new Error("Not authenticated");
         } else {
-          // If not, let's reload
           this.authErrorCallback(
             "You are not authenticated, going to reload and hope that that kicks off authentication",
+            "reload",
           );
-          // location.reload();
-          throw new Error("Not authenticated");
         }
+        throw new Error("Not authenticated");
       }
       return result;
     } catch (e: any) {
       // AbortSignal.timeout() throws a DOMException with name "TimeoutError".
-      // This is NOT an offline condition — the network may be fine, just slow.
+      // Preserve timeouts as a distinct error even though the connection is
+      // unavailable until a later request succeeds.
       if (e.name === "TimeoutError") {
         console.warn("Request timed out for", url);
+        this.connectivityCallback?.(false);
         throw new Error(`Request timed out after ${fetchTimeout}ms`);
       }
       if (isNetworkError(e)) {
         console.error("Got error fetching, throwing offline", url, e.message);
+        this.connectivityCallback?.(false);
         throw offlineError;
       }
       throw e;
@@ -179,6 +246,13 @@ export class HttpSpacePrimitives implements SpacePrimitives {
   }
 
   async readFile(path: string): Promise<{ data: Uint8Array; meta: FileMeta }> {
+    const { data, meta } = await this.readFileWithHash(path);
+    return { data, meta };
+  }
+
+  async readFileWithHash(
+    path: string,
+  ): Promise<{ data: Uint8Array; meta: FileMeta; remoteHash?: string }> {
     const res = await this.authenticatedFetch(
       `${this.url}/${encodePageURI(path)}`,
       {
@@ -195,6 +269,7 @@ export class HttpSpacePrimitives implements SpacePrimitives {
     return {
       data: new Uint8Array(await res.arrayBuffer()),
       meta: headersToFileMeta(path, res.headers)!,
+      remoteHash: hashFromEtag(res.headers.get("ETag")),
     };
   }
 
@@ -203,13 +278,35 @@ export class HttpSpacePrimitives implements SpacePrimitives {
     data: Uint8Array,
     meta?: FileMeta,
   ): Promise<FileMeta> {
+    const { meta: resultMeta } = await this.writeFileConditional(
+      path,
+      data,
+      meta,
+    );
+    return resultMeta;
+  }
+
+  async writeFileConditional(
+    path: string,
+    data: Uint8Array,
+    meta?: FileMeta,
+    precondition?: WritePrecondition,
+  ): Promise<{ meta: FileMeta; remoteHash?: string }> {
     const headers: Record<string, string> = {
       "Content-Type": "application/octet-stream",
+      ...this.clientHeaders(),
     };
     if (meta) {
       headers["X-Created"] = `${meta.created}`;
       headers["X-Last-Modified"] = `${meta.lastModified}`;
       headers["X-Perm"] = `${meta.perm}`;
+    }
+    if (precondition) {
+      if (precondition.type === "matchesHash") {
+        headers["If-Match"] = etagForHash(precondition.hash);
+      } else {
+        headers["If-None-Match"] = "*";
+      }
     }
 
     const res = await this.authenticatedFetch(
@@ -222,16 +319,56 @@ export class HttpSpacePrimitives implements SpacePrimitives {
       },
       0, // No timeout for uploads — transfer time depends on file size and connection speed
     );
-    return headersToFileMeta(path, res.headers)!;
+    if (res.status === 412) {
+      throw new PreconditionFailedError(`Precondition failed for ${path}`);
+    }
+    return {
+      meta: headersToFileMeta(path, res.headers)!,
+      remoteHash: hashFromEtag(res.headers.get("ETag")),
+    };
+  }
+
+  async reconcile(
+    path: string,
+    req: ReconcileRequest,
+  ): Promise<ReconcileResponse | null> {
+    const res = await this.authenticatedFetch(
+      `${this.url}/${encodePageURI(path)}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...this.clientHeaders(),
+        },
+        body: JSON.stringify(req),
+      },
+    );
+    const body = res.status === 200 ? await res.json() : undefined;
+    return parseReconcileResponse(res.status, body);
   }
 
   async deleteFile(path: string): Promise<void> {
+    await this.deleteFileConditional(path);
+  }
+
+  async deleteFileConditional(
+    path: string,
+    expectedHash?: string,
+  ): Promise<void> {
+    const headers: Record<string, string> = { ...this.clientHeaders() };
+    if (expectedHash !== undefined) {
+      headers["If-Match"] = etagForHash(expectedHash);
+    }
     const req = await this.authenticatedFetch(
       `${this.url}/${encodePageURI(path)}`,
       {
         method: "DELETE",
+        headers,
       },
     );
+    if (req.status === 412) {
+      throw new PreconditionFailedError(`Precondition failed for ${path}`);
+    }
     if (req.status !== 200) {
       throw Error(`Failed to delete file: ${req.statusText}`);
     }
@@ -240,8 +377,8 @@ export class HttpSpacePrimitives implements SpacePrimitives {
   async getFileMeta(path: string, observing?: boolean): Promise<FileMeta> {
     const res = await this.authenticatedFetch(
       `${this.url}/${encodePageURI(path)}`,
-      // This used to use HEAD, but it seems that Safari on iOS is blocking cookies/credentials to be sent along with HEAD requests
-      // so we'll use GET instead with a magic header which the server may or may not use to omit the body.
+      // Use GET with X-Get-Meta because iOS Safari omits credentials on HEAD.
+      // The server may omit the body when it recognizes this header.
       {
         method: "GET",
         headers: {

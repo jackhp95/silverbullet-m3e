@@ -3,6 +3,7 @@
 //! `/.spaces` surface (see `space_index`), which owns the session. Sessions use
 //! the same host-wide account cookie as every prefix-bound space.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::extract::{Path as AxumPath, Request, State};
@@ -11,14 +12,17 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::auth::oidc::store::ProviderStore;
 use crate::auth::{Authenticator, JwtAuthorizer, RequestAuthorizer};
 use crate::multi::access::UserTokenAuthorizer;
-use crate::multi::config::SpaceConfig;
+use crate::multi::config::{GitSyncMode, SpaceConfig};
+use crate::multi::instance::SpaceInstance;
 use crate::multi::manager::{ApiError, MultiManager};
-use crate::multi::users::UserStore;
+use crate::multi::users::{Profile, UserStore};
+use crate::revisions::{describe_sync_error, git, keys, redact_credentials, sync};
 use crate::router::run_blocking;
 
 pub struct AdminState {
@@ -29,6 +33,9 @@ pub struct AdminState {
     /// it never grants access on its own.
     pub account_authorizer: Arc<dyn RequestAuthorizer>,
     pub users: Arc<UserStore>,
+    /// Server-wide, resolved at startup — see `RuntimeAvailability`.
+    pub runtime_availability: crate::runtime::RuntimeAvailability,
+    pub provider_store: Option<Arc<ProviderStore>>,
 }
 
 impl AdminState {
@@ -40,6 +47,7 @@ impl AdminState {
         manager: Arc<MultiManager>,
         users: Arc<UserStore>,
         authenticator: Arc<Authenticator>,
+        runtime_availability: crate::runtime::RuntimeAvailability,
     ) -> Self {
         let is_admin_token = {
             let store = users.clone();
@@ -85,7 +93,14 @@ impl AdminState {
             authorizer,
             account_authorizer,
             users,
+            runtime_availability,
+            provider_store: None,
         }
+    }
+
+    pub fn with_provider_store(mut self, provider_store: Arc<ProviderStore>) -> Self {
+        self.provider_store = Some(provider_store);
+        self
     }
 }
 
@@ -116,6 +131,100 @@ async fn require_admin(State(state): State<Arc<AdminState>>, req: Request, next:
     match rejection {
         None => next.run(req).await,
         Some(r) => r.into_response(),
+    }
+}
+
+async fn handle_runtimes(State(state): State<Arc<AdminState>>) -> Response {
+    match run_blocking(move || Ok(state.manager.runtime_instances())).await {
+        Ok(instances) => Json(instances).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "task failed").into_response(),
+    }
+}
+
+async fn handle_stop_runtime(
+    State(state): State<Arc<AdminState>>,
+    AxumPath(id): AxumPath<String>,
+) -> Response {
+    manage_runtime(state, id, false).await
+}
+
+async fn handle_reset_runtime(
+    State(state): State<Arc<AdminState>>,
+    AxumPath(id): AxumPath<String>,
+) -> Response {
+    manage_runtime(state, id, true).await
+}
+
+async fn manage_runtime(state: Arc<AdminState>, id: String, reset: bool) -> Response {
+    match run_blocking(move || Ok(state.manager.manage_runtime(&id, reset))).await {
+        Ok(Ok(true)) => StatusCode::NO_CONTENT.into_response(),
+        Ok(Ok(false)) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"errors": [{"field": "", "message": "Runtime no longer exists"}]})),
+        )
+            .into_response(),
+        Ok(Err(error)) => {
+            tracing::error!(%error, "runtime management failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"errors": [{"field": "", "message": "Could not stop or reset runtime. Please retry."}]})),
+            )
+                .into_response()
+        }
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "task failed").into_response(),
+    }
+}
+
+async fn handle_server_config(State(state): State<Arc<AdminState>>) -> Response {
+    Json(json!({ "primaryUrl": state.manager.primary_url(), "serverName": state.manager.server_name(), "runtimeApi": state.manager.runtime_enabled() })).into_response()
+}
+
+async fn handle_set_server_config(
+    State(state): State<Arc<AdminState>>,
+    Json(value): Json<serde_json::Value>,
+) -> Response {
+    let mut fields = [None, None];
+    for (index, field) in ["primaryUrl", "serverName"].iter().enumerate() {
+        if let Some(value) = value.get(field) {
+            let Some(text) = value.as_str() else {
+                return api_error(ApiError::Validation(vec![
+                    crate::multi::validate::FieldError {
+                        field: (*field).into(),
+                        message: format!("{field} must be a string"),
+                    },
+                ]));
+            };
+            fields[index] = Some(text);
+        }
+    }
+    if !value.is_object() {
+        return api_error(ApiError::Validation(vec![
+            crate::multi::validate::FieldError {
+                field: "serverName".into(),
+                message: "server configuration must be an object".into(),
+            },
+        ]));
+    }
+    let runtime_api = match value.get("runtimeApi") {
+        None => None,
+        Some(value) => match value.as_bool() {
+            Some(enabled) => Some(enabled),
+            None => {
+                return api_error(ApiError::Validation(vec![
+                    crate::multi::validate::FieldError {
+                        field: "runtimeApi".into(),
+                        message: "runtimeApi must be a boolean".into(),
+                    },
+                ]))
+            }
+        },
+    };
+    match state
+        .manager
+        .set_server_config(fields[0], fields[1], runtime_api)
+    {
+        Ok(()) => handle_server_config(State(state)).await,
+        Err(error) => api_error(error),
     }
 }
 
@@ -163,9 +272,20 @@ fn user_store_error(msg: String) -> Response {
     }
     let field = if msg.starts_with("invalid username") || msg.starts_with("user ") {
         "username"
+    } else if msg.starts_with("invalid SSO provider") {
+        "providerId"
+    } else if msg.starts_with("invalid SSO enrollment") || msg.starts_with("SSO enrollment") {
+        "expectedEmail"
+    } else if msg.starts_with("full name") {
+        "fullName"
+    } else if msg.starts_with("email") {
+        "email"
     } else if msg.starts_with("token ") {
         "name"
-    } else if msg == "cannot remove the last admin" || msg == "cannot demote the last admin" {
+    } else if msg == "cannot remove the last admin"
+        || msg == "cannot demote the last admin"
+        || msg == "cannot disable the last admin"
+    {
         "admin"
     } else {
         ""
@@ -179,6 +299,14 @@ fn user_store_error(msg: String) -> Response {
 
 fn default_true() -> bool {
     true
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum CreateLoginMethod {
+    #[default]
+    Local,
+    Sso,
 }
 
 #[derive(Deserialize)]
@@ -195,7 +323,11 @@ async fn handle_create(
     Json(body): Json<CreateBody>,
 ) -> Response {
     let manager = state.manager.clone();
-    let CreateBody { seed_index, config } = body;
+    let CreateBody {
+        seed_index,
+        mut config,
+    } = body;
+    config.git_sync = None;
     match run_blocking(move || Ok(manager.create(config, seed_index))).await {
         Ok(Ok(id)) => Json(json!({ "id": id })).into_response(),
         Ok(Err(e)) => api_error(e),
@@ -251,7 +383,269 @@ async fn handle_delete(
     }
 }
 
-// --- Account management (users.json via `UserStore`) ---------------------
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitStatus {
+    remote_url: Option<String>,
+    remote_name: Option<String>,
+    branch: Option<String>,
+    credential_mode: GitSyncMode,
+    public_key: Option<String>,
+    fingerprint: Option<String>,
+    ahead: Option<usize>,
+    behind: Option<usize>,
+    sync: serde_json::Value,
+    last_attempt: Option<u64>,
+    last_success: Option<u64>,
+    version: u64,
+    enabled: bool,
+    paused: bool,
+    dirty: bool,
+    pull_interval_secs: u64,
+}
+
+fn rev_list_left_right(repo: &Path, left: &str, right: &str) -> Option<(usize, usize)> {
+    let out = git::run(
+        repo,
+        &[
+            "rev-list",
+            "--left-right",
+            "--count",
+            &format!("{left}...{right}"),
+        ],
+        &[],
+    )
+    .ok()?;
+    let mut parts = out.split_whitespace();
+    Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
+}
+
+fn local_commit_count(repo: &Path) -> Option<usize> {
+    git::run(repo, &["rev-list", "--count", "HEAD"], &[])
+        .ok()
+        .and_then(|s| s.trim().parse::<usize>().ok())
+}
+
+fn ahead_behind_status(
+    repo: &Path,
+    target: Option<&sync::RemoteTarget>,
+) -> (Option<usize>, Option<usize>) {
+    let Some(target) = target else {
+        return (local_commit_count(repo), None);
+    };
+    if let Ok((a, b)) = sync::ahead_behind(repo, &target.branch) {
+        return (Some(a), Some(b));
+    }
+    let tracking_ref = format!("refs/remotes/{}/{}", target.remote, target.branch);
+    if git::check(
+        repo,
+        &["rev-parse", "--verify", "--quiet", &tracking_ref],
+        1,
+    )
+    .unwrap_or(false)
+    {
+        if let Some((a, b)) = rev_list_left_right(repo, &target.branch, &tracking_ref) {
+            return (Some(a), Some(b));
+        }
+    }
+    (local_commit_count(repo), None)
+}
+
+/// The repository these routes may touch. `resolve_folder` resolves upward,
+/// so on a space nested inside a larger repo it hands back the *enclosing*
+/// repository -- which `set_remote` would then write to. The store already
+/// refused that space (`auto_commit_allowed` is false), so ask it instead.
+pub(super) fn syncable_repo(instance: &SpaceInstance) -> Option<PathBuf> {
+    let store = instance.revisions.as_ref()?.store();
+    store.auto_commit_allowed().then(|| store.repo_root())?
+}
+
+/// Carries a `kind` alongside the usual `errors` array: the admin form has
+/// to tell "sync is impossible for this space" apart from "the request
+/// failed", and only the former is worth blocking a save over.
+fn not_syncable() -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({
+            "errors": [{
+                "field": "revisions",
+                "message": "Git sync requires a managed repository of its own. Git sync is unavailable when the space repository contains server settings or keys; use a separate space folder.",
+            }],
+            "kind": "notSyncable",
+        })),
+    )
+        .into_response()
+}
+
+fn remote_url(repo: &Path, remote: &str) -> Option<String> {
+    git::run(
+        repo,
+        &["config", "--get", &format!("remote.{remote}.url")],
+        &[],
+    )
+    .ok()
+    .map(|s| s.trim().to_string())
+}
+
+fn git_status(repo: &Path, server_root: &Path, id: &str, mode: GitSyncMode) -> GitStatus {
+    let target = sync::resolve_target(repo).ok();
+    let remote_url = target.as_ref().and_then(|t| remote_url(repo, &t.remote));
+    let (ahead, behind) = ahead_behind_status(repo, target.as_ref());
+    let public_key = keys::public_key(server_root, id);
+    let fingerprint = keys::fingerprint(server_root, id);
+    GitStatus {
+        remote_url,
+        remote_name: target.as_ref().map(|t| t.remote.clone()),
+        branch: target.as_ref().map(|t| t.branch.clone()),
+        credential_mode: mode,
+        public_key,
+        fingerprint,
+        ahead,
+        behind,
+        sync: json!({ "state": "idle" }),
+        last_attempt: None,
+        last_success: None,
+        version: 0,
+        enabled: !mode.is_off(),
+        paused: false,
+        dirty: false,
+        pull_interval_secs: 300,
+    }
+}
+
+async fn handle_git_status(
+    State(state): State<Arc<AdminState>>,
+    AxumPath(id): AxumPath<String>,
+) -> Response {
+    let Some(instance) = state.manager.instance(&id) else {
+        return api_error(ApiError::NotFound);
+    };
+    let Some(repo) = syncable_repo(&instance) else {
+        return not_syncable();
+    };
+    let root = state.manager.root().to_path_buf();
+    let engine = instance.revisions.clone();
+    let id_for_keys = id.clone();
+    let mode = instance.config.git_sync().mode;
+    let cadence = instance.config.git_sync().pull_interval_secs;
+    let result = run_blocking(move || {
+        let mut status = git_status(&repo, &root, &id_for_keys, mode);
+        if let Some(engine) = engine {
+            let snapshot = engine.sync_snapshot();
+            status.sync = serde_json::to_value(&snapshot.sync).unwrap();
+            status.last_attempt = snapshot.last_attempt;
+            status.last_success = snapshot.last_success;
+            status.version = snapshot.version;
+            status.enabled = snapshot.enabled;
+            status.paused = snapshot.paused;
+            status.dirty = snapshot.dirty;
+            status.ahead = snapshot.pending.or(status.ahead);
+            status.behind = snapshot.incoming.or(status.behind);
+        }
+        status.pull_interval_secs = cadence;
+        Ok(status)
+    })
+    .await;
+    match result {
+        Ok(status) => Json(status).into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+pub(super) fn classify_git_test_error(stderr: &str) -> (&'static str, String) {
+    // git echoes the whole remote URL on an HTTPS failure, credentials and
+    // all, and this message is rendered by the client.
+    let message = redact_credentials(stderr).trim().to_string();
+    let lower = message.to_ascii_lowercase();
+    let kind = if lower.contains("permission denied")
+        || lower.contains("authentication failed")
+        || (lower.contains("permission to") && lower.contains("denied"))
+        || lower.contains("write access to repository")
+        || lower.contains("not allowed to push")
+    {
+        "authFailed"
+    } else if lower.contains("not found")
+        || lower.contains("does not exist")
+        || lower.contains("does not appear to be a git repository")
+    {
+        "notFound"
+    } else if lower.contains("could not resolve hostname")
+        || lower.contains("connection timed out")
+        || lower.contains("connection refused")
+        || lower.contains("network is unreachable")
+        || lower.contains("could not read from remote repository")
+    {
+        "unreachable"
+    } else if lower.contains("non-fast-forward") || lower.contains("[rejected]") {
+        "behind"
+    } else {
+        "other"
+    };
+    (kind, message)
+}
+
+async fn legacy_git_mutation() -> Response {
+    (StatusCode::BAD_REQUEST, Json(json!({"kind":"draftRequired","errors":[{"field":"gitSync","message":"use a connection draft to change or check Git sync"}]}))).into_response()
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct SyncBody {
+    #[serde(default)]
+    _allow_unrelated: bool,
+}
+
+fn tick_outcome_json(outcome: sync::TickOutcome) -> serde_json::Value {
+    match outcome {
+        sync::TickOutcome::Idle => json!({ "outcome": "idle" }),
+        sync::TickOutcome::Merged => json!({ "outcome": "merged" }),
+        sync::TickOutcome::Pushed => json!({ "outcome": "pushed" }),
+        sync::TickOutcome::MergedAndPushed => json!({ "outcome": "mergedAndPushed" }),
+        sync::TickOutcome::Conflicted(paths) => {
+            json!({ "outcome": "conflicted", "paths": paths })
+        }
+    }
+}
+
+async fn handle_git_sync_now(
+    State(state): State<Arc<AdminState>>,
+    AxumPath(id): AxumPath<String>,
+    Json(_body): Json<SyncBody>,
+) -> Response {
+    let Some(instance) = state.manager.instance(&id) else {
+        return api_error(ApiError::NotFound);
+    };
+    let Some(engine) = instance.revisions.clone() else {
+        return api_error(ApiError::Internal(
+            "git sync is not enabled for this space".into(),
+        ));
+    };
+    if syncable_repo(&instance).is_none() {
+        return not_syncable();
+    }
+    let result = run_blocking(move || Ok(engine.sync_now(false))).await;
+    match result {
+        Ok(Ok(outcome)) => Json(tick_outcome_json(outcome)).into_response(),
+        Ok(Err(e)) => {
+            let (kind, message) = describe_sync_error(&e);
+            let fallback = if message.is_empty() {
+                kind.clone()
+            } else {
+                message.clone()
+            };
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "errors": [{ "field": "", "message": fallback }],
+                    "kind": kind,
+                    "message": message,
+                })),
+            )
+                .into_response()
+        }
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "task failed").into_response(),
+    }
+}
 
 async fn handle_list_users(State(state): State<Arc<AdminState>>) -> Response {
     Json(state.users.list()).into_response()
@@ -268,26 +662,92 @@ async fn handle_get_user(
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CreateUserBody {
     username: String,
+    #[serde(default)]
     password: String,
     #[serde(default)]
+    login_method: CreateLoginMethod,
+    #[serde(default)]
+    provider_id: String,
+    #[serde(default)]
+    expected_email: String,
+    #[serde(default)]
     admin: bool,
+    #[serde(default)]
+    full_name: String,
+    #[serde(default)]
+    email: String,
 }
 
 async fn handle_create_user(
     State(state): State<Arc<AdminState>>,
     Json(body): Json<CreateUserBody>,
 ) -> Response {
+    let profile = match Profile::parse(&body.full_name, &body.email) {
+        Ok(profile) => profile,
+        Err(e) => return user_store_error(e),
+    };
     let users = state.users.clone();
-    let result =
-        run_blocking(move || Ok(users.create_user(&body.username, &body.password, body.admin)))
-            .await;
+    let active_provider_id = state
+        .provider_store
+        .as_ref()
+        .and_then(|providers| providers.active())
+        .map(|provider| provider.provider_id);
+    let result = run_blocking(move || match body.login_method {
+        CreateLoginMethod::Local => {
+            Ok(users.create_user(&body.username, &body.password, body.admin, profile))
+        }
+        CreateLoginMethod::Sso => {
+            let provider_id = match uuid::Uuid::parse_str(&body.provider_id) {
+                Ok(provider_id) => provider_id.to_string(),
+                Err(_) => return Ok(Err("invalid SSO provider ID".into())),
+            };
+            if active_provider_id.as_deref() != Some(provider_id.as_str()) {
+                return Ok(Err("invalid SSO provider: provider is not active".into()));
+            }
+            Ok(users.create_sso_user(
+                &body.username,
+                &provider_id,
+                &body.expected_email,
+                body.admin,
+                profile,
+            ))
+        }
+    })
+    .await;
     match result {
         Ok(Ok(())) => {
             state.manager.set_known_users(state.users.usernames());
             Json(json!({ "status": "ok" })).into_response()
         }
+        Ok(Err(e)) => user_store_error(e),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "task failed").into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProfileBody {
+    #[serde(default)]
+    full_name: String,
+    #[serde(default)]
+    email: String,
+}
+
+async fn handle_set_user_profile(
+    State(state): State<Arc<AdminState>>,
+    AxumPath(name): AxumPath<String>,
+    Json(body): Json<ProfileBody>,
+) -> Response {
+    let profile = match Profile::parse(&body.full_name, &body.email) {
+        Ok(profile) => profile,
+        Err(e) => return user_store_error(e),
+    };
+    let users = state.users.clone();
+    match run_blocking(move || Ok(users.set_profile(&name, profile))).await {
+        Ok(Ok(())) => Json(json!({ "status": "ok" })).into_response(),
         Ok(Err(e)) => user_store_error(e),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "task failed").into_response(),
     }
@@ -307,6 +767,7 @@ async fn handle_delete_user(
         Ok(Err(e)) => return user_store_error(e),
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "task failed").into_response(),
     }
+    state.manager.revoke_user_runtime(&name);
     let manager = state.manager.clone();
     let users_for_sweep = state.users.clone();
     let name_for_sweep = name;
@@ -333,10 +794,31 @@ async fn handle_set_user_password(
     Json(body): Json<PasswordBody>,
 ) -> Response {
     let users = state.users.clone();
+    let runtime_user = name.clone();
     let result = run_blocking(move || Ok(users.set_password(&name, &body.password))).await;
     match result {
         Ok(Ok(())) => {
+            state.manager.revoke_user_runtime(&runtime_user);
             state.manager.set_known_users(state.users.usernames());
+            Json(json!({ "status": "ok" })).into_response()
+        }
+        Ok(Err(e)) => user_store_error(e),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "task failed").into_response(),
+    }
+}
+
+/// Signs `name` out of every session — the only revocation lever for an
+/// account with no password to change.
+async fn handle_delete_sessions(
+    State(state): State<Arc<AdminState>>,
+    AxumPath(name): AxumPath<String>,
+) -> Response {
+    let users = state.users.clone();
+    let runtime_user = name.clone();
+    let result = run_blocking(move || Ok(users.bump_session_epoch(&name))).await;
+    match result {
+        Ok(Ok(())) => {
+            state.manager.revoke_user_runtime(&runtime_user);
             Json(json!({ "status": "ok" })).into_response()
         }
         Ok(Err(e)) => user_store_error(e),
@@ -355,10 +837,34 @@ async fn handle_set_admin(
     Json(body): Json<SetAdminBody>,
 ) -> Response {
     let users = state.users.clone();
+    let runtime_user = name.clone();
     let result = run_blocking(move || Ok(users.set_admin(&name, body.admin))).await;
     match result {
         Ok(Ok(())) => {
+            state.manager.revoke_user_runtime(&runtime_user);
             state.manager.set_known_users(state.users.usernames());
+            Json(json!({ "status": "ok" })).into_response()
+        }
+        Ok(Err(e)) => user_store_error(e),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "task failed").into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct SetDisabledBody {
+    disabled: bool,
+}
+
+async fn handle_set_disabled(
+    State(state): State<Arc<AdminState>>,
+    AxumPath(name): AxumPath<String>,
+    Json(body): Json<SetDisabledBody>,
+) -> Response {
+    let users = state.users.clone();
+    let runtime_user = name.clone();
+    match run_blocking(move || Ok(users.set_disabled(&name, body.disabled))).await {
+        Ok(Ok(())) => {
+            state.manager.revoke_user_runtime(&runtime_user);
             Json(json!({ "status": "ok" })).into_response()
         }
         Ok(Err(e)) => user_store_error(e),
@@ -422,6 +928,10 @@ async fn handle_fs_dirs(
     }
 }
 
+async fn handle_server_info(State(state): State<Arc<AdminState>>) -> Response {
+    Json(json!({ "runtimeApi": state.runtime_availability, "runtimeApiEnabled": state.manager.runtime_enabled(), "primaryUrl": state.manager.primary_url() })).into_response()
+}
+
 /// Path status + subdirectory suggestions for a folder-picker field. Relative
 /// input resolves against the server root; directory names only. Shared with
 /// the setup surface (`GET /.setup/api/fs/dirs`) so both the admin space form
@@ -446,7 +956,6 @@ pub(crate) fn dir_completion(root: &std::path::Path, input: &str) -> serde_json:
             .map(|m| !m.permissions().readonly())
             .unwrap_or(false);
 
-    // Complete the last path component against its parent directory.
     let (parent, partial) = if status == "exists" || input.ends_with('/') {
         (resolved.clone(), String::new())
     } else {
@@ -503,7 +1012,27 @@ fn admin_api_routes() -> Router<Arc<AdminState>> {
                 .patch(handle_patch)
                 .delete(handle_delete),
         )
+        .merge(super::git_connection::routes())
+        .route("/spaces/{id}/git", get(handle_git_status))
+        .route(
+            "/spaces/{id}/git/remote",
+            axum::routing::put(legacy_git_mutation),
+        )
+        .route(
+            "/spaces/{id}/git/key",
+            post(legacy_git_mutation).delete(legacy_git_mutation),
+        )
+        .route("/spaces/{id}/git/test", post(legacy_git_mutation))
+        .route("/spaces/{id}/git/sync", post(handle_git_sync_now))
         .route("/fs/dirs", get(handle_fs_dirs))
+        .route("/server-info", get(handle_server_info))
+        .route("/runtimes", get(handle_runtimes))
+        .route("/runtimes/{id}/stop", post(handle_stop_runtime))
+        .route("/runtimes/{id}/reset", post(handle_reset_runtime))
+        .route(
+            "/server-config",
+            get(handle_server_config).put(handle_set_server_config),
+        )
         .route("/users", get(handle_list_users).post(handle_create_user))
         .route(
             "/users/{name}",
@@ -512,6 +1041,15 @@ fn admin_api_routes() -> Router<Arc<AdminState>> {
                 .delete(handle_delete_user),
         )
         .route("/users/{name}/password", post(handle_set_user_password))
+        .route("/users/{name}/disabled", post(handle_set_disabled))
+        .route(
+            "/users/{name}/sessions",
+            axum::routing::delete(handle_delete_sessions),
+        )
+        .route(
+            "/users/{name}/profile",
+            axum::routing::put(handle_set_user_profile),
+        )
         .route("/users/{name}/tokens", post(handle_create_token))
         .route(
             "/users/{name}/tokens/{token_name}",
@@ -556,25 +1094,37 @@ mod tests {
                 client_bundle: Box::new(|| Box::new(MemorySpacePrimitives::new())),
                 base_fs: Box::new(|| Box::new(MemorySpacePrimitives::new())),
             },
-            runtime: Box::new(|_| None),
+            runtime_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            runtime: Arc::new(|_| None),
             metrics: None,
             auth: InstanceAuth::Accounts {
                 users,
                 authenticator,
+                session: crate::multi::access::SessionPolicy::default(),
             },
             version: "test".into(),
             main_port: 3000,
             disable_service_worker: true,
             shell_disabled: false,
             index_template: "# Test space\n".into(),
+            shutdown: None,
         }
     }
 
     pub(crate) fn admin_router(
         dir: &tempfile::TempDir,
     ) -> (axum::Router, Arc<MultiManager>, Arc<UserStore>) {
+        admin_router_with_runtime(dir, crate::runtime::RuntimeAvailability::Available)
+    }
+
+    pub(crate) fn admin_router_with_runtime(
+        dir: &tempfile::TempDir,
+        runtime_availability: crate::runtime::RuntimeAvailability,
+    ) -> (axum::Router, Arc<MultiManager>, Arc<UserStore>) {
         let users = UserStore::create_empty(dir.path()).unwrap();
-        users.create_user("admin", "adminpw1", true).unwrap();
+        users
+            .create_user("admin", "adminpw1", true, Profile::default())
+            .unwrap();
         let authenticator = test_authenticator();
         let manager = MultiManager::boot(
             dir.path().to_path_buf(),
@@ -586,11 +1136,45 @@ mod tests {
             manager.clone(),
             users.clone(),
             authenticator,
+            runtime_availability,
         ));
         // Nested at `/api` so these tests address the same URIs the unified
         // surface exposes at `/api/admin/...` minus its own prefix.
         let router = axum::Router::new().nest("/api", build_admin_api_router(state));
         (router, manager, users)
+    }
+
+    fn admin_router_with_provider(
+        dir: &tempfile::TempDir,
+    ) -> (axum::Router, Arc<UserStore>, String) {
+        let (_router, manager, users) = admin_router(dir);
+        let providers = Arc::new(ProviderStore::open(dir.path()).unwrap());
+        let revision = providers
+            .save_draft(crate::auth::oidc::config::ProviderConfig {
+                provider_id: String::new(),
+                preset: "oidc".into(),
+                issuer: "https://identity.example.test".into(),
+                central_origin: "https://login.example.test".into(),
+                client_id: "silverbullet".into(),
+                client_secret: "test-secret".into(),
+                workspace_domain: String::new(),
+                button_label: "Continue with Example".into(),
+            })
+            .unwrap();
+        providers.mark_tested(revision).unwrap();
+        providers.activate(revision).unwrap();
+        let provider_id = providers.active().unwrap().provider_id;
+        let state = Arc::new(
+            AdminState::new(
+                manager,
+                users.clone(),
+                test_authenticator(),
+                crate::runtime::RuntimeAvailability::Available,
+            )
+            .with_provider_store(providers),
+        );
+        let router = axum::Router::new().nest("/api", build_admin_api_router(state));
+        (router, users, provider_id)
     }
 
     /// The API no longer mints sessions — `/.spaces/api/login` does (see
@@ -624,14 +1208,180 @@ mod tests {
             .unwrap()
     }
 
+    fn del(uri: &str) -> Request<Body> {
+        Request::builder()
+            .method("DELETE")
+            .uri(uri)
+            .header("host", "localhost")
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn runtime_server_toggle_persists_and_preserves_other_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let (router, _manager, users) = admin_router(&dir);
+        let cookie = session_cookie(&users, "admin");
+        let response = authed(
+            &router,
+            "PUT",
+            "/api/server-config",
+            r#"{"runtimeApi":false}"#,
+            &cookie,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(body_json(response).await["runtimeApi"], false);
+        let stored =
+            super::super::server_config::ServerConfig::load(&dir.path().join("server.json"))
+                .unwrap();
+        assert!(!stored.runtime_api);
+        let response = authed(
+            &router,
+            "PUT",
+            "/api/server-config",
+            r#"{"serverName":"Notebook"}"#,
+            &cookie,
+        )
+        .await;
+        assert_eq!(body_json(response).await["runtimeApi"], false);
+        let response = authed(
+            &router,
+            "PUT",
+            "/api/server-config",
+            r#"{"runtimeApi":"yes"}"#,
+            &cookie,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn server_config_is_admin_gated_and_reports_validation_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let (router, manager, users) = admin_router(&dir);
+        assert_eq!(
+            send(&router, get("/api/server-config")).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let cookie = session_cookie(&users, "admin");
+        let response = authed(&router, "GET", "/api/server-config", "", &cookie).await;
+        assert_eq!(
+            body_json(response).await,
+            json!({ "primaryUrl": null, "serverName": "SilverBullet", "runtimeApi": true })
+        );
+        let response = authed(
+            &router,
+            "PUT",
+            "/api/server-config",
+            r#"{"primaryUrl":"ftp://notes.example.test"}"#,
+            &cookie,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            body_json(response).await["errors"][0]["field"],
+            "primaryUrl"
+        );
+        let response = authed(
+            &router,
+            "PUT",
+            "/api/server-config",
+            r#"{"primaryUrl":"https://Manager.Example.test/"}"#,
+            &cookie,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            body_json(response).await["primaryUrl"],
+            "https://manager.example.test"
+        );
+        assert_eq!(
+            manager.primary_url().as_deref(),
+            Some("https://manager.example.test")
+        );
+    }
+
+    #[tokio::test]
+    async fn server_name_updates_preserve_primary_url_and_omitted_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let (router, manager, users) = admin_router(&dir);
+        let cookie = session_cookie(&users, "admin");
+        manager
+            .set_primary_url("https://manager.example.test")
+            .unwrap();
+        let response = authed(
+            &router,
+            "PUT",
+            "/api/server-config",
+            r#"{"serverName":"  Notebook Server  "}"#,
+            &cookie,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            body_json(response).await,
+            json!({"primaryUrl":"https://manager.example.test", "serverName":"Notebook Server", "runtimeApi":true})
+        );
+        let response = authed(
+            &router,
+            "PUT",
+            "/api/server-config",
+            r#"{"primaryUrl":"https://other.example.test"}"#,
+            &cookie,
+        )
+        .await;
+        assert_eq!(body_json(response).await["serverName"], "Notebook Server");
+        for value in [
+            json!({"serverName":"  "}),
+            json!({"serverName":null}),
+            json!({"serverName":"x".repeat(101)}),
+        ] {
+            let response = authed(
+                &router,
+                "PUT",
+                "/api/server-config",
+                &value.to_string(),
+                &cookie,
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(
+                body_json(response).await["errors"][0]["field"],
+                "serverName"
+            );
+        }
+        assert_eq!(manager.server_name(), "Notebook Server");
+    }
+
+    #[tokio::test]
+    async fn server_info_reports_runtime_availability_and_is_admin_gated() {
+        let dir = tempfile::tempdir().unwrap();
+        let (router, _manager, users) =
+            admin_router_with_runtime(&dir, crate::runtime::RuntimeAvailability::NoChrome);
+
+        let resp = send(&router, get("/api/server-info")).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        let cookie = session_cookie(&users, "admin");
+        let resp = authed(&router, "GET", "/api/server-info", "", &cookie).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            body_json(resp).await,
+            serde_json::json!({ "runtimeApi": { "status": "no_chrome" }, "runtimeApiEnabled": true, "primaryUrl": null }),
+        );
+    }
+
     #[test]
     fn admin_and_spaces_share_one_authenticator() {
-        use crate::multi::config::{Binding, SpaceConfig};
+        use crate::multi::config::{Binding, SpaceAccess, SpaceConfig};
         use crate::multi::instance::{build_instance, InstanceStatus};
 
         let dir = tempfile::tempdir().unwrap();
         let users = UserStore::create_empty(dir.path()).unwrap();
-        users.create_user("admin", "adminpw1", true).unwrap();
+        users
+            .create_user("admin", "adminpw1", true, Profile::default())
+            .unwrap();
         let authenticator = test_authenticator();
 
         // The admin surface persists its signing secret to the *admin* file
@@ -642,7 +1392,12 @@ mod tests {
             std::collections::BTreeSet::new(),
         )
         .unwrap();
-        AdminState::new(manager, users.clone(), authenticator.clone());
+        AdminState::new(
+            manager,
+            users.clone(),
+            authenticator.clone(),
+            crate::runtime::RuntimeAvailability::Available,
+        );
 
         // A private (users-backed) space whose folder resolves to the data
         // root persists its own secret to the *space* file in that same dir.
@@ -650,17 +1405,20 @@ mod tests {
             name: "Root".into(),
             folder: dir.path().to_str().unwrap().to_string(),
             binding: Binding::Prefix { prefix: "/".into() },
-            public: false,
+            access: Some(SpaceAccess::None),
+            legacy_public: None,
             members: Default::default(),
             read_only: false,
             shell: Default::default(),
-            runtime_api: false,
             index_page: "index".into(),
             description: String::new(),
             theme_color: "#e1e1e1".into(),
             head_html: String::new(),
             space_ignore: String::new(),
             log_push: false,
+            revisions: Default::default(),
+            git_sync: None,
+            revisions_commit: None,
             extra: Default::default(),
         };
         let inst = build_instance(
@@ -703,7 +1461,9 @@ mod tests {
         // A valid session for a *non-admin* account is still refused — but as
         // 403, not 401: the caller is signed in, so sending it to the login
         // screen would only bounce it back here.
-        users.create_user("bob", "pw123456", false).unwrap();
+        users
+            .create_user("bob", "pw123456", false, Profile::default())
+            .unwrap();
         let bob = session_cookie(&users, "bob");
         let resp = send(
             &r,
@@ -726,13 +1486,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (r, _m, users) = admin_router(&dir);
 
-        // No cookie at all.
         assert_eq!(
             send(&r, get("/api/spaces")).await.status(),
             StatusCode::UNAUTHORIZED
         );
 
-        // A cookie that isn't a valid JWT is equally "not logged in".
         let garbage = send(
             &r,
             Request::builder()
@@ -745,8 +1503,9 @@ mod tests {
         .await;
         assert_eq!(garbage.status(), StatusCode::UNAUTHORIZED);
 
-        // A valid session belonging to a non-admin account.
-        users.create_user("alice", "alicepw12", false).unwrap();
+        users
+            .create_user("alice", "alicepw12", false, Profile::default())
+            .unwrap();
         let alice = session_cookie(&users, "alice");
         let forbidden = send(
             &r,
@@ -815,6 +1574,491 @@ mod tests {
         body_json(resp).await["id"].as_str().unwrap().to_string()
     }
 
+    fn git_run(repo: &std::path::Path, args: &[&str]) -> String {
+        crate::revisions::git::run(repo, args, &[]).unwrap()
+    }
+
+    fn space_folder(root: &std::path::Path, id: &str) -> std::path::PathBuf {
+        root.join("spaces").join(id)
+    }
+
+    #[tokio::test]
+    async fn legacy_git_mutations_are_unavailable() {
+        let (router, cookie, id, dir) = git_fixture().await;
+        let repo = space_folder(dir.path(), &id);
+        for (method, suffix, body) in [
+            ("PUT", "remote", r#"{"url":"git@example.test:notes.git"}"#),
+            ("POST", "key", "{}"),
+            ("DELETE", "key", "{}"),
+        ] {
+            let response = authed(
+                &router,
+                method,
+                &format!("/api/spaces/{id}/git/{suffix}"),
+                body,
+                &cookie,
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+        assert!(git::run(&repo, &["remote", "get-url", "origin"], &[]).is_err());
+        assert!(keys::public_key(dir.path(), &id).is_none());
+    }
+
+    async fn git_fixture() -> (axum::Router, String, String, tempfile::TempDir) {
+        git_fixture_with_mode("key").await
+    }
+
+    async fn git_fixture_with_mode(
+        mode: &str,
+    ) -> (axum::Router, String, String, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let (router, _m, users) = admin_router(&dir);
+        let cookie = session_cookie(&users, "admin");
+        let id = create_space(
+            &router,
+            &cookie,
+            &format!(
+                r#"{{"name":"Git","binding":{{"prefix":"/git"}},"revisions":"managed",
+                "gitSync":{{"mode":"{mode}","pullIntervalSecs":0}},"seedIndex":false}}"#
+            ),
+        )
+        .await;
+        (router, cookie, id, dir)
+    }
+
+    #[tokio::test]
+    async fn status_reports_local_commit_count_before_the_first_fetch() {
+        let (router, cookie, id, dir) = git_fixture().await;
+        let repo = space_folder(dir.path(), &id);
+        std::fs::write(repo.join("note.md"), "a\n").unwrap();
+        git_run(&repo, &["add", "-A"]);
+        git_run(
+            &repo,
+            &[
+                "-c",
+                "user.email=t@x.test",
+                "-c",
+                "user.name=T",
+                "commit",
+                "-qm",
+                "one",
+            ],
+        );
+
+        let status = body_json(
+            authed(
+                &router,
+                "GET",
+                &format!("/api/spaces/{id}/git"),
+                "",
+                &cookie,
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status["ahead"], 1, "{status}");
+        assert!(status["behind"].is_null(), "{status}");
+    }
+
+    #[tokio::test]
+    async fn status_reports_zero_ahead_for_a_fresh_clone_not_its_whole_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let (router, _m, users) = admin_router(&dir);
+        let cookie = session_cookie(&users, "admin");
+
+        let remote = tempfile::tempdir().unwrap();
+        git_run(remote.path(), &["init", "-q", "--bare"]);
+        let seed = tempfile::tempdir().unwrap();
+        git_run(
+            std::path::Path::new("."),
+            &[
+                "clone",
+                "-q",
+                remote.path().to_str().unwrap(),
+                seed.path().to_str().unwrap(),
+            ],
+        );
+        for i in 1..=3 {
+            std::fs::write(
+                seed.path().join(format!("f{i}.md")),
+                "x
+",
+            )
+            .unwrap();
+            git_run(seed.path(), &["add", "-A"]);
+            git_run(
+                seed.path(),
+                &[
+                    "-c",
+                    "user.email=t@x.test",
+                    "-c",
+                    "user.name=T",
+                    "commit",
+                    "-qm",
+                    &format!("c{i}"),
+                ],
+            );
+        }
+        let branch = git_run(seed.path(), &["symbolic-ref", "--short", "HEAD"])
+            .trim()
+            .to_string();
+        git_run(seed.path(), &["push", "-q", "origin", &branch]);
+
+        let clone = tempfile::tempdir().unwrap();
+        git_run(
+            std::path::Path::new("."),
+            &[
+                "clone",
+                "-q",
+                remote.path().to_str().unwrap(),
+                clone.path().to_str().unwrap(),
+            ],
+        );
+
+        let body = format!(
+            r#"{{"name":"Cloned","binding":{{"prefix":"/cloned"}},"revisions":"managed","folder":"{}","seedIndex":false}}"#,
+            clone.path().display()
+        );
+        let id = create_space(&router, &cookie, &body).await;
+
+        let status = body_json(
+            authed(
+                &router,
+                "GET",
+                &format!("/api/spaces/{id}/git"),
+                "",
+                &cookie,
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status["ahead"], 0, "{status}");
+        assert_eq!(status["behind"], 0, "{status}");
+    }
+
+    async fn draft_request(
+        router: &axum::Router,
+        cookie: &str,
+        id: &str,
+        method: &str,
+        suffix: &str,
+        body: serde_json::Value,
+    ) -> serde_json::Value {
+        let response = authed(
+            router,
+            method,
+            &format!("/api/spaces/{id}/git{suffix}"),
+            &body.to_string(),
+            cookie,
+        )
+        .await;
+        let status = response.status();
+        let value = body_json(response).await;
+        assert_eq!(status, StatusCode::OK, "{value}");
+        value
+    }
+    #[tokio::test]
+    async fn draft_key_and_cancel_preserve_live_connection() {
+        let (router, cookie, id, dir) = git_fixture().await;
+        let repo = space_folder(dir.path(), &id);
+        git_run(
+            &repo,
+            &["remote", "add", "origin", "git@example.test:existing.git"],
+        );
+        let original = keys::generate(dir.path(), &id).unwrap();
+        let draft = draft_request(&router, &cookie, &id, "POST", "/draft", json!({})).await;
+        let suffix = format!("/draft/{}", draft["id"].as_str().unwrap());
+        let next = draft_request(
+            &router,
+            &cookie,
+            &id,
+            "POST",
+            &format!("{suffix}/key"),
+            json!({"version":draft["version"]}),
+        )
+        .await;
+        assert_ne!(next["publicKey"], original);
+        assert!(next.get("privateKey").is_none());
+        assert_eq!(keys::public_key(dir.path(), &id).unwrap(), original);
+        draft_request(&router, &cookie, &id, "DELETE", &suffix, json!({})).await;
+        assert_eq!(
+            git_run(&repo, &["remote", "get-url", "origin"]).trim(),
+            "git@example.test:existing.git"
+        );
+        assert_eq!(keys::public_key(dir.path(), &id).unwrap(), original);
+    }
+    #[tokio::test]
+    async fn checked_draft_apply_pause_resume_and_disconnect() {
+        let (router, cookie, id, dir) = git_fixture().await;
+        let remote = tempfile::TempDir::new().unwrap();
+        git_run(remote.path(), &["init", "-q", "--bare"]);
+        let draft = draft_request(&router, &cookie, &id, "POST", "/draft", json!({})).await;
+        let suffix = format!("/draft/{}", draft["id"].as_str().unwrap());
+        let updated = draft_request(&router,&cookie,&id,"PUT",&suffix,json!({"version":draft["version"],"url":remote.path(),"mode":"manual","pullIntervalSecs":0})).await;
+        let checked = draft_request(
+            &router,
+            &cookie,
+            &id,
+            "POST",
+            &format!("{suffix}/test"),
+            json!({"version":updated["version"]}),
+        )
+        .await;
+        assert_eq!(checked["test"]["reachable"], true);
+        assert_eq!(checked["test"]["kind"], "emptyRepo");
+        assert!(git::run(
+            &space_folder(dir.path(), &id),
+            &["remote", "get-url", "origin"],
+            &[]
+        )
+        .is_err());
+        let stale = authed(
+            &router,
+            "POST",
+            &format!("/api/spaces/{id}/git{suffix}/apply"),
+            &json!({"version":updated["version"]}).to_string(),
+            &cookie,
+        )
+        .await;
+        assert_eq!(stale.status(), StatusCode::CONFLICT);
+        draft_request(
+            &router,
+            &cookie,
+            &id,
+            "POST",
+            &format!("{suffix}/apply"),
+            json!({"version":checked["version"]}),
+        )
+        .await;
+        assert_eq!(
+            git_run(
+                &space_folder(dir.path(), &id),
+                &["remote", "get-url", "origin"]
+            )
+            .trim(),
+            remote.path().to_str().unwrap()
+        );
+        let repo = space_folder(dir.path(), &id);
+        std::fs::write(repo.join("Note.md"), "A note\n").unwrap();
+        git_run(&repo, &["add", "Note.md"]);
+        git_run(
+            &repo,
+            &[
+                "-c",
+                "user.name=Sample",
+                "-c",
+                "user.email=sample@example.test",
+                "commit",
+                "-qm",
+                "Create note",
+            ],
+        );
+        draft_request(&router, &cookie, &id, "POST", "/sync", json!({})).await;
+        let mut successful = draft_request(&router, &cookie, &id, "GET", "", json!({})).await;
+        for _ in 0..100 {
+            if successful["lastSuccess"].is_number() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            successful = draft_request(&router, &cookie, &id, "GET", "", json!({})).await;
+        }
+        assert!(successful["lastSuccess"].is_number(), "{successful}");
+        for (action, paused) in [("pause", true), ("resume", false)] {
+            draft_request(
+                &router,
+                &cookie,
+                &id,
+                "POST",
+                &format!("/{action}"),
+                json!({}),
+            )
+            .await;
+            let status = draft_request(&router, &cookie, &id, "GET", "", json!({})).await;
+            assert_eq!(status["paused"], paused);
+            assert_eq!(status["credentialMode"], "manual");
+            assert_eq!(status["lastSuccess"], successful["lastSuccess"]);
+        }
+        let response = authed(
+            &router,
+            "PATCH",
+            &format!("/api/spaces/{id}"),
+            r#"{"name":"Renamed","gitSync":{"mode":"key"}}"#,
+            &cookie,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let status = draft_request(&router, &cookie, &id, "GET", "", json!({})).await;
+        assert_eq!(status["credentialMode"], "manual");
+        draft_request(&router, &cookie, &id, "DELETE", "/connection", json!({})).await;
+        let status = draft_request(&router, &cookie, &id, "GET", "", json!({})).await;
+        assert_eq!(status["enabled"], false);
+        assert_eq!(
+            git_run(
+                &space_folder(dir.path(), &id),
+                &["remote", "get-url", "origin"]
+            )
+            .trim(),
+            remote.path().to_str().unwrap()
+        );
+    }
+    #[tokio::test]
+    async fn draft_apply_rejects_external_remote_upstream_and_key_edits() {
+        for field in ["remote.origin.url", "branch.main.merge", "key"] {
+            let (router, cookie, id, dir) = git_fixture().await;
+            let repo = space_folder(dir.path(), &id);
+            git_run(&repo, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+            git_run(
+                &repo,
+                &["remote", "add", "origin", "git@example.test:original.git"],
+            );
+            keys::generate(dir.path(), &id).unwrap();
+            let remote = tempfile::TempDir::new().unwrap();
+            git_run(remote.path(), &["init", "-q", "--bare"]);
+            let draft = draft_request(&router, &cookie, &id, "POST", "/draft", json!({})).await;
+            let suffix = format!("/draft/{}", draft["id"].as_str().unwrap());
+            let updated = draft_request(&router,&cookie,&id,"PUT",&suffix,json!({"version":draft["version"],"url":remote.path(),"mode":"manual","pullIntervalSecs":0})).await;
+            let checked = draft_request(
+                &router,
+                &cookie,
+                &id,
+                "POST",
+                &format!("{suffix}/test"),
+                json!({"version":updated["version"]}),
+            )
+            .await;
+            if field == "key" {
+                keys::generate(dir.path(), &id).unwrap();
+            } else {
+                git_run(
+                    &repo,
+                    &[
+                        "config",
+                        field,
+                        if field == "remote.origin.url" {
+                            "git@example.test:unseen.git"
+                        } else {
+                            "refs/heads/unseen"
+                        },
+                    ],
+                );
+            }
+            let before_config = std::fs::read(repo.join(".git/config")).unwrap();
+            let before_key = std::fs::read(keys::key_path(dir.path(), &id)).unwrap();
+            let response = authed(
+                &router,
+                "POST",
+                &format!("/api/spaces/{id}/git{suffix}/apply"),
+                &json!({"version":checked["version"]}).to_string(),
+                &cookie,
+            )
+            .await;
+            assert_eq!(
+                response.status(),
+                StatusCode::CONFLICT,
+                "unseen {field} edit must be preserved"
+            );
+            assert_eq!(
+                std::fs::read(repo.join(".git/config")).unwrap(),
+                before_config
+            );
+            assert_eq!(
+                std::fs::read(keys::key_path(dir.path(), &id)).unwrap(),
+                before_key
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_connection_editors_cannot_both_activate() {
+        let (router, cookie, id, dir) = git_fixture().await;
+        let remote = tempfile::TempDir::new().unwrap();
+        git_run(remote.path(), &["init", "-q", "--bare"]);
+        let mut candidates = Vec::new();
+        for _ in 0..2 {
+            let draft = draft_request(&router, &cookie, &id, "POST", "/draft", json!({})).await;
+            let suffix = format!("/draft/{}", draft["id"].as_str().unwrap());
+            let updated = draft_request(&router,&cookie,&id,"PUT",&suffix,json!({"version":draft["version"],"url":remote.path(),"mode":"manual","pullIntervalSecs":0})).await;
+            let checked = draft_request(
+                &router,
+                &cookie,
+                &id,
+                "POST",
+                &format!("{suffix}/test"),
+                json!({"version":updated["version"]}),
+            )
+            .await;
+            candidates.push((
+                format!("/api/spaces/{id}/git{suffix}/apply"),
+                json!({"version":checked["version"]}).to_string(),
+            ));
+        }
+        let (left, right) = tokio::join!(
+            authed(&router, "POST", &candidates[0].0, &candidates[0].1, &cookie),
+            authed(&router, "POST", &candidates[1].0, &candidates[1].1, &cookie)
+        );
+        assert!(
+            (left.status() == StatusCode::OK && right.status() == StatusCode::CONFLICT)
+                || (right.status() == StatusCode::OK && left.status() == StatusCode::CONFLICT)
+        );
+        assert_eq!(
+            git_run(
+                &space_folder(dir.path(), &id),
+                &["remote", "get-url", "origin"]
+            )
+            .trim(),
+            remote.path().to_str().unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn every_connection_route_requires_admin() {
+        let (router, _cookie, id, _dir) = git_fixture().await;
+        for (method, suffix) in [
+            ("GET", ""),
+            ("POST", "/draft"),
+            ("PUT", "/draft/sample"),
+            ("DELETE", "/draft/sample"),
+            ("POST", "/draft/sample/key"),
+            ("POST", "/draft/sample/test"),
+            ("POST", "/draft/sample/apply"),
+            ("POST", "/pause"),
+            ("POST", "/resume"),
+            ("DELETE", "/connection"),
+            ("POST", "/sync"),
+        ] {
+            let request = Request::builder()
+                .method(method)
+                .uri(format!("/api/spaces/{id}/git{suffix}"))
+                .header("host", "localhost")
+                .body(Body::empty())
+                .unwrap();
+            assert_eq!(
+                send(&router, request).await.status(),
+                StatusCode::UNAUTHORIZED,
+                "{method} {suffix}"
+            );
+        }
+    }
+    #[test]
+    fn connection_error_classification_redacts_credentials() {
+        assert_eq!(
+            classify_git_test_error("Permission denied (publickey).").0,
+            "authFailed"
+        );
+        assert_eq!(
+            classify_git_test_error("! [rejected] main -> main (non-fast-forward)").0,
+            "behind"
+        );
+        assert_eq!(
+            classify_git_test_error("fatal: /missing does not appear to be a git repository").0,
+            "notFound"
+        );
+        let (_, message) =
+            classify_git_test_error("fatal: https://sample:secret@example.test/notes not found");
+        assert!(!message.contains("secret"));
+    }
+
     #[tokio::test]
     async fn get_single_space_returns_the_collection_shape() {
         let dir = tempfile::tempdir().unwrap();
@@ -831,7 +2075,6 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let v = body_json(resp).await;
         assert_eq!(v["name"], "Work");
-        // The live derived status is present, exactly as in the list view.
         assert!(v.get("status").is_some(), "{v}");
     }
 
@@ -961,7 +2204,6 @@ mod tests {
         let (r, _m, users) = admin_router(&dir);
         let cookie = session_cookie(&users, "admin");
 
-        // Create.
         let resp = authed(
             &r,
             "POST",
@@ -974,11 +2216,9 @@ mod tests {
         let v = body_json(resp).await;
         let id = v["id"].as_str().unwrap().to_string();
 
-        // List shows it running.
         let v = body_json(authed(&r, "GET", "/api/spaces", "", &cookie).await).await;
         assert_eq!(v[&id]["status"]["state"], "running");
 
-        // Update to a new prefix.
         let resp = authed(
             &r,
             "PUT",
@@ -989,7 +2229,6 @@ mod tests {
         .await;
         assert_eq!(resp.status(), StatusCode::OK);
 
-        // Validation error shape.
         let resp = authed(
             &r,
             "POST",
@@ -1002,7 +2241,6 @@ mod tests {
         let v = body_json(resp).await;
         assert!(!v["errors"].as_array().unwrap().is_empty(), "{v}");
 
-        // Delete.
         let resp = authed(&r, "DELETE", &format!("/api/spaces/{id}"), "", &cookie).await;
         assert_eq!(resp.status(), StatusCode::OK);
         let resp = authed(&r, "DELETE", &format!("/api/spaces/{id}"), "", &cookie).await;
@@ -1019,7 +2257,6 @@ mod tests {
         let (r, _m, users) = admin_router(&dir);
         let cookie = session_cookie(&users, "admin");
 
-        // Unauthenticated: gated.
         assert_eq!(
             send(&r, get("/api/fs/dirs?path=al")).await.status(),
             StatusCode::UNAUTHORIZED
@@ -1039,7 +2276,6 @@ mod tests {
         assert!(sugg.iter().any(|s| s == "alps"), "{sugg:?}");
         assert!(!sugg.iter().any(|s| s == "beta"), "{sugg:?}");
 
-        // Absolute input keeps absolute suggestions.
         let abs = format!("{}/al", dir.path().display());
         let v =
             body_json(authed(&r, "GET", &format!("/api/fs/dirs?path={abs}"), "", &cookie).await)
@@ -1057,11 +2293,9 @@ mod tests {
             "{abs_sugg:?}"
         );
 
-        // Existing dir.
         let v = body_json(authed(&r, "GET", "/api/fs/dirs?path=alpha", "", &cookie).await).await;
         assert_eq!(v["status"], "exists");
 
-        // A file is notADirectory.
         let v = body_json(authed(&r, "GET", "/api/fs/dirs?path=afile", "", &cookie).await).await;
         assert_eq!(v["status"], "notADirectory");
     }
@@ -1078,8 +2312,10 @@ mod tests {
     #[tokio::test]
     async fn admin_api_token_of_admin_user_works_and_member_token_does_not() {
         let dir = tempfile::tempdir().unwrap();
-        let (r, _m, users) = admin_router(&dir); // helper now also returns the store
-        users.create_user("bob", "pw123456", false).unwrap();
+        let (r, _m, users) = admin_router(&dir);
+        users
+            .create_user("bob", "pw123456", false, Profile::default())
+            .unwrap();
         let admin_tok = users.create_token("admin", "ci").unwrap();
         let bob_tok = users.create_token("bob", "ci").unwrap();
         let ok = send(
@@ -1132,7 +2368,6 @@ mod tests {
         let resp = authed(&r, "DELETE", "/api/users/admin", "", &cookie).await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
-        // Create a non-admin user.
         let resp = authed(
             &r,
             "POST",
@@ -1154,7 +2389,6 @@ mod tests {
         let resp = authed(&r, "GET", "/api/users/ghost", "", &cookie).await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 
-        // Duplicate username is a 400 with a username field.
         let resp = authed(
             &r,
             "POST",
@@ -1167,30 +2401,137 @@ mod tests {
         let v = body_json(resp).await;
         assert_eq!(v["errors"][0]["field"], "username");
 
-        // Promote bob to admin (now two admins: admin + bob).
         let resp = authed(&r, "PUT", "/api/users/bob", r#"{"admin":true}"#, &cookie).await;
         assert_eq!(resp.status(), StatusCode::OK);
         let v = body_json(authed(&r, "GET", "/api/users", "", &cookie).await).await;
         assert_eq!(v["bob"]["admin"], true);
 
-        // With two admins, demoting bob (not `admin`, whose session we're
-        // using) is fine.
         let resp = authed(&r, "PUT", "/api/users/bob", r#"{"admin":false}"#, &cookie).await;
         assert_eq!(resp.status(), StatusCode::OK);
         let v = body_json(authed(&r, "GET", "/api/users", "", &cookie).await).await;
         assert_eq!(v["bob"]["admin"], false);
 
-        // And, being a non-admin now, bob can be deleted outright.
         let resp = authed(&r, "DELETE", "/api/users/bob", "", &cookie).await;
         assert_eq!(resp.status(), StatusCode::OK);
         let v = body_json(authed(&r, "GET", "/api/users", "", &cookie).await).await;
         assert!(v.get("bob").is_none());
 
-        // Deleting/updating a nonexistent user 404s.
         let resp = authed(&r, "DELETE", "/api/users/ghost", "", &cookie).await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
         let resp = authed(&r, "PUT", "/api/users/ghost", r#"{"admin":true}"#, &cookie).await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn create_user_stores_the_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let (r, _m, users) = admin_router(&dir);
+        let cookie = session_cookie(&users, "admin");
+        let body = r#"{"username":"ada","password":"pw123456","admin":false,
+                       "fullName":"Ada Lovelace","email":"ada@example.org"}"#;
+        let resp = authed(&r, "POST", "/api/users", body, &cookie).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            users.profile("ada").unwrap().email.as_deref(),
+            Some("ada@example.org")
+        );
+    }
+
+    #[tokio::test]
+    async fn create_sso_user_and_disable_it_over_http() {
+        let dir = tempfile::tempdir().unwrap();
+        let (r, users, provider_id) = admin_router_with_provider(&dir);
+        let cookie = session_cookie(&users, "admin");
+        let body = serde_json::json!({
+            "username": "morgan-notes",
+            "loginMethod": "sso",
+            "providerId": provider_id,
+            "expectedEmail": "Morgan@Example.TEST",
+            "admin": false,
+            "fullName": "Morgan Example",
+            "email": "morgan@example.test"
+        });
+        let resp = authed(&r, "POST", "/api/users", &body.to_string(), &cookie).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let account =
+            body_json(authed(&r, "GET", "/api/users/morgan-notes", "", &cookie).await).await;
+        assert_eq!(account["loginMethod"], "sso");
+        assert_eq!(account["sso"]["expectedEmail"], "Morgan@example.test");
+        assert_eq!(account["disabled"], false);
+
+        let resp = authed(
+            &r,
+            "POST",
+            "/api/users/morgan-notes/disabled",
+            r#"{"disabled":true}"#,
+            &cookie,
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(!users.is_enabled("morgan-notes"));
+    }
+
+    #[tokio::test]
+    async fn sso_user_creation_rejects_invalid_provider_ids_and_password_reset() {
+        let dir = tempfile::tempdir().unwrap();
+        let (r, _m, users) = admin_router(&dir);
+        let cookie = session_cookie(&users, "admin");
+        let invalid = r#"{"username":"morgan","loginMethod":"sso","providerId":"current-provider","expectedEmail":"morgan@example.test"}"#;
+        let resp = authed(&r, "POST", "/api/users", invalid, &cookie).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(body_json(resp).await["errors"][0]["field"], "providerId");
+
+        users
+            .create_sso_user(
+                "morgan",
+                "11111111-1111-4111-8111-111111111111",
+                "morgan@example.test",
+                false,
+                Profile::default(),
+            )
+            .unwrap();
+        let resp = authed(
+            &r,
+            "POST",
+            "/api/users/morgan/password",
+            r#"{"password":"local-secret"}"#,
+            &cookie,
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert!(!users.verify_password("morgan", "local-secret"));
+    }
+
+    #[tokio::test]
+    async fn sso_user_creation_requires_the_active_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let (r, _m, users) = admin_router(&dir);
+        let cookie = session_cookie(&users, "admin");
+        let body = r#"{"username":"morgan","loginMethod":"sso","providerId":"11111111-1111-4111-8111-111111111111","expectedEmail":"morgan@example.test"}"#;
+        let resp = authed(&r, "POST", "/api/users", body, &cookie).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(body_json(resp).await["errors"][0]["field"], "providerId");
+        assert!(!users.usernames().contains("morgan"));
+    }
+
+    #[tokio::test]
+    async fn set_profile_rejects_a_git_ident_breaker() {
+        let dir = tempfile::tempdir().unwrap();
+        let (r, _m, users) = admin_router(&dir);
+        let cookie = session_cookie(&users, "admin");
+        users
+            .create_user("ada", "pw123456", false, Profile::default())
+            .unwrap();
+        let resp = authed(
+            &r,
+            "PUT",
+            "/api/users/ada/profile",
+            r#"{"fullName":"Ada <ada@example.org>","email":""}"#,
+            &cookie,
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
@@ -1258,10 +2599,8 @@ mod tests {
                 .unwrap(),
         )
         .await;
-        // Authenticated as bob, just not permitted.
         assert_eq!(no.status(), StatusCode::FORBIDDEN);
 
-        // Revoking the token removes its authority.
         let resp = authed(&r, "DELETE", "/api/users/admin/tokens/ci", "", &cookie).await;
         assert_eq!(resp.status(), StatusCode::OK);
         let no_more = send(
@@ -1276,7 +2615,6 @@ mod tests {
         .await;
         assert_eq!(no_more.status(), StatusCode::UNAUTHORIZED);
 
-        // Deleting an unknown token 404s.
         let resp = authed(&r, "DELETE", "/api/users/admin/tokens/nope", "", &cookie).await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
@@ -1315,7 +2653,6 @@ mod tests {
             StatusCode::OK
         );
 
-        // A nonexistent user 404s.
         let resp = authed(
             &r,
             "POST",
@@ -1324,6 +2661,29 @@ mod tests {
             &new_cookie,
         )
         .await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn deleting_sessions_requires_admin_and_bumps_one_user() {
+        let dir = tempfile::tempdir().unwrap();
+        let (router, _m, users) = admin_router(&dir);
+        let cookie = session_cookie(&users, "admin");
+        users
+            .create_user("bob", "pw123456", false, Profile::default())
+            .unwrap();
+        let before = users.credential_version("bob").unwrap();
+        let carol_before = users.credential_version("admin").unwrap();
+
+        let anon = send(&router, del("/api/users/bob/sessions")).await;
+        assert_eq!(anon.status(), StatusCode::UNAUTHORIZED);
+
+        let resp = authed(&router, "DELETE", "/api/users/bob/sessions", "", &cookie).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_ne!(users.credential_version("bob").unwrap(), before);
+        assert_eq!(users.credential_version("admin").unwrap(), carol_before);
+
+        let resp = authed(&router, "DELETE", "/api/users/ghost/sessions", "", &cookie).await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
@@ -1377,7 +2737,6 @@ mod tests {
         let v = body_json(authed(&r, "GET", "/api/users", "", &cookie).await).await;
         assert!(v.get("bob").is_none());
 
-        // Persisted, not just the in-memory view.
         let raw = std::fs::read_to_string(dir.path().join("spaces.json")).unwrap();
         assert!(!raw.contains("bob"), "{raw}");
     }

@@ -17,10 +17,6 @@ use crate::config::{self, Config};
 use crate::conn::{self, SpaceConnection};
 use crate::output::{self, OutputMode};
 
-// ---------------------------------------------------------------------------
-// Public entry point
-// ---------------------------------------------------------------------------
-
 /// Top-level entry: dispatch and map errors to an exit code.  `main` calls this.
 pub fn run(cli: Cli) -> ExitCode {
     match dispatch(cli) {
@@ -31,10 +27,6 @@ pub fn run(cli: Cli) -> ExitCode {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Dispatch
-// ---------------------------------------------------------------------------
 
 fn dispatch(cli: Cli) -> Result<ExitCode, String> {
     let g = cli.global.clone();
@@ -50,7 +42,12 @@ fn dispatch(cli: Cli) -> Result<ExitCode, String> {
         }
         Command::Space(sub) => {
             match sub {
-                crate::cli::SpaceCmd::Add => commands::space::space_add_interactive(None)?,
+                crate::cli::SpaceCmd::Add { no_browser } => {
+                    commands::space::space_add_with_options(None, no_browser)?
+                }
+                crate::cli::SpaceCmd::Login { name, no_browser } => {
+                    commands::space::space_login(&name, no_browser)?
+                }
                 crate::cli::SpaceCmd::Ls => commands::space::space_ls()?,
                 crate::cli::SpaceCmd::Rm { name } => commands::space::space_rm(&name)?,
             }
@@ -65,17 +62,13 @@ fn dispatch(cli: Cli) -> Result<ExitCode, String> {
 /// variants never need one (check `CoreCommand::needs_connection`).
 pub fn run_core_command(g: &GlobalFlags, cmd: CoreCommand) -> Result<ExitCode, String> {
     match cmd {
+        CoreCommand::Fs(command) => Ok(commands::fs::run(g, command)),
         CoreCommand::Upgrade => {
             commands::upgrade::run(false)?;
             Ok(ExitCode::SUCCESS)
         }
         CoreCommand::UpgradeEdge => {
             commands::upgrade::run(true)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        CoreCommand::Repl => {
-            let conn = resolve_conn(g)?;
-            commands::repl::run(conn)?;
             Ok(ExitCode::SUCCESS)
         }
         cmd => {
@@ -97,7 +90,7 @@ pub fn run_core_command(g: &GlobalFlags, cmd: CoreCommand) -> Result<ExitCode, S
                     commands::script::run(&conn, &script, mode, &mut out)?
                 }
                 CoreCommand::LuaScript { file } => {
-                    // Hidden, old behavior: positional arg is a FILE path (not inline code).
+                    // This alias interprets its positional argument as a file path.
                     let script = if let Some(f) = file {
                         read_file(&f)?
                     } else {
@@ -114,7 +107,7 @@ pub fn run_core_command(g: &GlobalFlags, cmd: CoreCommand) -> Result<ExitCode, S
                 CoreCommand::Logs { lines, follow } => {
                     commands::logs::run(&conn, lines, follow, &mut out)?
                 }
-                CoreCommand::Repl | CoreCommand::Upgrade | CoreCommand::UpgradeEdge => {
+                CoreCommand::Fs(_) | CoreCommand::Upgrade | CoreCommand::UpgradeEdge => {
                     unreachable!("handled above")
                 }
             }
@@ -122,10 +115,6 @@ pub fn run_core_command(g: &GlobalFlags, cmd: CoreCommand) -> Result<ExitCode, S
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers — pub so the App CLI can reuse them
-// ---------------------------------------------------------------------------
 
 /// Resolve a connection from the shared flags.
 ///
@@ -144,7 +133,6 @@ pub fn resolve_out(g: &GlobalFlags) -> OutputMode {
     output::resolve_mode(g.json, g.text, &g.output, std::io::stdout().is_terminal())
 }
 
-/// Read a file from `path`, mapping IO errors to a user-friendly message.
 fn read_file(path: &str) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("reading {path}: {e}"))
 }
@@ -161,15 +149,10 @@ fn read_stdin() -> Result<String, String> {
     Ok(s)
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // Verify that resolve_out delegates correctly (pure, no IO).
     #[test]
     fn resolve_out_json_flag() {
         let g = GlobalFlags {
@@ -181,8 +164,6 @@ mod tests {
             text: false,
             output: "auto".to_string(),
         };
-        // We can't test is_terminal() portably, but we can at least confirm the
-        // helper doesn't panic and returns the right mode for --json.
         let mode = output::resolve_mode(g.json, g.text, &g.output, false);
         assert_eq!(mode, OutputMode::Json);
     }
@@ -215,7 +196,6 @@ mod tests {
             text: false,
             output: "auto".to_string(),
         };
-        // Should succeed even with no config file present.
         let conn = resolve_conn(&g).expect("resolve_conn with --url should not fail");
         assert_eq!(conn.base_url, "http://127.0.0.1:9999");
     }

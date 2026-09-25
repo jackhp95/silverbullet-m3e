@@ -17,6 +17,11 @@ import {
 } from "@silverbulletmd/silverbullet/lib/resolve";
 import mime from "mime";
 import { LuaStackFrame, LuaTable } from "../space_lua/runtime.ts";
+import {
+  BUSY_LIMIT_DEFAULT_MS,
+  LuaBudgetStopped,
+  makeLuaBudget,
+} from "../space_lua/budget.ts";
 import { buildExtendedMarkdownLanguage } from "../markdown_parser/parser.ts";
 import type { CustomSyntaxSpec } from "../markdown_parser/custom_syntax.ts";
 import { parse } from "../markdown_parser/parse_tree.ts";
@@ -37,7 +42,6 @@ import type { SpaceLuaEnvironment } from "../space_lua.ts";
 // Synthetic node type used to represent pre-resolved custom syntax HTML in the parse tree
 export const CustomSyntaxRenderedHtmlType = "CustomSyntaxRenderedHtml";
 
-// Extends the parser spec with an optional renderHtml callback for HTML rendering
 export type CustomSyntaxHtmlRenderer = CustomSyntaxSpec & {
   renderHtml?: (
     body: string,
@@ -55,6 +59,9 @@ export type MarkdownExpandOptions = {
   rewriteTasks?: boolean;
   // Custom syntax extensions keyed by name, with optional renderHtml callbacks
   syntaxExtensions?: Record<string, CustomSyntaxHtmlRenderer>;
+  // Resolve a wiki-link transclusion's target the way wiki links resolve
+  // (see buildResolveTransclusion); fromPage is the page being expanded
+  resolveTransclusion?: (t: Transclusion, fromPage: string) => void;
 };
 
 /**
@@ -78,11 +85,16 @@ export async function expandMarkdown(
       const text = renderToText(n);
 
       const transclusion = parseTransclusion(text);
-      if (!transclusion || processedPages.has(transclusion.url)) {
+      if (!transclusion) {
+        return n;
+      }
+      options.resolveTransclusion?.(transclusion, pageName);
+      if (processedPages.has(transclusion.url)) {
         return n;
       }
 
-      // Resolve local URLs (only for markdown links, wikilinks are absolute)
+      // Resolve local URLs (only for markdown links; wikilink targets were
+      // resolved space-wide above)
       if (
         isLocalURL(transclusion.url) &&
         transclusion.linktype !== "wikilink"
@@ -93,7 +105,6 @@ export async function expandMarkdown(
         );
       }
 
-      // We don't transclude anything that's not markdown
       const mimeType = getMimeTypeFromUrl(
         transclusion.url,
         transclusion.linktype !== "wikilink",
@@ -111,7 +122,10 @@ export async function expandMarkdown(
 
         const tree = parse(mdLang, result.text);
 
-        // Recursively process
+        if (result.offset === 0 && tree.children) {
+          tree.children = tree.children.filter((c) => c.type !== "FrontMatter");
+        }
+
         return expandMarkdown(
           space,
           nameFromTransclusion(transclusion),
@@ -121,6 +135,12 @@ export async function expandMarkdown(
           processedPages,
         );
       } catch (e: any) {
+        if (e instanceof LuaBudgetStopped) {
+          return parse(
+            mdLang,
+            `**Lua timeout:** this widget took too long to render and was stopped. Reload the page to try again.`,
+          );
+        }
         return parse(mdLang, `**Error:** ${e.message}`);
       }
     } else if (
@@ -138,6 +158,12 @@ export async function expandMarkdown(
 
       try {
         const sf = LuaStackFrame.createWithGlobalEnv(sle.env);
+        sf.threadState.budget = makeLuaBudget({
+          busyLimitMs: BUSY_LIMIT_DEFAULT_MS,
+          onLimit: (b) => {
+            b.stopped = true;
+          },
+        });
 
         let result = await evalExpression(
           parseExpressionString(exprText),
@@ -152,12 +178,16 @@ export async function expandMarkdown(
         }
         return parse(mdLang, renderResultToMarkdown(result).markdown);
       } catch (e: any) {
-        // Reduce blast radius and give useful error message
+        if (e instanceof LuaBudgetStopped) {
+          return parse(
+            mdLang,
+            `**Lua timeout:** this widget took too long to render and was stopped. Reload the page to try again.`,
+          );
+        }
         console.error("Error evaluating Lua directive", exprText, e);
         return parse(mdLang, `**Error:** ${e.message}`);
       }
     } else if (n.type === "Task" && options.rewriteTasks !== false) {
-      // Add a task reference to this based on the current page name if there's not one already
       const existingLink = findNodeOfType(n, "WikiLink");
       if (!existingLink) {
         n.children!.splice(
@@ -186,7 +216,6 @@ export async function expandMarkdown(
         );
       }
     } else if (n.type && options.syntaxExtensions) {
-      // Resolve custom syntax renderHtml callbacks
       const spec = options.syntaxExtensions[n.type];
       if (!spec?.renderHtml) return;
 
@@ -231,7 +260,6 @@ export function getMimeTypeFromUrl(
   allowExternal: boolean,
 ): string | null {
   if (!isLocalURL(url) && allowExternal) {
-    // Remote URL: determine mime type from the URL extension
     const extension = URL.parse(url)?.pathname.split(".").pop();
     if (extension) {
       return mime.getType(extension);

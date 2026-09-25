@@ -1,0 +1,13 @@
+// The dock menu: the ⋯ button in a panel or page-widget title bar, and the
+// popup it anchors.
+//
+// m3e reskin (client/navigator/ui/components/dock_menu.tsx): the hand-rolled
+// popup (fixed positioning math, mousedown-outside/scroll/resize dismissal)
+// is gone, replaced by `m3e-menu` + `m3e-menu-trigger` + `m3e-menu-item-radio`,
+// which own their own positioning, Popover-API light-dismiss, and visual
+// styling via the library's own Material tokens. `.sb-dock-button` (on the
+// `m3e-icon-button` trigger) and `.sb-dock-menu-item` (on each
+// `m3e-menu-item-radio`) survive as class names purely because
+// e2e/flows/docking.test.ts selects on them directly -- they carry no CSS of
+// their own here anymore; layout-only flex concerns for `.sb-dock-button`
+// live in _navigator.scss alongside the other header-row icon buttons.

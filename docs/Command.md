@@ -5,7 +5,7 @@ references:
 - libraries/Library/Std/APIs/Command.md
 - client/plugos/hooks/command.ts
 ---
-Commands define actions that SilverBullet can perform. They range from simple edit commands, such as `Text: Bold`, but may be more elaborate such as `Page: Rename`. 
+Commands define actions that SilverBullet can perform. They range from simple edit commands, such as `Text: Bold`, but may be more elaborate such as `Page: Rename`.
 
 SilverBullet ships with a lot of commands built in, but custom ones can also be defined using [[Space Lua]] and [[Plugs]].
 

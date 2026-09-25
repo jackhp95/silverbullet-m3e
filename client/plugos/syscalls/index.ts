@@ -1,16 +1,16 @@
-import type { SysCallMapping } from "../system.ts";
-import type {
-  LuaCollectionQuery,
-  LuaQueryCollection,
-} from "../../space_lua/query_collection.ts";
+import type { ObjectValue } from "@silverbulletmd/silverbullet/type/index";
+import type { Client } from "../../client.ts";
 
 import {
   type ObjectIndex,
   ObjectValidationError,
 } from "../../data/object_index.ts";
-import type { ObjectValue } from "@silverbulletmd/silverbullet/type/index";
-import type { Client } from "../../client.ts";
+import type {
+  LuaCollectionQuery,
+  LuaQueryCollection,
+} from "../../space_lua/query_collection.ts";
 import type { LuaTable } from "../../space_lua/runtime.ts";
+import type { SysCallMapping } from "../system.ts";
 import { describeSchemas, tagSchema } from "./schema_introspection.ts";
 
 export function indexSyscalls(
@@ -18,7 +18,6 @@ export function indexSyscalls(
   client: Client,
 ): SysCallMapping {
   return {
-    // Query collection API
     "index.tag": {
       callback: (_ctx, tagName: string): LuaQueryCollection => {
         return objectIndex.objectsWithTag(tagName);
@@ -63,10 +62,12 @@ export function indexSyscalls(
       description: "Returns all indexed links as a query collection.",
     },
     "index.relations": {
-      callback: (): LuaQueryCollection => {
-        return objectIndex.objectsWithTag("relation");
+      callback: (_ctx, kind?: string): LuaQueryCollection => {
+        return objectIndex.relations(kind);
       },
-      description: "Returns all indexed relations as a query collection.",
+      description:
+        "Returns all indexed relations, optionally filtered by kind, as a query collection.",
+      signatures: ["index.relations(kind?)"],
     },
     "index.contentPages": {
       callback: (_ctx, tagName?: string): LuaQueryCollection => {
@@ -128,7 +129,6 @@ export function indexSyscalls(
       },
       description: "Returns all indexed tag objects as a query collection.",
     },
-    // Schema introspection: indexed object-type / tag schemas
     "index.describeSchema": {
       callback: (): Record<string, unknown> => {
         return describeSchemas(client.config.get(["tags"], {}));
@@ -144,6 +144,13 @@ export function indexSyscalls(
         "Returns the raw JSON Schema for a tag, or nil when none is declared.",
       signatures: ["index.tagSchema(tagName)"],
     },
+    "index.isAvailable": {
+      callback: (): Promise<boolean> => objectIndex.isIndexAvailable(),
+      description: `Whether a full indexing pass has ever completed for this space. False on a fresh client, and for as long as the first index takes on a large one: every object query answers with whatever has been indexed so far, which is nothing to begin with. Code that must work in that window reads the space directly instead.`,
+      returns: [
+        { type: "boolean", description: "Whether the index can be trusted." },
+      ],
+    },
     "index.aspiringPages": {
       callback: (): LuaQueryCollection => {
         return objectIndex.aspiringPages();
@@ -151,7 +158,13 @@ export function indexSyscalls(
       description:
         "Returns linked but not yet created pages as a query collection.",
     },
-    // Internals
+    "index.ambiguousLinks": {
+      callback: (): LuaQueryCollection => {
+        return objectIndex.ambiguousLinks();
+      },
+      description:
+        "Returns links whose page name matches more than one page as a query collection.",
+    },
     "index.aggregates": {
       callback: (): LuaQueryCollection => {
         return objectIndex.aggregates();
@@ -246,6 +259,13 @@ export function indexSyscalls(
       signatures: ["index.queryLuaObjects(tag, query, scopedVariables?)"],
     },
 
+    "index.clearFileIndex": {
+      callback: (_ctx, path: string): Promise<void> =>
+        objectIndex.clearFileIndex(path),
+      description:
+        "Drops every indexed object belonging to a file, so a re-index replaces them rather than merging on top.",
+      signatures: ["index.clearFileIndex(path)"],
+    },
     "index.deleteObject": {
       callback: (
         _ctx,

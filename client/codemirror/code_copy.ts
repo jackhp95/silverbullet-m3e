@@ -1,6 +1,7 @@
 import type { Client } from "../client.ts";
 import type { Range } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
+import { copyToClipboard } from "../clipboard.ts";
 import {
   Decoration,
   type DecorationSet,
@@ -10,8 +11,10 @@ import {
   WidgetType,
 } from "@codemirror/view";
 
+// width/height pinned to 16 (1rem) at the source instead of overriding via
+// CSS — see editor.scss's audit note.
 const ICON_SVG =
-  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-copy"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-copy"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
 
 const EXCLUDE_LANGUAGES = ["template", "include", "query", "toc", "embed"];
 
@@ -29,28 +32,30 @@ class CodeCopyWidget extends WidgetType {
 
   toDOM() {
     const wrap = document.createElement("span");
-    // wrap.setAttribute("aria-hidden", "true");
     wrap.className = "sb-actions";
 
     const button = wrap.appendChild(document.createElement("button"));
     button.type = "button";
     button.title = "Copy to clipboard";
-    button.className = "sb-code-copy-button";
+    // Box-model (size/border/margin/padding/cursor) lives here as Tailwind
+    // classes now; sb-code-copy-button keeps only the theme-var colors
+    // (see client/styles/colors.scss's `.sb-actions button` rule).
+    button.className =
+      "sb-code-copy-button size-7 border-0 m-0.5 mt-1.5 p-[5px] cursor-pointer";
     button.innerHTML = ICON_SVG;
     button.title = "Copy";
     button.onclick = (e) => {
       e.stopPropagation();
       e.preventDefault();
-      navigator.clipboard
-        .writeText(this.value)
+      void copyToClipboard(this.value)
+        .then(() => {
+          this.client.ui.flashNotification("Copied to clipboard", "info");
+        })
         .catch((err) => {
           this.client.ui.flashNotification(
             `Error copying to clipboard: ${err}`,
             "error",
           );
-        })
-        .then(() => {
-          this.client.ui.flashNotification("Copied to clipboard", "info");
         });
     };
 
@@ -85,7 +90,6 @@ function codeCopyDecoration(view: EditorView, client: Client) {
             return;
           }
 
-          // Accumulate the text content of the code block
           let text = "";
           for (const textNode of textNodes) {
             text += view.state.doc.sliceString(textNode.from, textNode.to);

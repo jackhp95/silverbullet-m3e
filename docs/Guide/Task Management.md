@@ -1,9 +1,4 @@
----
-tags: guide
-references:
-- plugs/index/task.ts
-- libraries/Library/Std/APIs/Task State.md
----
+#guide
 
 This guide walks you through a project and task management workflow. You'll learn how tasks, frontmatter, linked tasks, and queries combine into a lightweight project tracker — no extra tools needed.
 
@@ -102,5 +97,5 @@ Each section updates live as you add, complete, or modify tasks across your spac
 You now have a project tracking system: project pages with frontmatter, tasks scattered naturally across pages, linked tasks that connect everything, and a dashboard for the big picture.
 
 * [[Journal]] — set up a daily journal
-* [[Knowledge Base]] — build a personal knowledge base
+* [[Guide/Knowledge Base]] — build a knowledge base
 * [[Manual]] — the full user manual

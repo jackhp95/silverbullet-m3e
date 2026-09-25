@@ -1,3 +1,5 @@
+import { waitForLogout } from "./logout_state.ts";
+import { logoutInProgress } from "./logout.ts";
 import { safeRun } from "@silverbulletmd/silverbullet/lib/async";
 import {
   notAuthenticatedError,
@@ -72,33 +74,37 @@ if (!crypto.subtle) {
 }
 
 safeRun(async () => {
-  // First we attempt to fetch the config from the server
+  if (!(await waitForLogout())) return;
+  const clientReady = Promise.withResolvers<Client>();
+  navigator.serviceWorker?.addEventListener("message", (event) => {
+    // Sync can finish while init is still loading the index and plugins.
+    void clientReady.promise.then((client) =>
+      client.handleServiceWorkerMessage(event.data),
+    );
+  });
+  performance.mark("sb:boot-start");
   let bootConfig: BootConfig | undefined;
   let config: Config | undefined;
   // Placeholder proxy for Client object to be swapped in later
   const clientProxy = new BoxProxy({});
   let bootstrapLuaScriptPages: string[] = [];
-  // Try loading config and scripts
   try {
     let configJSONText: string;
     [configJSONText, ...bootstrapLuaScriptPages] = await Promise.all([
       cachedFetch(".config"),
-      // Some minimal bootstrap Lua: schema definition
       cachedFetch(".fs/Library/Std/APIs/Schema.md"),
-      // Configuration option definitions and defaults
       cachedFetch(".fs/Library/Std/Config.md"),
-      // Tag definition API
       cachedFetch(".fs/Library/Std/APIs/Tag.md"),
-      // Custom configuration
       cachedFetch(".fs/CONFIG.md"),
     ]);
     bootConfig = JSON.parse(configJSONText);
+    if (!navigator.serviceWorker) bootConfig!.disableServiceWorker = true;
+    if (!globalThis.isSecureContext) bootConfig!.enableClientEncryption = false;
   } catch (e: any) {
     if (e.message === offlineError.message) {
       alert(
         "Could not process config and no cached copy, please connect to the Internet",
       );
-      // Not recoverable
       return;
     }
     if (e.message === notAuthenticatedError.message) {
@@ -113,7 +119,6 @@ safeRun(async () => {
     alert(`Could not load this space: ${e.message}`);
     return;
   }
-  // Concatenate and evaluate
   try {
     config = await loadConfig(
       bootstrapLuaScriptPages.map(extractSpaceLuaFromPageText).join("\n"),
@@ -145,12 +150,10 @@ safeRun(async () => {
   }
 
   let encryptionKey: CryptoKey | undefined;
-  // If client encryption is enabled (from auth page) AND the server signals it
   if (
     localStorage.getItem("enableEncryption") &&
     bootConfig?.enableClientEncryption
   ) {
-    // Init encryption
     console.log("Initializing encryption");
     console.log("Querying SilverBullet service workers for an encryption key");
     encryptionKey = await findEncryptionKey(!!bootConfig.accountManaged);
@@ -168,23 +171,23 @@ safeRun(async () => {
   await augmentBootConfig(bootConfig!, config!);
 
   const isHeadless = new URLSearchParams(location.search).has("headless");
+  const reviewGitConflicts =
+    new URLSearchParams(location.search).get("gitConflicts") === "1";
   // Expose headless flag on the runtime bridge so client.init() can detect
   // it after URL params are stripped.
   if (isHeadless) {
     globalThis.sbRuntime.headless = true;
   }
 
-  // Update the browser URL to no longer contain the query parameters using pushState
   if (location.search) {
     const newURL = new URL(location.href);
     newURL.search = "";
     history.pushState({}, "", newURL.toString());
   }
+  performance.mark("sb:config-loaded");
   console.log("Booting SilverBullet client");
   console.log("Boot config", bootConfig, config.values);
 
-  // Skip (and tear down) the service worker when headless or when the server
-  // forbids it via BootConfig.disableServiceWorker.
   const swDisabled = !!bootConfig?.disableServiceWorker;
   if (swDisabled && navigator.serviceWorker) {
     await flushCachesAndUnregisterServiceWorker();
@@ -230,7 +233,6 @@ safeRun(async () => {
       location.reload();
     });
 
-    // Register service worker
     const workerURL = new URL("service_worker.js", document.baseURI);
     const configureWorker = async (registration: ServiceWorkerRegistration) => {
       const worker = registration.active;
@@ -250,16 +252,13 @@ safeRun(async () => {
     let lastStartNotification = 0;
     navigator.serviceWorker.addEventListener("message", (event) => {
       if (event.data.type === "service-worker-started") {
-        // Service worker started, let's make sure it has the current config
         console.log(
           "Got notified that service worker has just started, sending config",
           bootConfig,
         );
         navigator.serviceWorker.ready.then(configureWorker);
-        // Check for weird restart behavior
         startNotificationCount++;
         if (Date.now() - lastStartNotification > 5000) {
-          // Last restart was longer than 5s ago: this is fine
           startNotificationCount = 0;
         }
         if (startNotificationCount > 2) {
@@ -288,7 +287,6 @@ safeRun(async () => {
         // encrypted data store for this prefix.
         void configureWorker(registration);
 
-        // Set up update detection
         registration.addEventListener("updatefound", () => {
           const newWorker = registration.installing;
           console.log("New service worker installing...");
@@ -302,7 +300,6 @@ safeRun(async () => {
                 console.log(
                   "New service worker installed and ready to take over.",
                 );
-                // Force the new service worker to activate immediately
                 newWorker.postMessage({ type: "skip-waiting" });
               }
             });
@@ -312,6 +309,7 @@ safeRun(async () => {
   } else {
     console.info("Service worker disabled.");
   }
+  if (!(await waitForLogout())) return;
   const client = new Client(
     document.getElementById("sb-root")!,
     bootConfig!,
@@ -325,11 +323,8 @@ safeRun(async () => {
   globalThis.client = client;
   clientProxy.setTarget(client);
   await client.init(encryptionKey);
-  if (navigator.serviceWorker) {
-    navigator.serviceWorker.addEventListener("message", (event) => {
-      void client.handleServiceWorkerMessage(event.data);
-    });
-  }
+  clientReady.resolve(client);
+  if (reviewGitConflicts) await client.openNavigatorView("std.gitConflicts");
 });
 
 /**
@@ -337,7 +332,6 @@ safeRun(async () => {
  * as well as well as Lua-based configuration from CONFIG
  */
 async function augmentBootConfig(bootConfig: BootConfig, config: Config) {
-  // Pull out sync configuration
   bootConfig.syncDocuments = config.get<boolean>(["sync", "documents"], false);
   let syncIgnore = config!.get<string | string[]>(["sync", "ignore"], "");
   if (Array.isArray(syncIgnore)) {
@@ -345,7 +339,6 @@ async function augmentBootConfig(bootConfig: BootConfig, config: Config) {
   }
   bootConfig.syncIgnore = syncIgnore;
 
-  // Then we augment the config based on the URL arguments
   const urlParams = new URLSearchParams(location.search);
   if (urlParams.has("readOnly")) {
     bootConfig.readOnly = true;
@@ -425,6 +418,7 @@ async function cachedFetch(path: string): Promise<string> {
       localStorage.setItem(cacheKey, "");
       return "";
     }
+    if (logoutInProgress()) throw notAuthenticatedError;
     if (response.type === "opaqueredirect") {
       // We received an opaque redirect, there's little sensible we can do than unregister service workers and reload
       console.log(
@@ -451,7 +445,6 @@ async function cachedFetch(path: string): Promise<string> {
       throw notAuthenticatedError;
     }
     const text = await response.text();
-    // Persist to localStorage
     localStorage.setItem(cacheKey, text);
     return text;
   } catch (e: any) {
@@ -464,10 +457,8 @@ async function cachedFetch(path: string): Promise<string> {
       throw notAuthenticatedError;
     }
     console.info("Falling back to cache for", path);
-    // We may be offline, let's see if we have a cached copy
     const text = localStorage.getItem(cacheKey);
     if (text !== null) {
-      // Cache hit (including a cached empty body) — use it
       return text;
     } else {
       // No cache and the network is unreachable: treat as offline so the

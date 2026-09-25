@@ -1,22 +1,8 @@
 import { bench } from "vitest";
 import { readFile } from "node:fs/promises";
-// Benchmark suite for Space Lua RP (Result-or-Promise) optimizations
-// that exercises hot synchronous paths (binary ops, loops, function
-// calls, argument lists, table get/set, concatenation).
-//
-// # NOTES
-//
-// * Parsing cost is excluded from measured time by compiling each
-//   snippet once.
-//
-// * Each bench creates a fresh Lua environment to isolate state.
-//
-// * Minimal global environment (`_GLOBAL`) is installed with included:
-//
-//   * `string.format` (simple `%s` formatter) and
-//   * `type`.
-//
-// * To add benches that need more stdlib, extend makeEnv() accordingly.
+// Measure synchronous Result-or-Promise paths with parsing excluded.
+// Each benchmark gets a fresh environment with string.format and type;
+// extend makeEnv for snippets needing more standard-library functions.
 
 import { evalStatement } from "./eval.ts";
 import {
@@ -28,11 +14,12 @@ import {
   luaTypeOf,
 } from "./runtime.ts";
 import { parseBlock as parseLua } from "./parse.ts";
+import { makeLuaBudget } from "./budget.ts";
 
 const LOOP = 100000;
 const SMALL = 20000;
 
-function makeEnv(): { global: LuaEnv; sf: LuaStackFrame } {
+function makeEnv(withBudget = false): { global: LuaEnv; sf: LuaStackFrame } {
   const global = new LuaEnv();
 
   const stringLib = new LuaTable({
@@ -48,11 +35,15 @@ function makeEnv(): { global: LuaEnv; sf: LuaStackFrame } {
 
   const sf = LuaStackFrame.createWithGlobalEnv(global);
 
+  if (withBudget) {
+    (sf.threadState as any).budget = makeLuaBudget({ busyLimitMs: 1e9 });
+  }
+
   return { global, sf };
 }
 
-async function run(ast: any) {
-  const { global, sf } = makeEnv();
+async function run(ast: any, withBudget = false) {
+  const { global, sf } = makeEnv(withBudget);
   try {
     const r = evalStatement(ast, global, sf, false);
     if (r instanceof Promise) {
@@ -65,8 +56,6 @@ async function run(ast: any) {
     throw new Error(`Lua execution error: ${(e && (e as any).message) || e}`);
   }
 }
-
-// Snippets
 
 const luaWhileSync = `
   local i = 0
@@ -172,7 +161,6 @@ const luaTableDotMissRead = `
   end
 `;
 
-// The truthiness_test.lua uses the `string.format`.
 const truthinessPath = new URL("./truthiness_test.lua", import.meta.url)
   .pathname;
 const truthinessCode = await readFile(truthinessPath, "utf-8");
@@ -196,6 +184,14 @@ bench("RP: while (sync cond) numeric sum", async () => {
 
 bench("RP: for (numeric) sum", async () => {
   await run(astForNumeric);
+});
+
+bench("RP: while (sync cond) numeric sum [budget]", async () => {
+  await run(astWhileSync, true);
+});
+
+bench("RP: for (numeric) sum [budget]", async () => {
+  await run(astForNumeric, true);
 });
 
 bench("RP: while (function cond -> truthy then nil)", async () => {

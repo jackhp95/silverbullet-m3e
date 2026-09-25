@@ -20,7 +20,7 @@ The syntax is as follows:
 ```
 
 For Obsidian/LogSeq compatibility, you can also double the colon like this: `[attributeName:: value]`
- 
+
 Attribute names need to be alpha-numeric. Values are interpreted as [[YAML]] values. So here are some examples of valid attribute definitions:
 
 * string: [attribute1: sup]

@@ -3,8 +3,10 @@
 //! associated data types.
 
 pub mod crypto;
+pub mod reconcile;
+pub mod revision;
 pub mod space;
 pub mod types;
 pub mod upgrade;
 
-pub use types::{BootConfig, FileMeta, SpaceError, SpacePrimitives};
+pub use types::{BootConfig, FileMeta, RevisionsMode, SpaceError, SpacePrimitives};

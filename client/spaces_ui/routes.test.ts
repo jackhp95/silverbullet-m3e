@@ -61,6 +61,12 @@ test("static segments beat the space-id catch-all", async () => {
   });
 });
 
+test("parses the profile route", async () => {
+  expect((await load("/.spaces/profile")).parseSpacesRoute()).toEqual({
+    screen: "profile",
+  });
+});
+
 test("a bare single segment is a space id", async () => {
   expect((await load("/.spaces/abc-123")).parseSpacesRoute()).toEqual({
     screen: "space",
@@ -80,8 +86,6 @@ test("an unknown deep path is not-found", async () => {
     screen: "not-found",
   });
 });
-
-// --- safeSpacesDestination: the open-redirect guard -----------------------
 
 test("safeSpacesDestination accepts an in-base path", async () => {
   const { safeSpacesDestination } = await load("/.spaces/login");
@@ -154,8 +158,6 @@ test.each([
   expect(safeSpacesDestination(payload)).toBe(undefined);
 });
 
-// --- loginUrl ---------------------------------------------------------------
-
 test("loginUrl encodes a safe next destination as the query param", async () => {
   const { loginUrl } = await load("/.spaces/users", "");
   expect(loginUrl("/.spaces/users/alice")).toBe(
@@ -182,4 +184,41 @@ test("loginUrl's default argument is still passed through the safety check", asy
   // SPACES_BASE), calling loginUrl() with no argument must omit `next` too.
   const { loginUrl } = await load("/somewhere-else", "");
   expect(loginUrl()).toBe("/.spaces/login");
+});
+
+test("Git connection has a dedicated space route", async () => {
+  expect((await load("/.spaces/notes%20team/git")).parseSpacesRoute()).toEqual({
+    screen: "space-git",
+    id: "notes team",
+  });
+});
+
+test("space sections have refreshable query routes", async () => {
+  expect(
+    (await load("/.spaces/notebook", "?section=revisions")).parseSpacesRoute(),
+  ).toEqual({
+    screen: "space",
+    id: "notebook",
+    section: "revisions",
+  });
+});
+
+test("existing authentication links open the Admin authentication section", async () => {
+  expect((await load("/.spaces/authentication")).parseSpacesRoute()).toEqual({
+    screen: "admin",
+    section: "authentication",
+  });
+});
+
+test("Admin defaults to Server and supports section links", async () => {
+  for (const [query, section] of [
+    ["", "server"],
+    ["?section=invalid", "server"],
+    ["?section=authentication", "authentication"],
+  ]) {
+    expect((await load("/.spaces/admin", query)).parseSpacesRoute()).toEqual({
+      screen: "admin",
+      section,
+    });
+  }
 });

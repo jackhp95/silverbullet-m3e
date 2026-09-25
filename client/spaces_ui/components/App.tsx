@@ -1,18 +1,30 @@
+import {
+  logoutBrowserSession,
+  LogoutSyncError,
+  forceLogoutWarning,
+  logoutInProgress,
+  registerLogoutParticipant,
+} from "../../logout.ts";
+import { useServerName } from "../server_name.ts";
 import type { ComponentType } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import { Alert } from "@silverbulletmd/silverbullet/ui";
-import { api, formatApiError, getSession } from "../api.ts";
+import { Alert, Button, SectionNav } from "@silverbulletmd/silverbullet/ui";
+import { formatApiError, getSession } from "../api.ts";
 import {
   NavigateProvider,
+  canNavigate,
   shouldIntercept,
   useSpacesRouter,
 } from "../navigation.ts";
 import { loginUrl, safeSpacesDestination, spacesUrl } from "../routes.ts";
 import type { SpacesRoute } from "../routes.ts";
 import type { AuthState } from "../types.ts";
+import { AdminView } from "./AdminView.tsx";
 import { Login } from "./Login.tsx";
+import { ProfileView } from "./ProfileView.tsx";
 import { SpaceEditor } from "./SpaceEditor.tsx";
 import { SpaceList } from "./SpaceList.tsx";
+import { SpaceProfileMenu } from "./SpaceProfileMenu.tsx";
 import { NewUser, UserDetail, UserList } from "./UsersView.tsx";
 
 type ScreenProps = {
@@ -23,21 +35,30 @@ type ScreenProps = {
 
 type Screen = { view: ComponentType<ScreenProps>; admin: boolean };
 
-// Thin adapters: each narrows `route` to its own variant and calls the existing
-// component unchanged. Keeping the components' own signatures means this table
-// adds indirection only where the route shape differs.
 const SpaceListScreen = ({ auth, onUnauthorized }: ScreenProps) => (
   <SpaceList admin={auth.admin} onUnauthorized={onUnauthorized} />
 );
 const SpaceNewScreen = ({ onUnauthorized }: ScreenProps) => (
   <SpaceEditor onUnauthorized={onUnauthorized} />
 );
-const SpaceEditScreen = ({ route, onUnauthorized }: ScreenProps) => (
-  <SpaceEditor
-    id={(route as Extract<SpacesRoute, { screen: "space" }>).id}
-    onUnauthorized={onUnauthorized}
-  />
-);
+const SpaceEditScreen = ({ route, onUnauthorized }: ScreenProps) => {
+  const settings = route as Extract<
+    SpacesRoute,
+    { screen: "space" | "space-git" }
+  >;
+  return (
+    <SpaceEditor
+      key={settings.id}
+      id={settings.id}
+      section={
+        settings.screen === "space-git"
+          ? "revisions"
+          : (settings.section ?? "general")
+      }
+      onUnauthorized={onUnauthorized}
+    />
+  );
+};
 const UserListScreen = ({ auth, onUnauthorized }: ScreenProps) => (
   <UserList currentUsername={auth.username} onUnauthorized={onUnauthorized} />
 );
@@ -51,27 +72,68 @@ const UserDetailScreen = ({ route, auth, onUnauthorized }: ScreenProps) => (
     onUnauthorized={onUnauthorized}
   />
 );
+const ProfileScreen = ({ onUnauthorized }: ScreenProps) => (
+  <ProfileView onUnauthorized={onUnauthorized} />
+);
 
-// Keyed on SpacesRoute["screen"], so TypeScript requires an entry for every
-// route variant: adding a route without deciding its admin requirement is a
-// compile error rather than a silently public screen.
-//
-// `admin` is a DISPLAY decision, not a security boundary. Every screen's data
-// comes from `api/admin/*`, which authorizes server-side on every request.
+const AdminScreen = ({ route, onUnauthorized }: ScreenProps) => (
+  <AdminView
+    section={route.screen === "admin" ? route.section : "server"}
+    onUnauthorized={onUnauthorized}
+  />
+);
+
+// These flags control navigation; API requests enforce authorization independently.
 const SCREENS: Record<SpacesRoute["screen"], Screen | undefined> = {
   spaces: { view: SpaceListScreen, admin: false },
   "space-new": { view: SpaceNewScreen, admin: true },
   space: { view: SpaceEditScreen, admin: true },
+  "space-git": { view: SpaceEditScreen, admin: true },
   users: { view: UserListScreen, admin: true },
   "user-new": { view: UserNewScreen, admin: true },
   user: { view: UserDetailScreen, admin: true },
+  admin: { view: AdminScreen, admin: true },
+  profile: { view: ProfileScreen, admin: false },
   login: undefined, // handled by the auth gate before this table is consulted
   "not-found": undefined,
 };
 
 export function App() {
+  const serverName = useServerName();
   const [auth, setAuth] = useState<AuthState>({ phase: "loading" });
   const { route, navigate } = useSpacesRouter();
+  const [logoutError, setLogoutError] = useState("");
+  const [canForceLogout, setCanForceLogout] = useState(false);
+  async function logOut(force = false) {
+    if (force && !window.confirm(forceLogoutWarning)) return;
+    if (!canNavigate(spacesUrl("/login"))) return;
+    const previous = auth;
+    setAuth({ phase: "loading" });
+    setLogoutError("");
+    setCanForceLogout(false);
+    try {
+      await logoutBrowserSession(async () => {}, force);
+    } catch (error) {
+      setAuth(previous);
+      setLogoutError(
+        error instanceof Error ? error.message : "Could not log out",
+      );
+      setCanForceLogout(error instanceof LogoutSyncError);
+    }
+  }
+  useEffect(() => {
+    const unregister = registerLogoutParticipant(async () => {});
+    const restore = (event: PageTransitionEvent) => {
+      if (event.persisted) location.reload();
+    };
+    window.addEventListener("pagehide", unregister);
+    window.addEventListener("pageshow", restore);
+    return () => {
+      window.removeEventListener("pagehide", unregister);
+      window.removeEventListener("pageshow", restore);
+      unregister();
+    };
+  }, []);
 
   // One delegated listener rather than a link component: every in-app link is
   // a real <a href> that works without JS, and this upgrades them in place.
@@ -92,6 +154,7 @@ export function App() {
   useEffect(() => {
     getSession()
       .then(({ username, admin }) => {
+        if (logoutInProgress()) return;
         if (route.screen === "login") {
           location.replace(route.next ?? spacesUrl("/"));
           return;
@@ -99,6 +162,7 @@ export function App() {
         setAuth({ phase: "authed", username, admin });
       })
       .catch((error: any) => {
+        if (logoutInProgress()) return;
         if (error.unauthorized) {
           if (route.screen === "login") setAuth({ phase: "login" });
           else location.replace(loginUrl());
@@ -115,6 +179,7 @@ export function App() {
   if (auth.phase === "login") {
     return (
       <Login
+        title={serverName}
         onDone={() => {
           const next =
             route.screen === "login"
@@ -126,77 +191,107 @@ export function App() {
     );
   }
 
-  const onUnauthorized = () => location.replace(loginUrl());
+  const onUnauthorized = () => {
+    if (!logoutInProgress()) location.replace(loginUrl());
+  };
   const onSpacesTab = route.screen.startsWith("space");
   const onUsersTab = route.screen.startsWith("user");
+  const onAdminTab = route.screen === "admin";
   return (
     <NavigateProvider value={navigate}>
-      <div class="sb-spaces-header">
-        <div class="sb-spaces-header-left">
-          <strong class="sb-wordmark">
-            {/* The dock icon, in the small copy meant for inline use (see
-                client/images/README.md). `alt` is empty on purpose: the
-                wordmark beside it already says "SilverBullet", so a
-                description here would only make screen readers announce the
-                name twice. */}
+      <div class="sb-management">
+        <header class="sb-management-header">
+          <a class="sb-wordmark" href={spacesUrl("/")}>
             <img src="assets/logo-dock-96x96.png" alt="" />
-            SilverBullet
-          </strong>
-          {/* The active tab is what names the current screen — the list screens
-              dropped their headings rather than repeat it — so it carries
-              `aria-current` and not just a highlight class. */}
-          {auth.admin && (
-            <nav class="sb-tabs" aria-label="Administration">
-              <a
-                class={`sb-tab ${onSpacesTab ? "sb-active" : ""}`}
-                aria-current={onSpacesTab ? "page" : undefined}
-                href={spacesUrl("/")}
-              >
-                Spaces
-              </a>
-              <a
-                class={`sb-tab ${onUsersTab ? "sb-active" : ""}`}
-                aria-current={onUsersTab ? "page" : undefined}
-                href={spacesUrl("/users")}
-              >
-                Users
-              </a>
-            </nav>
+            <span title={serverName}>{serverName}</span>
+          </a>
+          <SpaceProfileMenu
+            username={auth.username}
+            admin={auth.admin}
+            routeKey={`${location.pathname}${location.search}`}
+            onUnauthorized={onUnauthorized}
+            onLogout={() => logOut()}
+          />
+          {logoutError && (
+            <Alert variant="error" class="sb-management-notice">
+              {logoutError}
+              {canForceLogout && (
+                <>
+                  <p>
+                    Synchronization did not finish. Retry logout, or force
+                    logout to discard unsynchronized edits.
+                  </p>
+                  <Button onClick={() => logOut()}>Retry logout</Button>
+                  <Button onClick={() => logOut(true)}>Force logout</Button>
+                </>
+              )}
+            </Alert>
           )}
-        </div>
-        <button
-          type="button"
-          class="sb-link-button sb-logout"
-          onClick={async () => {
-            try {
-              await api("GET", "api/logout");
-              location.assign(spacesUrl("/login"));
-            } catch (error: any) {
-              if (error.unauthorized) onUnauthorized();
+        </header>
+        <aside class="sb-management-sidebar">
+          <SectionNav
+            label="Sections"
+            collapse={false}
+            active={
+              onSpacesTab
+                ? "spaces"
+                : onAdminTab
+                  ? "admin"
+                  : onUsersTab
+                    ? "users"
+                    : "profile"
             }
-          }}
-        >
-          Log out
-        </button>
-      </div>
-      {(() => {
-        const screen = SCREENS[route.screen];
-        if (!screen || (screen.admin && !auth.admin)) {
-          return (
-            <div>
-              <h1>Not found</h1>
-              <p>This page does not exist.</p>
-              <p>
-                <a href={spacesUrl("/")}>Return to spaces</a>
-              </p>
-            </div>
+            navClass="sb-management-nav"
+            itemClass="sb-management-nav-item"
+            items={[
+              { id: "spaces", label: "Spaces", href: spacesUrl("/") },
+              ...(auth.admin
+                ? [
+                    {
+                      id: "users",
+                      label: "Users",
+                      href: spacesUrl("/users"),
+                    },
+                  ]
+                : []),
+              {
+                id: "profile",
+                label: "Profile",
+                href: spacesUrl("/profile"),
+              },
+              ...(auth.admin
+                ? [
+                    {
+                      id: "admin",
+                      label: "Admin",
+                      href: spacesUrl("/admin"),
+                    },
+                  ]
+                : []),
+            ]}
+            onSelect={() => {}}
+          />
+        </aside>
+        {(() => {
+          const screen = SCREENS[route.screen];
+          if (!screen || (screen.admin && !auth.admin)) {
+            return (
+              <div class="sb-management-main">
+                <h1>Not found</h1>
+                <p>This page does not exist.</p>
+                <p>
+                  <a href={spacesUrl("/")}>Return to spaces</a>
+                </p>
+              </div>
+            );
+          }
+          const View = screen.view;
+          const view = (
+            <View route={route} auth={auth} onUnauthorized={onUnauthorized} />
           );
-        }
-        const View = screen.view;
-        return (
-          <View route={route} auth={auth} onUnauthorized={onUnauthorized} />
-        );
-      })()}
+          return <div class="sb-management-main">{view}</div>;
+        })()}
+      </div>
     </NavigateProvider>
   );
 }

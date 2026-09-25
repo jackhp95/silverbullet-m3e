@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  encodeLinkText,
   decodePageURI,
   encodePageURI,
   encodeRef,
@@ -15,6 +16,8 @@ test("parseToRef() default cases", () => {
   expect(parseToRef("foo.png")).toEqual({ path: "foo.png" });
   expect(parseToRef("foo.md")).toEqual({ path: "foo.md" });
   expect(parseToRef("foo.")).toEqual({ path: "foo..md" });
+  expect(parseToRef("foo.tar.gz")).toEqual({ path: "foo.tar.gz" });
+  expect(parseToRef("foo.c-d")).toEqual({ path: "foo.c-d.md" });
   expect(parseToRef("foo..")).toEqual({ path: "foo...md" });
   expect(parseToRef(" .foo")).toEqual({ path: " .foo" });
   expect(parseToRef("foo[bar")).toEqual({ path: "foo[bar.md" });
@@ -172,4 +175,24 @@ test("Page URI encoding", () => {
   expect(decodePageURI("folder/foo")).toEqual("folder/foo");
   expect(decodePageURI("hello%20there")).toEqual("hello there");
   expect(decodePageURI("hello%3Fthere")).toEqual("hello?there");
+});
+
+test("encodeLinkText() preserves the caret that encodeRef drops", () => {
+  const ref = parseToRef("^Library/Std/Config")!;
+  expect(ref.meta).toBe(true);
+  // encodeRef also builds page URLs, where a caret would address a page that
+  // does not exist — so it drops the prefix and link text must not use it.
+  expect(encodeRef(ref)).toEqual("Library/Std/Config");
+  expect(encodeLinkText(ref)).toEqual("^Library/Std/Config");
+});
+
+test("encodeLinkText() round-trips caret links with details and no meta", () => {
+  for (const name of [
+    "^Library/Std",
+    "^Library/Std/Config#Options",
+    "Plain Page",
+    "folder/Page#Header",
+  ]) {
+    expect(encodeLinkText(parseToRef(name)!)).toEqual(name);
+  }
 });

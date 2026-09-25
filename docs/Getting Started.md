@@ -1,6 +1,6 @@
-#getting-started #guide
+#guide
 
-Welcome! This guide helps you get started with SilverBullet assuming you have it successfully [[Install|installed as a server]] or [desktop app](https://silverbullet.plus). 
+Welcome! This guide helps you get started with SilverBullet assuming you have it successfully [[Install|installed as a server]] or [desktop app](https://silverbullet.plus).
 
 # Welcome
 Once you launch SilverBullet on a fresh [[Space]], you will be greeted by its automatically generated [[Index Page]] that contains a few sections:
@@ -19,7 +19,7 @@ When such an occasion arrises, you have a few options:
 1. On your index page click the “Create quick note” button
 2. Hit the `Ctrl-q` shortcut followed by another `q` (or `Ctrl-q`), so `Ctrl-q Ctrl-q` — quick, _quick_!
 
-Either of these will navigate to a new page with the `Inbox/` prefix followed by the current date and time. 
+Either of these will navigate to a new page with the `Inbox/` prefix followed by the current date and time.
 
 Start typing your [[Markdown]] and be confident your quick thoughts are safely persisted to your space. There’s no save button to push. Every second or two your changes are persisted safely.
 
@@ -43,7 +43,7 @@ A [[Journal]] entry is in effect not that much different than a quick note, exce
 
 A common workflow is keep this page open throughout the day and use it as your journal [[Outlines|Outline]]. You can use it to create tasks for yourself (see [[#Tasks]] later), write quick notes to yourself (if you don’t use quick notes), and make notes about meetings you’re in.
 
-Here is (one) of SilverBullet’s killer features: if you start to link to topic pages in your journal, you are now are starting to build your knowledge graph. 
+Here is (one) of SilverBullet’s killer features: if you start to link to topic pages in your journal, you are now are starting to build your knowledge graph.
 
 What does _that_ mean? Let’s make this more concrete, let’s add an item to our journal:
 
@@ -52,7 +52,7 @@ What does _that_ mean? Let’s make this more concrete, let’s add an item to o
       * [ ] Agreed I shall come up with a better project name
       * [ ] Agreed [[Allan]] will approve final project name
 
-The `[[page]]` syntax is [[Link]] syntax. It allows you to create a web of links across your space, like a personal [wiki](https://en.wikipedia.org/wiki/Wiki). However — and here’s the kicker — these links are bi-directional. This means that _on the page you link to you can see what pages point to it_.
+The `[[page]]` syntax is [[Link]] syntax. It allows you to create a web of links across your space, like a [wiki](https://en.wikipedia.org/wiki/Wiki). However — and here’s the kicker — these links are bi-directional. This means that _on the page you link to you can see what pages point to it_.
 
 This means that if I now click on the `Allan` link, I navigate to this page (or create it, if it didn’t exist yet) and there in a [[Linked Mention]] section I will see that on this and that journal page, I mentioned Alan + all the sub-items mentioned in the journal. Cool right? And because also created a _task_ mentioning `Allan`, and that task is not yet complete, it will also appear at the top of the page as under [[Linked Tasks]].
 
@@ -83,7 +83,7 @@ This section does what it says on the tin: it shows you the last 10 modified pag
 Now that you know the basics, explore these guides for real-world workflows:
 
 * [[Journal]] — a little more depth on the daily journal setup
-* [[Knowledge Base]] — build a personal knowledge base
+* [[Guide/Knowledge Base]] — build a knowledge base
 * [[Guide/Task Management]] — track projects and tasks
 * [[Manual]] — the full user manual
 * [[Space Lua]] — learn more about the scripting language that gives SilverBullet a lot of its power

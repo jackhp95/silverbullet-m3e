@@ -67,13 +67,13 @@ Based on your page’s markdown, an indexer produces a list of objects to be ind
 > `transform` will only be invoked when a page is indexed. This generally happens after making a change. To apply newly defined `transform` functionality to all pages in your space, you have to reindex the entire space using `Space: Reindex`.
 
 ### Example: adding [[Page Decorations]] dynamically
-The following dynamically adds a 🧑 prefix [[Page Decorations|page decoration]] to all pages tagged with `#person`, such as [[Person/John]].
+The following dynamically adds a Feather icon [[Page Decorations|page decoration]] to all pages tagged with `#person`, such as [[Person/John]] or [[Zef Hemel]].
 
 ```lua
 tag.define {
   name = "person",
   transform = function(o)
-    o.pageDecoration = { prefix = "🧑 " }
+    o.pageDecoration = { icon = "user" }
     return o
   end
 }
@@ -93,7 +93,7 @@ We’d like to highlight tasks that use a 📅 but then don’t follow the corre
 And we’d like the `name` attribute to be cleaned from the deadline syntax.
 
 This can be implemented by defining a custom `transform` for tasks:
- 
+
 ```lua
 local deadlinePattern = "📅%s*(%d%d%d%d%-%d%d%-%d%d)"
 
@@ -121,11 +121,15 @@ tag.define {
 ```
 
 The result is the following:
-${query[[
+<!--#lua query[[
   from t = tags.task
   where t.deadline
   select table.select(t, "name", "done", "deadline")
-]]}
+]] -->
+|name|done|deadline|
+|--|--|--|
+|Hello |false|2026-12-31|
+<!--/lua-->
 
 ## Styling
 Tags get assigned a `data-tag-name` attribute in the DOM, which you can use to do custom styling with [[Space Style]].

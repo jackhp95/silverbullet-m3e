@@ -5,13 +5,21 @@ import type { FileMeta } from "@silverbulletmd/silverbullet/type/index";
 import type { DataStore } from "../data/datastore.ts";
 import { sleep } from "@silverbulletmd/silverbullet/lib/async";
 
+export type ChangedFile = {
+  name: string;
+  isNew: boolean;
+};
+
 /**
  * Events exposed:
- * - file:changed (string, oldHash, newHash)
+ * - file:changedBatch (ChangedFile[]): one aggregate event for multiple events
+ * - file:changed (string, oldHash, newHash, ownWrite): dispatched from inside
+ *   writeFile, before it returns, so ownWrite is a listener's only way to tell
+ *   our own write from someone else's.
  * - file:deleted (string)
  * - file:listed (FileMeta[])
  * - file:initial: triggered in case of an initially empty snapshot, after the first set of events has gone out
- * - page:saved (string, FileMeta)
+ * - page:saved (string, FileMeta, created: boolean)
  * - page:deleted (string)
  */
 export class EventedSpacePrimitives implements SpacePrimitives {
@@ -23,9 +31,12 @@ export class EventedSpacePrimitives implements SpacePrimitives {
   // so that synced changes are not missed.
   private deferredFetchFileList = false;
 
+  // Concurrent fetchFileList calls share one underlying listing (single-flight);
+  // during boot several subsystems request the list at nearly the same time.
+  private inFlightFileList?: Promise<FileMeta[]>;
+
   private enabled = false;
 
-  // Snapshot state management
   private spaceSnapshot: Record<string, number> = {};
   private snapshotChanged = false;
 
@@ -87,11 +98,13 @@ export class EventedSpacePrimitives implements SpacePrimitives {
     if (!this.enabled) {
       return Promise.resolve([]);
     }
-    // console.log("Evented space, dispatching", name, args);
     return this.eventHook.dispatchEvent(name, ...args);
   }
 
-  async fetchFileList(): Promise<FileMeta[]> {
+  fetchFileList(): Promise<FileMeta[]> {
+    if (this.inFlightFileList) {
+      return this.inFlightFileList;
+    }
     if (this.operationCount > 0) {
       // Some other operation (read, write, list, meta) is already going on
       // this will likely trigger events, so let's not worry about any of that and avoid race condition and inconsistent data.
@@ -102,25 +115,27 @@ export class EventedSpacePrimitives implements SpacePrimitives {
       this.deferredFetchFileList = true;
       return this.wrapped.fetchFileList();
     }
-    if (!this.enabled) {
-      return this.wrapped.fetchFileList();
-    }
-    // console.log("Fetching file list");
-    // Fetching mutex
+    const listing = this.enabled
+      ? this.fetchFileListAndDispatch()
+      : this.wrapped.fetchFileList();
+    this.inFlightFileList = listing;
+    return listing.finally(() => {
+      this.inFlightFileList = undefined;
+    });
+  }
+
+  private async fetchFileListAndDispatch(): Promise<FileMeta[]> {
     this.operationCount++;
     try {
-      // Fetch the list
       const newFileList = await this.wrapped.fetchFileList();
 
-      // Now we have the list, let's compare it to the snapshot and trigger events appropriately
       const deletedFiles = new Set<string>(Object.keys(this.spaceSnapshot));
+      const changedFiles: ChangedFile[] = [];
       for (const meta of newFileList) {
         const oldHash = this.spaceSnapshot[meta.name];
         const newHash = meta.lastModified;
-        // Update in snapshot
         this.updateInSnapshot(meta.name, newHash);
 
-        // Check what happened to the file.
         if (oldHash === undefined || oldHash !== newHash) {
           console.log(
             "Detected file change during listing",
@@ -129,8 +144,8 @@ export class EventedSpacePrimitives implements SpacePrimitives {
             newHash,
           );
           await this.dispatchEvent("file:changed", meta.name, oldHash, newHash);
+          changedFiles.push({ name: meta.name, isNew: oldHash === undefined });
         }
-        // Page found, not deleted
         deletedFiles.delete(meta.name);
       }
 
@@ -142,6 +157,14 @@ export class EventedSpacePrimitives implements SpacePrimitives {
           const pageName = deletedFile.substring(0, deletedFile.length - 3);
           await this.dispatchEvent("page:deleted", pageName);
         }
+      }
+
+      // Awaited before file:listed: the initial-index completion check
+      // listens for file:listed and checks whether the index queue has
+      // drained, so a listener enqueueing index work from this batch must
+      // have committed by then.
+      if (changedFiles.length > 0) {
+        await this.dispatchEvent("file:changedBatch", changedFiles);
       }
 
       await this.dispatchEvent("file:listed", newFileList);
@@ -174,7 +197,6 @@ export class EventedSpacePrimitives implements SpacePrimitives {
     }
     this.operationCount++;
     try {
-      // Fetch file
       const data = await this.wrapped.readFile(path);
       if (this.operationCount === 1) {
         await this.triggerEventsAndCache(path, data.meta.lastModified);
@@ -196,14 +218,18 @@ export class EventedSpacePrimitives implements SpacePrimitives {
     }
 
     this.operationCount++;
+    // Whether this write brings the file into existence — a create or the
+    // write half of a rename — as opposed to saving over an existing file.
+    // Read before the write updates the snapshot.
+    const created = this.spaceSnapshot[path] === undefined;
     try {
       const newMeta = await this.wrapped.writeFile(path, data, meta);
       if (this.operationCount === 1) {
-        await this.triggerEventsAndCache(path, newMeta.lastModified);
+        await this.triggerEventsAndCache(path, newMeta.lastModified, true);
       }
       if (path.endsWith(".md")) {
         const pageName = path.substring(0, path.length - 3);
-        await this.dispatchEvent("page:saved", pageName, newMeta);
+        await this.dispatchEvent("page:saved", pageName, newMeta, created);
       }
 
       return newMeta;
@@ -216,14 +242,22 @@ export class EventedSpacePrimitives implements SpacePrimitives {
   /**
    * @param name
    * @param newHash
+   * @param ownWrite
    * @return whether something changed in the snapshot
    */
-  async triggerEventsAndCache(name: string, newHash: number) {
+  async triggerEventsAndCache(name: string, newHash: number, ownWrite = false) {
     const oldHash = this.spaceSnapshot[name];
-    // if (oldHash && newHash && oldHash !== newHash) {
     if (oldHash !== newHash) {
-      // Page changed since last cached metadata, trigger event
-      await this.dispatchEvent("file:changed", name, oldHash, newHash);
+      await this.dispatchEvent(
+        "file:changed",
+        name,
+        oldHash,
+        newHash,
+        ownWrite,
+      );
+      await this.dispatchEvent("file:changedBatch", [
+        { name, isNew: oldHash === undefined },
+      ]);
     }
     this.updateInSnapshot(name, newHash);
     await this.saveSnapshot();

@@ -1,3 +1,18 @@
+import { notFoundError } from "@silverbulletmd/silverbullet/constants";
+import {
+  linkWriteFormat,
+  writtenLinkText,
+} from "@silverbulletmd/silverbullet/lib/link_write";
+import { isValidPath, parseToRef } from "@silverbulletmd/silverbullet/lib/ref";
+import { folderName } from "@silverbulletmd/silverbullet/lib/resolve";
+import { BasenameIndex } from "@silverbulletmd/silverbullet/lib/resolve_path";
+import type { ParseTree } from "@silverbulletmd/silverbullet/lib/tree";
+import {
+  addParentPointers,
+  findNodeOfType,
+  findParentMatching,
+  nodeAtPos,
+} from "@silverbulletmd/silverbullet/lib/tree";
 import {
   editor,
   index,
@@ -6,21 +21,16 @@ import {
   mq,
   space,
 } from "@silverbulletmd/silverbullet/syscalls";
-import { getTextualBackRelations, type RelationObject } from "./relation.ts";
+import { findRenameConflict, shouldDeleteOldPath } from "./refactor_case.ts";
 import { spliceReference } from "./refactor_splice.ts";
 import {
-  absoluteToRelativePath,
-  folderName,
-} from "@silverbulletmd/silverbullet/lib/resolve";
-import type { ParseTree } from "@silverbulletmd/silverbullet/lib/tree";
-import {
-  addParentPointers,
-  findNodeOfType,
-  findParentMatching,
-  nodeAtPos,
-} from "@silverbulletmd/silverbullet/lib/tree";
-import { isValidPath } from "@silverbulletmd/silverbullet/lib/ref";
-import { notFoundError } from "@silverbulletmd/silverbullet/constants";
+  getTextualBackRelations,
+  isWikiLinkAt,
+  type RelationObject,
+} from "./relation.ts";
+
+/** A relation known to span page text, which is what a rewrite needs. */
+type RangedRelation = RelationObject & { range: [number, number] };
 
 /**
  * Renames a single page.
@@ -127,7 +137,6 @@ export async function renameDocumentCommand(cmdDef: any) {
 export async function batchRenameFiles(fileList: [string, string][]) {
   await editor.save();
 
-  // Skip unchanged names
   fileList = fileList.filter(([oldName, newName]) => {
     if (oldName.trim() === newName.trim()) {
       console.log(`${oldName}'s name unchanged, skipping`);
@@ -137,31 +146,31 @@ export async function batchRenameFiles(fileList: [string, string][]) {
   });
 
   try {
-    // Pre-flight checks
-    await Promise.all(
-      fileList.map(async ([_oldName, newName]) => {
-        try {
-          // It's a FILEname not a PAGEname.
-          if (!isValidPath(newName)) {
-            throw new Error(`Name invalid: ${newName}`);
-          }
-          // Check if target file already exists
-          await space.getFileMeta(newName);
-          // If we got here, the file exists, so we error out
-          throw new Error(
-            `${newName} already exists, cannot rename to existing file.`,
-          );
-        } catch (e: any) {
-          if (e.message === notFoundError.message) {
-            // Expected not found error, so we can continue
-          } else {
-            throw e;
-          }
-        }
-      }),
-    );
+    // Compares against the file list rather than probing with getFileMeta: on
+    // a case-insensitive filesystem a probe for `oldname.md` resolves the
+    // existing `OldName.md`, which made every case-only rename impossible.
+    const existingPaths = [
+      ...(await space.listDocuments()).map((doc) => doc.name),
+      ...(await space.listPages()).map((page) => `${page.name}.md`),
+    ];
 
-    // All new names are available, proceeding with rename
+    for (const [oldName, newName] of fileList) {
+      // It's a FILEname not a PAGEname.
+      if (!isValidPath(newName)) {
+        throw new Error(`Name invalid: ${newName}`);
+      }
+      const conflict = findRenameConflict(existingPaths, oldName, newName);
+      if (conflict === newName) {
+        throw new Error(
+          `${newName} already exists, cannot rename to existing file.`,
+        );
+      } else if (conflict !== undefined) {
+        throw new Error(
+          `${newName} differs only in casing from ${conflict}, cannot rename.`,
+        );
+      }
+    }
+
     for (const [oldName, newName] of fileList) {
       console.log("Renaming", oldName, "to", newName);
       try {
@@ -186,11 +195,23 @@ export async function batchRenameFiles(fileList: [string, string][]) {
   }
 }
 
+/**
+ * Whether `path` exists under exactly this casing. `getFileMeta` can't answer
+ * that — on a case-insensitive filesystem it resolves a differently-cased file
+ * happily — but the file list reports real on-disk names.
+ */
+async function existsWithExactCasing(path: string): Promise<boolean> {
+  if (path.endsWith(".md")) {
+    const name = path.slice(0, -3);
+    return (await space.listPages()).some((page) => page.name === name);
+  }
+  return (await space.listDocuments()).some((doc) => doc.name === path);
+}
+
 // Rename a page, update any backlinks and linked documents
 async function renamePage(oldName: string, newName: string) {
   let text = await space.readPage(oldName);
 
-  // Update relative links and documents on this page
   const oldFolder = folderName(oldName);
   const newFolder = folderName(newName);
   const documentsToMove = new Set<string>();
@@ -198,19 +219,22 @@ async function renamePage(oldName: string, newName: string) {
   if (oldFolder !== newFolder) {
     // Pull every relation on this page that points at a page or file —
     // these are the candidates whose relative-path form may need to be
-    // rewritten when the page moves between folders.
-    const relsInPage = await index.queryLuaObjects<RelationObject>(
+    // rewritten when the page moves between folders. A `re:` target
+    // is never one: its range covers literal `@nickname` text rather than
+    // link syntax, or it has no range at all (a `recipients:` frontmatter
+    // nickname), so those are excluded up front.
+    const relsInPage = await index.queryLuaObjects<RangedRelation>(
       "relation",
       {
         objectVariable: "_",
         where: await lua.parseExpression(
-          `_.page == oldName and _.kind ~= "co-mention" and _.toTag ~= "url"`,
+          `_.page == oldName and _.kind ~= "co-mention" and _.toTag ~= "identity" and _.toTag ~= "url" and _.range ~= nil`,
         ),
       },
       { oldName },
     );
 
-    const linksToUpdate: RelationObject[] = [];
+    const linksToUpdate: RangedRelation[] = [];
     for (const rel of relsInPage) {
       if (rel.toTag === "document" && folderName(rel.to) === oldFolder) {
         const backRels = await getTextualBackRelations(rel.to);
@@ -234,21 +258,18 @@ async function renamePage(oldName: string, newName: string) {
       // name and need no path rewrite when the source page moves.
       if (text.substring(pos, pos + 2) === "[[") continue;
 
-      const newLink = absoluteToRelativePath(newName, rel.to);
-      let newTail = text
-        .substring(pos)
-        .replace(/^.*?(?=@\d*|#|\$|\))/, newLink);
-      if (newLink.includes(" ")) {
-        newTail = `<${newTail.replace(")", ">)")}`;
-      }
-      text = text.substring(0, pos) + newTail;
+      text = spliceReference({
+        text,
+        range: rel.range,
+        oldName: rel.to,
+        newName: rel.to,
+        pageToEdit: newName,
+      });
     }
   }
 
-  // Write the new page
-  const newPageMeta = await space.writePage(newName, text);
+  await space.writePage(newName, text);
 
-  // Move documents along with page
   const batchRenameDocuments: [string, string][] = [];
   for (const document of documentsToMove) {
     const newAttName =
@@ -261,17 +282,22 @@ async function renamePage(oldName: string, newName: string) {
     await batchRenameFiles(batchRenameDocuments);
   }
 
-  // Handling the edge case of a changing page name just in casing on a case insensitive FS
-  const oldPageMeta = await space.getPageMeta(oldName);
-  if (oldPageMeta.lastModified !== newPageMeta.lastModified) {
-    // If they're the same, let's assume it's the same file (case insensitive FS) and not delete, otherwise...
+  // A server-side re-case can fail (a Windows sharing violation, a symlinked
+  // folder), leaving the file under its old name — where deleting that name
+  // would destroy the only copy. Only check for case-only renames: the check
+  // itself is a full uncached `GET /.fs` plus an event storm.
+  const oldPath = `${oldName}.md`;
+  const newPath = `${newName}.md`;
+  const existsExact =
+    oldPath.toLowerCase() === newPath.toLowerCase()
+      ? await existsWithExactCasing(newPath)
+      : false;
+  if (shouldDeleteOldPath(oldPath, newPath, existsExact)) {
     await space.deletePage(oldName);
   }
 
-  // Update backlinks to this page
   const updatedRefences = await updateBacklinks(oldName, newName);
 
-  // Navigate to new page if currently viewing old page
   if ((await editor.getCurrentPage()) === oldName) {
     // Wait for index queue to be processed so that widgets are updated with up-to-date information
     await mq.awaitEmptyQueue("indexQueue");
@@ -290,22 +316,22 @@ async function renamePage(oldName: string, newName: string) {
 
 // Rename a document and update any backlinks
 async function renameDocument(oldPath: string, newPath: string) {
-  // Move the file
   const oldFile = await space.readDocument(oldPath);
-  const newFileMeta = await space.writeDocument(newPath, oldFile);
+  await space.writeDocument(newPath, oldFile);
 
   if ((await editor.getCurrentPath()) === oldPath) {
     await editor.navigate(newPath, true);
   }
 
-  // Handling the edge case of a changing file name just in casing on a case insensitive FS
-  const oldFileMeta = await space.getDocumentMeta(oldPath);
-  if (oldFileMeta.lastModified !== newFileMeta.lastModified) {
-    // If they're the same, let's assume it's the same file (case insensitive FS) and not delete, otherwise...
+  // Same guard as renamePage, above.
+  const existsExact =
+    oldPath.toLowerCase() === newPath.toLowerCase()
+      ? await existsWithExactCasing(newPath)
+      : false;
+  if (shouldDeleteOldPath(oldPath, newPath, existsExact)) {
     await space.deleteDocument(oldPath);
   }
 
-  // Update any backlinks
   const updatedRefences = await updateBacklinks(oldPath, newPath);
   let message = `Renamed ${oldPath} to ${newPath}`;
   if (updatedRefences > 0) {
@@ -402,7 +428,6 @@ export async function extractToPageCommand() {
   try {
     // This throws an error if the page does not exist, which we expect to be the case
     await space.getPageMeta(newName);
-    // So when we get to this point, we error out
     throw new Error(
       `Page ${newName} already exists, cannot rename to existing page.`,
     );
@@ -421,18 +446,46 @@ export async function extractToPageCommand() {
   await editor.navigate(newName);
 }
 
+/** The link text a rename writes for `name`, with `vanishingName` on its way out. */
+async function wikiLinkTextFor(
+  name: string,
+  vanishingName?: string,
+): Promise<string> {
+  const path = parseToRef(name)?.path;
+  if (!path) {
+    return name;
+  }
+  const writeFormat = await linkWriteFormat();
+
+  const lookups = await space.lookupPaths([path]);
+  const index = new BasenameIndex();
+  index.rebuild([...(lookups[path]?.candidates ?? []), path]);
+
+  const vanishingPath = vanishingName
+    ? parseToRef(vanishingName)?.path
+    : undefined;
+  if (vanishingPath) {
+    index.delete(vanishingPath);
+  }
+
+  return writtenLinkText(path, writeFormat, index);
+}
+
 /**
  * Updates backlinks across all pages
  * @param oldName Full path to old page/file
  * @param newName Full path to new page/file
  * @returns The number of references updated
  */
-async function updateBacklinks(
+export async function updateBacklinks(
   oldName: string,
   newName: string,
+  wikiNameOverride?: string,
+  wikiLinksOnly = false,
 ): Promise<number> {
-  // This is the bit where we update all the links
   const backRelations = await getTextualBackRelations(oldName);
+  const newWikiName =
+    wikiNameOverride ?? (await wikiLinkTextFor(newName, oldName));
   let updatedReferences = 0;
 
   // Group by page to edit entire page at once
@@ -452,11 +505,12 @@ async function updateBacklinks(
       continue;
     }
 
-    let text = await space.readPage(pageToEdit);
-    if (!text) {
+    const original = await space.readPage(pageToEdit);
+    if (!original) {
       // Page likely does not exist, but at least we can skip it
       continue;
     }
+    let text = original;
 
     // Apply in descending range order so earlier splices don't shift
     // later positions.
@@ -464,17 +518,26 @@ async function updateBacklinks(
 
     for (const rec of recsInPage) {
       if (!rec.range) continue;
+      if (wikiLinksOnly && !isWikiLinkAt(text, rec.range)) {
+        continue;
+      }
       const before = text;
       text = spliceReference({
         text,
         range: rec.range,
         oldName,
         newName,
+        newWikiName,
         pageToEdit,
       });
       if (text !== before) updatedReferences++;
     }
-    await space.writePage(pageToEdit, text);
+    // Nothing changed (every splice was a no-op): don't churn the file's
+    // mtime with a byte-identical write.
+    if (text !== original) {
+      await space.writePage(pageToEdit, text);
+    }
   }
+
   return updatedReferences;
 }

@@ -6,6 +6,8 @@ import { cls } from "./chord_display.tsx";
 import { Checkbox, Input, Select } from "@silverbulletmd/silverbullet/ui";
 // `Input` renders `m3e-form-field` — see plug-api/ui/input.tsx's doc comment.
 import "@m3e/web/form-field";
+// `Checkbox` renders `m3e-checkbox` — see plug-api/ui/checkbox.tsx's doc comment.
+import "@m3e/web/checkbox";
 import type { UiSchema } from "../schema.ts";
 
 function Control({
@@ -137,7 +139,13 @@ export function ConfigurationTab() {
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    inputRef.current?.focus();
+    // `<m3e-tab>` sets selection state via ElementInternals, not a `role`
+    // attribute (verified: no `role` attribute set in @m3e/web's tabs.js),
+    // so gate on tag name instead of the old plain-button `role="tab"` check
+    // — this avoids stealing focus from a tab the user just switched to.
+    if (document.activeElement?.tagName?.toLowerCase() !== "m3e-tab") {
+      inputRef.current?.focus();
+    }
   }, []);
   const query = search.toLowerCase().trim();
   return (

@@ -1,16 +1,11 @@
 import { Fragment } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { Input } from "@silverbulletmd/silverbullet/ui";
-// `Input` renders `m3e-form-field` — see plug-api/ui/input.tsx's doc comment.
-import "@m3e/web/form-field";
 // The browse panel's breadcrumb trail and subdirectory list render
-// `m3e-breadcrumb`/`m3e-list` directly (not through the shared kit — neither
-// has a plug-api/ui wrapper), so this file self-imports their side effects,
-// matching the fork's established per-consumer convention (see
-// plug-api/ui/button.tsx's doc comment on why these live at the DOM-side
-// consumer rather than a shared barrel).
-import "@m3e/web/breadcrumb";
-import "@m3e/web/list";
+// `m3e-breadcrumb`/`m3e-list` directly (neither has a plug-api/ui wrapper).
+// Their custom elements — and `m3e-form-field` for `Input` — are registered
+// once by this file's browser entry points (spaces.tsx, setup.tsx), never
+// here: SpaceForm.test.ts loads this module under plain-Node vitest.
 import "./m3e-jsx.d.ts";
 
 /**
@@ -106,7 +101,6 @@ export function FolderPicker({
     onChange(path);
   }
 
-  // Debounced status line for the typed value.
   useEffect(() => {
     if (!value) {
       setStatus(null);
@@ -118,7 +112,6 @@ export function FolderPicker({
     return () => clearTimeout(t);
   }, [value, apiBase]);
 
-  // Listing for the browse panel: subdirectories of `browsePath`.
   useEffect(() => {
     if (!browsing) return;
     let cancelled = false;
@@ -153,11 +146,11 @@ export function FolderPicker({
         placeholder={placeholder}
         onInput={(e) => onChange(e.currentTarget.value)}
       />
-      <div class="sb-folder-picker-status">
+      <div class="sb-folder-picker-status flex items-center gap-3 mt-1">
         {statusLine()}
         <button
           type="button"
-          class="sb-link-button"
+          class="sb-link-button bg-transparent border-none shadow-none p-0 underline cursor-pointer hover:bg-transparent focus:outline-none focus:shadow-none focus-visible:outline-offset-2 focus-visible:rounded-sm"
           onClick={() => {
             setBrowsing((b) => !b);
             const start = (browseStart ?? value).replace(/\/+$/, "");
@@ -168,8 +161,8 @@ export function FolderPicker({
         </button>
       </div>
       {browsing && (
-        <div class="sb-folder-browser">
-          <m3e-breadcrumb class="sb-folder-crumbs" aria-label="Folder path" wrap>
+        <div class="sb-folder-browser mt-2 py-2 px-3">
+          <m3e-breadcrumb class="block mb-2" aria-label="Folder path" wrap>
             {crumbsFor(browsePath).map((c, i, crumbs) => (
               <m3e-breadcrumb-item
                 key={`${c.target}-${i}`}
@@ -189,7 +182,7 @@ export function FolderPicker({
           {browseDirs.length === 0 ? (
             <p class="sb-folder-empty">No subdirectories</p>
           ) : (
-            <m3e-list class="sb-folder-dirs">
+            <m3e-list class="block max-h-48 overflow-y-auto">
               {browseDirs.map((dir) => (
                 <m3e-list-action key={dir} onClick={() => navigate(dir)}>
                   {dir.split("/").filter(Boolean).pop() || dir}

@@ -4,6 +4,7 @@ import type {
   Line,
   MarkdownConfig,
 } from "@lezer/markdown";
+import { NodeType, Tree } from "@lezer/common";
 
 // CommonMark spec §4.6 — the same block-level element names that
 // the built-in lezer HTMLBlock parser recognises (type 6).
@@ -17,6 +18,9 @@ const scriptPreStyleEndRe = /<\/(?:script|pre|style)>/i;
 // Type 2: <!-- comment -->
 const commentStartRe = /^\s*<!--/;
 const commentEndRe = /-->/;
+// `<!--#…-->` / `<!--/…-->` are inert delimiters (Baked Sections uses
+// `<!--#lua …-->` and `<!--/lua-->`); they carry no markdown body.
+const markerCommentRe = /^\s*<!--[ \t]*[#/]/;
 
 // Type 3: <?processing instruction?>
 const processingStartRe = /^\s*<\?/;
@@ -33,11 +37,8 @@ const cdataEndRe = /\]\]>/;
 // Type 6 & 7: block-level elements — terminate on empty line
 const emptyLineRe = /^[ \t]*$/;
 
-// Matches an opening tag: <tagName ...>  (not self-closing)
 const openTagRe = /^<([a-zA-Z][\w-]*)((?:\s+[^>]*?)?)>/;
-// Matches a self-closing tag: <tagName ... />
 const selfCloseTagRe = /^<([a-zA-Z][\w-]*)((?:\s+[^>]*?)?)\s*\/>/;
-// Matches a closing tag: </tagName>
 const closeTagRe = /^<\/([a-zA-Z][\w-]*)>/;
 
 /**
@@ -52,12 +53,47 @@ function parseRawHtmlBlock(
   nodeType: string,
 ): true {
   const from = cx.lineStart + line.pos;
-  while (!endPattern.test(line.text) && cx.nextLine()) {
-    // keep consuming lines
-  }
+  while (!endPattern.test(line.text) && cx.nextLine()) {}
   cx.nextLine();
   const to = cx.prevLineEnd();
   cx.addElement(cx.elt(nodeType, from, to));
+  return true;
+}
+
+function parseCommentBlock(cx: BlockContext, line: Line): true {
+  const from = cx.lineStart + line.pos;
+  let raw = line.text.slice(line.pos);
+  while (!commentEndRe.test(line.text) && cx.nextLine()) {
+    raw += `\n${line.text}`;
+  }
+  cx.nextLine();
+  const to = cx.prevLineEnd();
+
+  const openFrom = raw.indexOf("<!--");
+  const openTo = openFrom + 4;
+  const closeFrom = raw.indexOf("-->", openTo);
+  const bodyTo = closeFrom === -1 ? raw.length : closeFrom;
+  const bodyText = raw.slice(openTo, bodyTo);
+
+  const children = [cx.elt("CommentMarker", from + openFrom, from + openTo)];
+  if (bodyText.trim()) {
+    const parsed = cx.parser.parse(bodyText);
+    // The sub-parse is rooted at Document; re-wrap it anonymously so the body's
+    // blocks mount directly under CommentBlock instead of under a nested doc.
+    const body = new Tree(
+      NodeType.none,
+      parsed.children,
+      parsed.positions,
+      parsed.length,
+    );
+    children.push(cx.elt(body, from + openTo));
+  }
+  if (closeFrom !== -1) {
+    children.push(
+      cx.elt("CommentMarker", from + closeFrom, from + closeFrom + 3),
+    );
+  }
+  cx.addElement(cx.elt("CommentBlock", from, to, children));
   return true;
 }
 
@@ -68,21 +104,18 @@ function parseStructuredHtmlBlock(cx: BlockContext, line: Line): true {
   const startPos = cx.lineStart + line.pos;
   const lineText = line.text.slice(line.pos);
 
-  // Collect the full block text across lines
   let fullText = lineText;
   while (cx.nextLine()) {
     if (emptyLineRe.test(line.text)) break;
     fullText += `\n${line.text}`;
   }
 
-  // Tokenise into tags and text segments, build child elements
   const children: ReturnType<typeof cx.elt>[] = [];
   let pos = 0;
   const absBase = startPos;
 
   while (pos < fullText.length) {
     if (fullText[pos] === "<") {
-      // Try self-closing tag first
       let m = selfCloseTagRe.exec(fullText.slice(pos));
       if (m) {
         children.push(
@@ -96,7 +129,6 @@ function parseStructuredHtmlBlock(cx: BlockContext, line: Line): true {
         continue;
       }
 
-      // Try closing tag
       m = closeTagRe.exec(fullText.slice(pos));
       if (m) {
         children.push(
@@ -106,7 +138,6 @@ function parseStructuredHtmlBlock(cx: BlockContext, line: Line): true {
         continue;
       }
 
-      // Try opening tag
       m = openTagRe.exec(fullText.slice(pos));
       if (m) {
         children.push(
@@ -116,22 +147,18 @@ function parseStructuredHtmlBlock(cx: BlockContext, line: Line): true {
         continue;
       }
 
-      // Unrecognised tag-like content: advance past '<'
       pos++;
       continue;
     }
 
-    // Text segment: collect until the next '<' or end
     const textStart = pos;
     while (pos < fullText.length && fullText[pos] !== "<") {
       pos++;
     }
 
     const textContent = fullText.slice(textStart, pos);
-    // Skip pure-whitespace segments
     if (/^\s*$/.test(textContent)) continue;
 
-    // Parse as inline markdown
     const inlineElements = cx.parser.parseInline(
       textContent,
       absBase + textStart,
@@ -149,9 +176,11 @@ function parseStructuredHtmlBlock(cx: BlockContext, line: Line): true {
 /**
  * Custom block parser that replaces the built-in HTMLBlock.
  *
- * For comments, CDATA, script/pre/style, and processing instructions it
- * emits flat nodes (CommentBlock, ProcessingInstructionBlock, HTMLBlock)
+ * For CDATA, script/pre/style, processing instructions and marker comments it
+ * emits flat nodes (CommentMarkerBlock, ProcessingInstructionBlock, HTMLBlock)
  * just like the built-in parser.
+ *
+ * Regular comments become a CommentBlock whose body is parsed as markdown.
  *
  * For regular block-level HTML (type 6/7) it produces a structured tree
  * with HTMLOpenTag / HTMLCloseTag / HTMLSelfClosingTag children and
@@ -164,17 +193,17 @@ const htmlBlockParser: BlockParser = {
 
     const lineText = line.text.slice(line.pos);
 
-    // Type 1: <script>, <pre>, <style>
     if (scriptPreStyleRe.test(lineText)) {
       return parseRawHtmlBlock(cx, line, scriptPreStyleEndRe, "HTMLBlock");
     }
 
-    // Type 2: <!-- comment -->
     if (commentStartRe.test(lineText)) {
-      return parseRawHtmlBlock(cx, line, commentEndRe, "CommentBlock");
+      if (markerCommentRe.test(lineText)) {
+        return parseRawHtmlBlock(cx, line, commentEndRe, "CommentMarkerBlock");
+      }
+      return parseCommentBlock(cx, line);
     }
 
-    // Type 3: <?processing instruction?>
     if (processingStartRe.test(lineText)) {
       return parseRawHtmlBlock(
         cx,
@@ -184,22 +213,18 @@ const htmlBlockParser: BlockParser = {
       );
     }
 
-    // Type 4: <!DOCTYPE ...>
     if (declarationStartRe.test(lineText)) {
       return parseRawHtmlBlock(cx, line, declarationEndRe, "HTMLBlock");
     }
 
-    // Type 5: <![CDATA[ ... ]]>
     if (cdataStartRe.test(lineText)) {
       return parseRawHtmlBlock(cx, line, cdataEndRe, "HTMLBlock");
     }
 
-    // Type 6: block-level elements
     if (blockTagRe.test(lineText)) {
       return parseStructuredHtmlBlock(cx, line);
     }
 
-    // Not an HTML block we handle
     return false;
   },
   before: "HTMLBlock",
@@ -212,6 +237,8 @@ export const HTMLBlockParsing: MarkdownConfig = {
     { name: "HTMLCloseTag" },
     { name: "HTMLSelfClosingTag" },
     { name: "CommentBlock", block: true },
+    { name: "CommentMarkerBlock", block: true },
+    { name: "CommentMarker" },
     { name: "ProcessingInstructionBlock", block: true },
   ],
   parseBlock: [htmlBlockParser],

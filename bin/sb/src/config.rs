@@ -25,14 +25,10 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-// ---------------------------------------------------------------------------
-// Structs
-// ---------------------------------------------------------------------------
-
 /// Authentication credentials for a space.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct AuthConfig {
-    /// `"token"`, `"password"`, or `"none"`.
+    /// `"token"`, `"password"`, `"browser"`, or `"none"`.
     pub method: String,
     #[serde(
         rename = "encryptedToken",
@@ -48,6 +44,16 @@ pub struct AuthConfig {
         default
     )]
     pub encrypted_password: String,
+    #[serde(
+        rename = "encryptedRefreshToken",
+        skip_serializing_if = "String::is_empty",
+        default
+    )]
+    pub encrypted_refresh_token: String,
+    #[serde(rename = "expiresAt", default, skip_serializing_if = "is_zero")]
+    pub expires_at: i64,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
 }
 
 /// Optional per-space server-side environment overrides.
@@ -67,6 +73,12 @@ pub struct SpaceEnv {
         default
     )]
     pub shell_backend: String,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+fn is_zero(value: &i64) -> bool {
+    *value == 0
 }
 
 fn is_false(b: &bool) -> bool {
@@ -103,10 +115,6 @@ pub struct Config {
     pub spaces: Vec<SpaceConfig>,
 }
 
-// ---------------------------------------------------------------------------
-// Directory / path helpers
-// ---------------------------------------------------------------------------
-
 /// Compute the config directory from explicit XDG / home values (pure, testable).
 ///
 /// `xdg` — value of `$XDG_CONFIG_HOME` (empty string means "not set").
@@ -139,10 +147,6 @@ fn home_dir() -> String {
         .unwrap_or_default()
 }
 
-// ---------------------------------------------------------------------------
-// Load / save
-// ---------------------------------------------------------------------------
-
 /// Load config from `dir/config.json`.
 ///
 /// If the file does not exist, returns `Ok(Config { spaces: [] })`.
@@ -167,12 +171,24 @@ pub fn load() -> Result<Config, String> {
 /// Serialize and write `cfg` to `dir/config.json` (pretty JSON, 2-space
 /// indent, trailing newline, mode 0600 on unix, dir mode 0700).
 pub fn save_to(dir: &Path, cfg: &Config) -> Result<(), String> {
-    // Ensure dir exists with 0700.
     create_dir_private(dir)?;
 
     let path = dir.join("config.json");
+    let mut value = match std::fs::read(&path) {
+        Ok(data) => serde_json::from_slice::<Value>(&data)
+            .map_err(|e| format!("parsing existing config: {e}"))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+        Err(e) => return Err(format!("reading existing config: {e}")),
+    };
+    let object = value
+        .as_object_mut()
+        .ok_or("existing config must be an object")?;
+    object.insert(
+        "spaces".into(),
+        serde_json::to_value(&cfg.spaces).map_err(|e| format!("serializing spaces: {e}"))?,
+    );
     let mut data =
-        serde_json::to_vec_pretty(cfg).map_err(|e| format!("serializing config: {e}"))?;
+        serde_json::to_vec_pretty(&value).map_err(|e| format!("serializing config: {e}"))?;
     data.push(b'\n');
 
     write_private(&path, &data).map_err(|e| format!("writing config {}: {e}", path.display()))
@@ -182,10 +198,6 @@ pub fn save_to(dir: &Path, cfg: &Config) -> Result<(), String> {
 pub fn save(cfg: &Config) -> Result<(), String> {
     save_to(&config_dir(), cfg)
 }
-
-// ---------------------------------------------------------------------------
-// Space resolution
-// ---------------------------------------------------------------------------
 
 /// Resolve a space by optional name.
 ///
@@ -206,18 +218,10 @@ pub fn resolve_space<'a>(cfg: &'a Config, name: Option<&str>) -> Result<&'a Spac
     }
 }
 
-// ---------------------------------------------------------------------------
-// UUID
-// ---------------------------------------------------------------------------
-
 /// Generate a random UUID v4 string (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`).
 pub fn new_uuid() -> String {
     uuid::Uuid::new_v4().to_string()
 }
-
-// ---------------------------------------------------------------------------
-// Private file-write helpers (mirror crypto.rs patterns)
-// ---------------------------------------------------------------------------
 
 fn create_dir_private(dir: &Path) -> Result<(), String> {
     #[cfg(unix)]
@@ -236,36 +240,45 @@ fn create_dir_private(dir: &Path) -> Result<(), String> {
     }
 }
 
-fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
+pub fn lock(dir: &Path) -> Result<std::fs::File, String> {
+    create_dir_private(dir)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]
     {
-        use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(path)?;
-        f.write_all(data)
+        options.mode(0o600);
     }
-    #[cfg(not(unix))]
-    {
-        std::fs::write(path, data)
+    let file = options
+        .open(dir.join("config.lock"))
+        .map_err(|e| format!("opening config lock: {e}"))?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(file),
+            Err(std::fs::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            Err(std::fs::TryLockError::WouldBlock) => {
+                return Err("timed out waiting for config lock; retry the command".into());
+            }
+            Err(e) => return Err(format!("locking config: {e}")),
+        }
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut file = tempfile::NamedTempFile::new_in(path.parent().unwrap())?;
+    file.write_all(data)?;
+    file.as_file().sync_all()?;
+    file.persist(path).map_err(|e| e.error)?;
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // -----------------------------------------------------------------------
-    // Unknown field preservation (round-trip)
-    // -----------------------------------------------------------------------
 
     #[test]
     fn unknown_space_fields_survive_round_trip() {
@@ -274,6 +287,100 @@ mod tests {
         let out = serde_json::to_string(&cfg).unwrap();
         assert!(out.contains("appOnlyField"), "appOnlyField must survive");
         assert!(out.contains("42"), "value 42 must survive");
+    }
+
+    #[test]
+    fn save_preserves_unrelated_folder_environment_fields() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.json");
+        std::fs::write(&path, r#"{"spaces":[{"id":"folder","name":"sample","folderPath":"/notes","auth":{"method":"none"},"env":{"indexPage":"Home","revisions":{"enabled":true},"futureOption":42}}]}"#).unwrap();
+        let mut cfg = load_from(tmp.path()).unwrap();
+        cfg.spaces.push(SpaceConfig {
+            id: "remote".into(),
+            name: "remote".into(),
+            ..Default::default()
+        });
+        save_to(tmp.path(), &cfg).unwrap();
+        let saved: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(
+            saved["spaces"][0]["env"]["revisions"],
+            serde_json::json!({"enabled":true})
+        );
+        assert_eq!(saved["spaces"][0]["env"]["futureOption"], 42);
+        assert_eq!(saved["spaces"][0]["env"]["indexPage"], "Home");
+    }
+
+    #[test]
+    fn save_rejects_nonobject_existing_config_without_overwriting() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.json");
+        for json in ["null", "42", "true", "[]", r#""text""#] {
+            std::fs::write(&path, json).unwrap();
+            assert!(save_to(tmp.path(), &Config::default()).is_err());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), json);
+        }
+    }
+
+    #[test]
+    fn unknown_auth_fields_survive_round_trip() {
+        let cfg: Config = serde_json::from_str(r#"{"spaces":[{"id":"x","name":"sample","auth":{"method":"browser","futureField":42,"encryptedRefreshToken":"cipher","expiresAt":123}}]}"#).unwrap();
+        let value = serde_json::to_value(cfg).unwrap();
+        assert_eq!(value["spaces"][0]["auth"]["futureField"], 42);
+        assert_eq!(
+            value["spaces"][0]["auth"]["encryptedRefreshToken"],
+            "cipher"
+        );
+        assert_eq!(value["spaces"][0]["auth"]["expiresAt"], 123);
+    }
+
+    #[test]
+    fn save_preserves_top_level_fields_and_rejects_invalid_existing_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.json");
+        std::fs::write(&path, r#"{"spaces":[],"appSetting":42}"#).unwrap();
+        save_to(tmp.path(), &Config::default()).unwrap();
+        let value: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(value["appSetting"], 42);
+        std::fs::write(&path, "invalid").unwrap();
+        assert!(save_to(tmp.path(), &Config::default()).is_err());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "invalid");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_atomically_replaces_existing_file_with_private_permissions() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.json");
+        std::fs::write(&path, r#"{"spaces":[]}"#).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let inode = std::fs::metadata(&path).unwrap().ino();
+        save_to(tmp.path(), &Config::default()).unwrap();
+        let meta = std::fs::metadata(path).unwrap();
+        assert_ne!(meta.ino(), inode);
+        assert_eq!(meta.permissions().mode() & 0o777, 0o600);
+    }
+
+    #[test]
+    fn lock_serializes_config_transactions() {
+        let tmp = tempfile::tempdir().unwrap();
+        save_to(tmp.path(), &Config::default()).unwrap();
+        std::thread::scope(|scope| {
+            for index in 0..4 {
+                let dir = tmp.path();
+                scope.spawn(move || {
+                    let _lock = lock(dir).unwrap();
+                    let mut cfg = load_from(dir).unwrap();
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    cfg.spaces.push(SpaceConfig {
+                        name: format!("sample-{index}"),
+                        ..Default::default()
+                    });
+                    save_to(dir, &cfg).unwrap();
+                });
+            }
+        });
+        assert_eq!(load_from(tmp.path()).unwrap().spaces.len(), 4);
     }
 
     #[test]
@@ -291,7 +398,6 @@ mod tests {
         let out = serde_json::to_string(&space).unwrap();
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         let obj = v.as_object().unwrap();
-        // Should only have the known fields we set.
         for key in obj.keys() {
             assert!(
                 ["id", "name", "url", "auth"].contains(&key.as_str()),
@@ -299,10 +405,6 @@ mod tests {
             );
         }
     }
-
-    // -----------------------------------------------------------------------
-    // Load / save round-trip via tempdir (no env mutation)
-    // -----------------------------------------------------------------------
 
     #[test]
     fn load_save_round_trip() {
@@ -376,13 +478,11 @@ mod tests {
         std::fs::write(dir.join("config.json"), json).unwrap();
         let mut cfg = load_from(dir).unwrap();
 
-        // Core fields read correctly
         assert_eq!(cfg.spaces[0].id, "abc-123");
         assert_eq!(cfg.spaces[0].name, "my-notes");
         assert_eq!(cfg.spaces[0].folder_path, "/home/user/notes");
         assert_eq!(cfg.spaces[0].auth.method, "none");
 
-        // Modify a Core field
         cfg.spaces[0].name = "renamed-notes".into();
 
         save_to(dir, &cfg).unwrap();
@@ -399,10 +499,6 @@ mod tests {
             "lastOpened must survive"
         );
     }
-
-    // -----------------------------------------------------------------------
-    // config_dir_from (pure, no env mutation)
-    // -----------------------------------------------------------------------
 
     #[test]
     fn config_dir_from_uses_xdg_when_set() {
@@ -421,10 +517,6 @@ mod tests {
         let d = config_dir_from(Some(""), "/home/user");
         assert_eq!(d, PathBuf::from("/home/user/.config/silverbullet"));
     }
-
-    // -----------------------------------------------------------------------
-    // resolve_space
-    // -----------------------------------------------------------------------
 
     #[test]
     fn resolve_space_by_name() {
@@ -497,10 +589,6 @@ mod tests {
         assert!(err.contains("no spaces configured"), "error was: {err}");
     }
 
-    // -----------------------------------------------------------------------
-    // new_uuid
-    // -----------------------------------------------------------------------
-
     #[test]
     fn new_uuid_is_unique_and_correct_length() {
         let id1 = new_uuid();
@@ -512,10 +600,6 @@ mod tests {
             "UUID length should be 36 (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)"
         );
     }
-
-    // -----------------------------------------------------------------------
-    // File permissions (unix only)
-    // -----------------------------------------------------------------------
 
     #[cfg(unix)]
     #[test]
@@ -533,10 +617,6 @@ mod tests {
         assert_eq!(file_mode, 0o600, "config.json must be mode 0600");
     }
 
-    // -----------------------------------------------------------------------
-    // JSON field naming (camelCase, omitempty)
-    // -----------------------------------------------------------------------
-
     #[test]
     fn auth_config_camel_case_fields() {
         let auth = AuthConfig {
@@ -544,6 +624,7 @@ mod tests {
             encrypted_token: String::new(),
             username: "alice".into(),
             encrypted_password: "enc123".into(),
+            ..Default::default()
         };
         let v: serde_json::Value = serde_json::to_value(&auth).unwrap();
         assert!(
@@ -562,6 +643,7 @@ mod tests {
             index_page: "Home".into(),
             read_only: false,
             shell_backend: String::new(),
+            ..Default::default()
         };
         let v: serde_json::Value = serde_json::to_value(&env).unwrap();
         assert!(v.get("indexPage").is_some());
@@ -591,10 +673,6 @@ mod tests {
         assert!(v.get("folderPath").is_some(), "must use folderPath");
         assert!(v.get("url").is_none(), "empty url must be omitted");
     }
-
-    // -----------------------------------------------------------------------
-    // Pretty-print + trailing newline
-    // -----------------------------------------------------------------------
 
     #[test]
     fn save_produces_pretty_json_with_trailing_newline() {

@@ -7,8 +7,8 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { FilterOption } from "@silverbulletmd/silverbullet/type/client";
 import { Input } from "@silverbulletmd/silverbullet/ui";
 import { fuzzySearchAndSort } from "../lib/fuzzy_search.ts";
+import { isMobileDevice } from "../lib/mobile.ts";
 import { deepEqual } from "../../plug-api/lib/json.ts";
-import "@m3e/web/search";
 import "@m3e/web/list";
 import "./m3e-jsx.d.ts";
 
@@ -52,6 +52,10 @@ export function FilterList({
   const selectedElementRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
+    // See the matching skip in the navigator's `focusInput`: on a touch device
+    // this focus leaves the field focused with no on-screen keyboard, and no
+    // tap can recover one.
+    if (isMobileDevice()) return;
     inputRef.current?.focus();
   }, []);
 
@@ -128,7 +132,11 @@ export function FilterList({
       open
       hide-search-icon
     >
-      <label slot="open-leading" class="sb-header-label" onClick={stopPropagation}>
+      <label
+        slot="open-leading"
+        class="sb-header-label"
+        onClick={stopPropagation}
+      >
         {label}
       </label>
       <Input
@@ -139,6 +147,9 @@ export function FilterList({
         slot="input"
         inputRef={inputRef}
         class="sb-filter-input"
+        autocapitalize="off"
+        autocorrect="off"
+        spellcheck={false}
         value={text}
         placeholder={placeholder}
         onClick={stopPropagation}

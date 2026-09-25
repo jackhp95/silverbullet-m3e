@@ -62,11 +62,27 @@ function normalizePath(path: string): Path {
     path = path.slice(1);
   }
 
-  if (/.+\.[a-zA-Z0-9]+$/.test(path) || path === "") {
+  if (endsInExtension(path) || path === "") {
     return path as Path;
   }
 
   return `${path}.md`;
+}
+
+function endsInExtension(path: string): boolean {
+  const dot = path.lastIndexOf(".");
+  if (dot < 1 || dot === path.length - 1) {
+    return false;
+  }
+  for (let i = dot + 1; i < path.length; i++) {
+    const c = path.charCodeAt(i);
+    const alphanumeric =
+      (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+    if (!alphanumeric) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -93,8 +109,7 @@ export function isValidPath(path: string): path is Path {
 }
 
 /**
- * ONLY TOUCH THIS IF YOU REALLY KNOW WHAT YOU ARE DOING. THIS REGEX IS INTEGRAL
- * TO THE INNER WORKINGS OF SILVERBULLET AND CHANGES COULD INTRODUCE MAJOR BUGS
+ * Shared reference grammar for parsing and validation; changes affect both.
  */
 const refRegex =
   /^(?<meta>\^)?(?<path>(?!.*\.[a-zA-Z0-9]+\.md$)(?!\/?(\.|\^))(?!.*(?:\/|^)\.{1,2}(?:\/|$)|.*\/{2})(?!.*(?:\]\]|\[\[))[^@#|<>$]*)(@(?<pos>\d+)|@[Ll](?<line>\d+)(?:[Cc](?<col>\d+))?|#\s*(?<header>.*)|\$(?<anchor>[A-Za-z_][A-Za-z0-9_/:-]*))?$/;
@@ -237,9 +252,17 @@ export function coerceAndValidateRef(ref: Ref | string): Ref {
 }
 
 /**
- * The inverse of {@link parseToRef}, encodes a ref object into a reference string.
- * It tries to produce the shortest valid representation
+ * Renders a ref as wiki link *text*, preserving the `^` meta prefix.
+ *
+ * {@link encodeRef} deliberately drops it — it also builds page URLs, where a
+ * caret would address a page that does not exist — so anything rewriting a link
+ * in a document must use this instead, or `[[^Library/Std]]` silently loses its
+ * caret.
  */
+export function encodeLinkText(ref: Ref): string {
+  return (ref.meta ? "^" : "") + encodeRef(ref);
+}
+
 export function encodeRef(ref: Ref): string {
   let stringRef: string = ref.path;
 

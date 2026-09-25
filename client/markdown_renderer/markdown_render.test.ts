@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { parse } from "../markdown_parser/parse_tree.ts";
+import { renderToText } from "@silverbulletmd/silverbullet/lib/tree";
 
 import { renderMarkdownToHtml } from "./markdown_render.ts";
 import {
@@ -82,12 +83,53 @@ test("Markdown render", () => {
 });
 
 test("Wiki link with embedded image path", () => {
-  // This particular one caused an infinite regex loop previously, adding it here as a regression to avoid in the future
   const example = `![[Inbox/2026-01-08/CleanShot 2026-01-01 at 12.36.23.png]]`;
   const tree = parse(extendedMarkdownLanguage, example);
   renderMarkdownToHtml(tree, {
     failOnUnknown: true,
   });
+});
+
+test("Wiki links render the target page decoration icon before their label", () => {
+  const tree = parse(extendedMarkdownLanguage, "[[Person/Ada|Ada]]");
+  const html = renderMarkdownToHtml(tree, {}, [
+    {
+      ref: "Person/Ada",
+      tag: "page",
+      tags: [],
+      name: "Person/Ada",
+      perm: "rw",
+      lastModified: "0",
+      created: "0",
+      pageDecoration: { icon: "user" },
+    },
+  ]);
+
+  expect(html).toContain('class="sb-page-decoration-icon"');
+  expect(html).toContain("<svg");
+  expect(html).toMatch(/<svg[\s\S]*<\/svg><\/span>Ada<\/a>/);
+});
+
+test("Wiki link decoration icons never emit unsanitized literal SVG markup", () => {
+  const tree = parse(extendedMarkdownLanguage, "[[Safe Page]]");
+  const html = renderMarkdownToHtml(tree, {}, [
+    {
+      ref: "Safe Page",
+      tag: "page",
+      tags: [],
+      name: "Safe Page",
+      perm: "rw",
+      lastModified: "0",
+      created: "0",
+      pageDecoration: {
+        icon: '<svg onload="alert(1)"><script>alert(2)</script><circle cx="12" cy="12" r="4"></circle></svg>',
+      },
+    },
+  ]);
+
+  expect(html).not.toContain("onload");
+  expect(html).not.toContain("<script");
+  expect(html).not.toContain("alert(");
 });
 
 test("Smart hard break test", () => {
@@ -177,8 +219,18 @@ test("Unmatched HTML tags render as literal text", () => {
   expect(html).toEqual('<span class="p">text &lt;b&gt;unclosed</span>');
 });
 
+test("Inline HTML renders inside task items", () => {
+  const tree = parse(
+    extendedMarkdownLanguage,
+    "* [ ] <mark>highlighted</mark> task",
+  );
+  const html = renderMarkdownToHtml(tree, { failOnUnknown: true });
+  expect(html).toEqual(
+    '<ul><li><span class="sb-task"><input type="checkbox" data-state=" "> <mark>highlighted</mark> task</span></li></ul>',
+  );
+});
+
 test("CustomSyntaxRenderedHtml renders raw HTML", () => {
-  // Directly test the renderer with a synthetic parse tree
   const tree = {
     type: "Document",
     children: [
@@ -199,7 +251,6 @@ test("CustomSyntaxRenderedHtml renders raw HTML", () => {
   expect(html).toEqual('<span class="p">Before <em>rendered</em> after</span>');
 });
 
-// Minimal stubs for expandMarkdown tests
 const stubSpace = {} as Space;
 const stubSle = { env: new LuaEnv() } as SpaceLuaEnvironment;
 const defaultExpandOpts = {
@@ -321,17 +372,13 @@ test("expandMarkdown skips custom syntax without renderHtml", async () => {
     syntaxExtensions: {
       Custom: {
         ...customSpec,
-        // No renderHtml callback
       },
     },
   });
 
   const html = renderMarkdownToHtml(expanded);
-  // Should fall through to default rendering (raw text, HTML-escaped)
   expect(html).toContain("&lt;&lt;content&gt;&gt;");
 });
-
-// ── Block-level HTML rendering ─────────────────────────────────────
 
 test("Block HTML table renders correctly", () => {
   const tree = parse(
@@ -368,7 +415,7 @@ test("Self-closing <br/> inside block HTML td renders as HTML", () => {
     "<table><tr><td>Hello<br/>there</td></tr></table>",
   );
   const html = renderMarkdownToHtml(tree, { failOnUnknown: true });
-  expect(html).toBe("<table><tr><td>Hello<br/>there</td></tr></table>");
+  expect(html).toBe("<table><tr><td>Hello<br>there</td></tr></table>");
 });
 
 test("Wiki link inside block HTML td is rendered", () => {
@@ -384,7 +431,7 @@ test("Wiki link inside block HTML td is rendered", () => {
 test("Block HTML with self-closing tags", () => {
   const tree = parse(extendedMarkdownLanguage, "<div><br /><hr /></div>");
   const html = renderMarkdownToHtml(tree, { failOnUnknown: true });
-  expect(html).toBe("<div><br /><hr /></div>");
+  expect(html).toBe("<div><br><hr></div>");
 });
 
 test("Multi-line block HTML table", () => {
@@ -429,7 +476,6 @@ test("Nested block HTML tables", () => {
   );
   const html = renderMarkdownToHtml(tree, { failOnUnknown: true });
   expect(html).toContain("<table><tr><td>inner</td></tr></table>");
-  // Should have two table open/close pairs
   expect(html.match(/<table>/g)).toHaveLength(2);
   expect(html.match(/<\/table>/g)).toHaveLength(2);
 });
@@ -447,6 +493,17 @@ test("HTML comment is still removed", () => {
   const tree = parse(extendedMarkdownLanguage, "<!-- comment -->");
   const html = renderMarkdownToHtml(tree, { failOnUnknown: true });
   expect(html).toBe("");
+});
+
+test("Conforming inline comment renders to nothing", () => {
+  const tree = parse(
+    extendedMarkdownLanguage,
+    "A claim.\n\n<!-- @pete: verify — john, 2026-08-04 -->\n",
+  );
+  const html = renderMarkdownToHtml(tree, { failOnUnknown: true });
+  expect(html).not.toContain("pete");
+  expect(html).not.toContain("verify");
+  expect(html).not.toContain("<!--");
 });
 
 test("Whitespace between block siblings is dropped (no spurious <br>)", () => {
@@ -522,9 +579,6 @@ test("Multiple blank lines between blocks collapse to nothing", () => {
 });
 
 test("Heading then list then heading (transclusion shape)", () => {
-  // Mirrors the transcluded API page: heading, query result (bullet list),
-  // heading, query result (bullet list). The bug being guarded against here
-  // is the original symptom: bare <br>...<br><br><br> between sections.
   const tree = parse(
     extendedMarkdownLanguage,
     "# Lua Standard Library\n" +
@@ -561,4 +615,38 @@ test("Paragraph between two blocks keeps its surrounding breaks where needed", (
       "<br/>" +
       "<h1>H2</h1>",
   );
+});
+
+test("renders at-mentions as plain styled text", () => {
+  const tree = parse(extendedMarkdownLanguage, "Hello @PeteSmith");
+  const html = renderMarkdownToHtml(tree);
+  expect(html).toContain(
+    `<span class="sb-at-mention"><span class="sb-at-mention-mark">@</span>PeteSmith</span>`,
+  );
+  expect(html).not.toContain("<a");
+});
+
+test("expandMarkdown strips a transcluded page's frontmatter", async () => {
+  // A whole-page transclusion splices the target's text in. Its frontmatter
+  // is metadata, not content -- and the two-pass widget pipelines round-trip
+  // the expanded tree through text, where surviving `---` fences would
+  // re-parse mid-document as setext/thematic-break garbage.
+  const lang = buildExtendedMarkdownLanguage({});
+  const tree = parse(lang, "Before\n![[Other]]\nAfter");
+  const space = {
+    readRef: async () => ({
+      offset: 0,
+      text: "---\nreferences:\n- some/file.ts\n---\nTranscluded body",
+    }),
+  } as unknown as Space;
+
+  const expanded = await expandMarkdown(space, "test", tree, stubSle, {
+    expandLuaDirectives: false,
+    rewriteTasks: false,
+  });
+
+  const roundTripped = renderToText(expanded);
+  expect(roundTripped).toContain("Transcluded body");
+  expect(roundTripped).not.toContain("references:");
+  expect(roundTripped).not.toContain("---");
 });

@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
+  testMatch: ["**/flows/**/*.test.ts", "**/safety/**/*.test.ts"],
   timeout: 60_000,
   expect: { timeout: 30_000 },
   fullyParallel: false,
@@ -12,7 +13,10 @@ export default defineConfig({
   // Browsers occasionally crash at the process level in CI (notably a chromium
   // renderer SEGV); retry there so a stray crash doesn't fail the whole gate.
   retries: process.env.CI ? 2 : 0,
-  reporter: "list",
+  reporter: [
+    ["list"],
+    ["json", { outputFile: "test-results/e2e-results.json" }],
+  ],
   use: {
     ...devices["Desktop Chrome"],
     screenshot: "only-on-failure",
@@ -24,7 +28,6 @@ export default defineConfig({
       name: "chromium",
       // The embedded-bundle test needs the release binary; it runs as its
       // own `release` project (see `make test-e2e-release`).
-      testIgnore: "**/release-embedded.test.ts",
       use: {
         ...devices["Desktop Chrome"],
         // CI runners have a small /dev/shm, which crashes the chromium
@@ -33,8 +36,27 @@ export default defineConfig({
       },
     },
     {
+      name: "firefox",
+      retries: 2,
+      use: {
+        ...devices["Desktop Firefox"],
+        launchOptions: {
+          firefoxUserPrefs: {
+            // Headless Linux may report no pointer, selecting touch-only UI.
+            "ui.primaryPointerCapabilities": 6,
+            "ui.allPointerCapabilities": 6,
+          },
+        },
+      },
+    },
+    {
+      name: "webkit",
+      retries: 2,
+      use: { ...devices["Desktop Safari"] },
+    },
+    {
       name: "release",
-      testMatch: "**/release-embedded.test.ts",
+      testMatch: "**/release/**/*.test.ts",
       use: {
         ...devices["Desktop Chrome"],
         launchOptions: { args: ["--disable-dev-shm-usage"] },

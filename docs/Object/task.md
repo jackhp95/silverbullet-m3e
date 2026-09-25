@@ -5,9 +5,9 @@ references:
 ---
 Every task in your space is tagged with the `task` tag by default. You tag it with additional tags by using [[Tag]] in the task name, e.g.
 
-* [ ] My task #upnext 
+* [ ] My task #upnext
 
-And can then be queried via either `task` or `upnext`. 
+And can then be queried via either `task` or `upnext`.
 
 The following query shows all attributes available for tasks:
 ${query[[from index.tasks("upnext")]]}

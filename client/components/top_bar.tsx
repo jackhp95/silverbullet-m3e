@@ -1,67 +1,49 @@
-import type { ComponentChildren } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
-import { Input } from "@silverbulletmd/silverbullet/ui";
-import { relativeTime } from "../lib/relative_time.ts";
+import type { Notification } from "@silverbulletmd/silverbullet/type/client";
+import { Icon } from "@silverbulletmd/silverbullet/ui";
+import type { ComponentChildren, FunctionalComponent } from "preact";
+import { createPortal } from "preact/compat";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { resolveIconNode } from "../lib/icon.ts";
 import { countWords, readingTimeMinutes } from "../lib/reading_time.ts";
-import "@m3e/web/app-bar";
-import "@m3e/web/breadcrumb";
-import "@m3e/web/progress-indicator";
-import "@m3e/web/icon-button";
-import "@m3e/web/icon";
-import "@m3e/web/menu";
-// V11: offline indicator, moved from an anchored `m3e-badge` dot (no
-// longer used in this file) to a persistent, labeled trailing chip — see
-// the trailing-slot comment below. Snackbar fires a one-shot toast on the
-// online<->offline transition (`M3eSnackbar.open`, a `globalThis` static
-// method this side-effect import registers — see Snackbar.d.ts's
-// `declare global`), imperative-only, no JSX involved.
-import "@m3e/web/chips";
-import "@m3e/web/snackbar";
-import "./m3e-jsx.d.ts";
+import { relativeTime } from "../lib/relative_time.ts";
 
-// One segment of the folder-path trail rendered above the app bar (see
-// BreadcrumbItem below). `current` marks the final segment — the page
-// itself — as the trail's "you are here" endpoint (BreadcrumbItemCurrent
-// per BreadcrumbItemElement.d.ts); `onClick` is omitted for it, since
-// there's nowhere useful to navigate from the page you're already on.
-// Computed in client/editor_ui.tsx from `client.currentPath()` — see that
-// file's own comment for why intermediate "folder" segments open the page
-// picker rather than a folder-index page (SB has no folder-index concept).
+/** One segment of the app bar's leading breadcrumb trail. `current` marks
+ * the page itself; segments without `onClick` render disabled. */
 export type BreadcrumbItem = {
   key: string;
   label: string;
-  current: boolean;
+  current?: boolean;
   onClick?: () => void;
 };
 
-// One entry in the app-bar's trailing kebab menu (sb-app-bar-menu). This
-// leaf (L6/L7 of docs/plans/2026-09-16-toolbar-search-feedback-spec.md)
-// only builds the menu shell + trigger + positioning — `menuItems` defaults
-// to `[]` below (editor_ui.tsx isn't touched by this leaf at all, since it's
-// owned by the follow-up leaf L8, sequenced after this one to avoid a merge
-// conflict on that file). L8 populates it with real items (Web Push toggle,
-// CONFIG link, etc.) without needing to restructure anything here. `icon` is a
-// Material Symbols ligature name (string), not a component, because the icon is
-// rendered as an `<m3e-icon slot="icon">` child — m3e-menu-item's own
-// documented leading-icon slot (see the render below).
+/** One entry in the app bar's trailing kebab menu (`#sb-app-bar-menu`). */
 export type AppBarMenuItem = {
   key: string;
+  /** Material Symbols ligature, rendered as `<m3e-icon slot="icon">`. */
   icon?: string;
-  /**
-   * The visible label. Keep it short — a kebab item has ~228px (roughly 30
-   * characters at the label-large type scale) before it ellipsizes. Longer
-   * text degrades gracefully rather than clipping (see `.sb-app-bar-menu-
-   * label` in client/styles/top.scss), but an ellipsized label is still a
-   * label the user can't read.
-   */
+  /** Keep it ≤ ~30 chars: a kebab item ellipsizes past that (fork
+   * `fa3d075a`, `.sb-app-bar-menu-label` in top.scss). */
   label: string;
-  /**
-   * The full sentence behind a deliberately terse `label`, surfaced as the
-   * item's hover tooltip. Omit when the label already says everything.
-   */
+  /** Full sentence behind a terse `label`, shown as the hover tooltip. */
   detail?: string;
   onClick: () => void;
   disabled?: boolean;
+};
+
+export type ActionButton = {
+  icon: FunctionalComponent<any>;
+  description: string;
+  class?: string;
+  callback: (el?: HTMLElement) => void;
+  href?: string;
+  mobile?: boolean;
+  dropdown?: boolean;
+  hasPopup?: boolean;
+  expanded?: boolean;
+  /** Render as a native `<button>` instead of `m3e-icon-button` — reserved
+   * for the profile avatar (`accounts.test.ts:38`, `http.test.ts:156,163`
+   * select it as `#sb-top button:has(.sb-profile-avatar)`). */
+  native?: boolean;
 };
 
 function pageNameClass(
@@ -77,31 +59,132 @@ function pageNameClass(
   return cssClass ? `${state} sb-decorated-object ${cssClass}` : state;
 }
 
+function useEditorPaneMetrics() {
+  // Layout effect, not effect: this runs before paint, so the overlay never
+  // renders at the fallback position and then jumps.
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const editor = document.querySelector("#sb-editor");
+    if (!editor) return;
+
+    const publish = () => {
+      const { left, width } = editor.getBoundingClientRect();
+      // A zero box means the pane has not been laid out yet; the observer
+      // fires again once it has, and the CSS fallbacks hold until then.
+      if (width === 0) return;
+      root.style.setProperty("--sb-editor-pane-left", `${left}px`);
+      root.style.setProperty("--sb-editor-pane-width", `${width}px`);
+    };
+    publish();
+
+    const observer = new ResizeObserver(publish);
+    observer.observe(editor);
+
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--sb-editor-pane-left");
+      root.style.removeProperty("--sb-editor-pane-width");
+    };
+  }, []);
+}
+
+function NotificationPanel({
+  notifications,
+  onDismiss,
+}: {
+  notifications: Notification[];
+  onDismiss: (id: number) => void;
+}) {
+  if (notifications.length === 0) return null;
+  return createPortal(
+    <NotificationList notifications={notifications} onDismiss={onDismiss} />,
+    document.body,
+  );
+}
+
+function NotificationList({
+  notifications,
+  onDismiss,
+}: {
+  notifications: Notification[];
+  onDismiss: (id: number) => void;
+}) {
+  useEditorPaneMetrics();
+  return (
+    <div className="sb-notifications">
+      {notifications.map((notification) => (
+        <div
+          key={notification.id}
+          className={`sb-notification-${notification.type}`}
+        >
+          <span className="sb-notification-message">
+            {notification.message}
+          </span>
+          {notification.actions && notification.actions.length > 0 && (
+            <span className="sb-notification-actions">
+              {notification.actions.map((action, i) => (
+                <button
+                  key={i}
+                  className="sb-button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    action.run();
+                  }}
+                >
+                  {action.name}
+                </button>
+              ))}
+            </span>
+          )}
+          {notification.persistent && (
+            <button
+              className="sb-notification-dismiss"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDismiss(notification.id);
+              }}
+            >
+              &times;
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SyncProgressIndicator({
   percentage,
   type,
+  withLabel,
   slot,
 }: {
   percentage?: number;
   type?: string;
+  withLabel?: boolean;
   /** Forwarded onto the root element so the caller can slot it directly. */
   slot?: string;
 }) {
   if (percentage === undefined) return null;
-  // `filesProcessed / totalFiles` (plugs/sync/sync.ts) is NaN when totalFiles
-  // is 0 — the one case where the caller still passes a defined-but-useless
-  // percentage through. Rather than hand it to `value` (which would silently
-  // clamp/NaN in the ring math), fall back to the component's own
-  // `indeterminate` mode: "something is happening" without a bogus number.
+  // `filesProcessed / totalFiles` (plugs/sync/sync.ts) is NaN when
+  // totalFiles is 0 — fall back to the component's own `indeterminate`
+  // mode ("something is happening") rather than feeding NaN to `value`.
   const indeterminate = Number.isNaN(percentage);
   return (
     <div className="sb-sync-progress" slot={slot}>
       <div
         className={`progress-wrapper progress-${type}`}
-        title={indeterminate
-          ? `${type} in progress`
-          : `${type} progress: ${percentage}%`}
+        title={
+          indeterminate
+            ? `${type} in progress`
+            : `${type} progress: ${percentage}%`
+        }
       >
+        {withLabel && (
+          <span className="progress-label">
+            {type === "sync" ? "Syncing space" : "Indexing"}
+          </span>
+        )}
         <m3e-circular-progress-indicator
           indeterminate={indeterminate}
           value={indeterminate ? undefined : percentage}
@@ -110,6 +193,139 @@ function SyncProgressIndicator({
         </m3e-circular-progress-indicator>
       </div>
     </div>
+  );
+}
+
+function ActionButtons({
+  buttons,
+  mobileMenuStyle,
+}: {
+  buttons: ActionButton[];
+  mobileMenuStyle?: string;
+}) {
+  return (
+    <span slot="trailing" className={`sb-actions ${mobileMenuStyle ?? ""}`}>
+      {buttons.map((actionButton, i) => {
+        const key = `${actionButton.description}-${i}`;
+        const onClick = (e: MouseEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          actionButton.callback(e.currentTarget as HTMLElement);
+        };
+        // The profile avatar stays a native <button> — e2e selects it as
+        // `#sb-top button:has(.sb-profile-avatar)` (accounts.test.ts,
+        // http.test.ts). Every other action button becomes m3e-icon-button.
+        if (actionButton.native) {
+          const btn = (
+            <button
+              type="button"
+              key={key}
+              onClick={onClick}
+              title={actionButton.description}
+              className={actionButton.class}
+              aria-haspopup={actionButton.hasPopup ? "menu" : undefined}
+              aria-expanded={
+                actionButton.hasPopup ? !!actionButton.expanded : undefined
+              }
+            >
+              <actionButton.icon size={18} />
+            </button>
+          );
+          return actionButton.href ? (
+            <a href={actionButton.href} key={key}>
+              {btn}
+            </a>
+          ) : (
+            btn
+          );
+        }
+        return (
+          <m3e-icon-button
+            key={key}
+            href={actionButton.href || undefined}
+            title={actionButton.description}
+            aria-label={actionButton.description}
+            className={actionButton.class}
+            onClick={onClick}
+          >
+            <actionButton.icon size={18} />
+          </m3e-icon-button>
+        );
+      })}
+    </span>
+  );
+}
+
+/** Hamburger-style mobile menus (D2) move every `dropdown !== false` action
+ * button into the kebab; the profile avatar (`native`) always stays a
+ * trailing button. Any other style keeps main's trailing split. */
+function isHamburger(mobileMenuStyle?: string): boolean {
+  return !!mobileMenuStyle?.includes("hamburger");
+}
+
+function overflowsIntoKebab(button: ActionButton): boolean {
+  return button.dropdown !== false && !button.native;
+}
+
+/** A kebab item for an action button moved there by the hamburger style.
+ * Its icon is a Preact component (feather/mdi), so it goes into the item's
+ * `icon` slot through a wrapper span, as dock_menu.tsx does. */
+function actionButtonMenuItem(button: ActionButton, i: number) {
+  return (
+    <m3e-menu-item
+      key={`action-${button.description}-${i}`}
+      onClick={(e: MouseEvent) => {
+        e.preventDefault();
+        button.callback();
+      }}
+    >
+      <span slot="icon">
+        <button.icon size={18} />
+      </span>
+      <span className="sb-app-bar-menu-label" title={button.description}>
+        {button.description}
+      </span>
+    </m3e-menu-item>
+  );
+}
+
+function AppBarMenu({
+  items,
+  actionButtons,
+}: {
+  items: AppBarMenuItem[];
+  actionButtons: ActionButton[];
+}) {
+  return (
+    // The anchor sits at the top of the viewport, so the menu opens below.
+    <m3e-menu id="sb-app-bar-menu" position-y="below">
+      {items.map((item) => (
+        <m3e-menu-item
+          key={item.key}
+          data-key={item.key}
+          disabled={item.disabled}
+          onClick={
+            item.disabled
+              ? undefined
+              : (e: MouseEvent) => {
+                  e.preventDefault();
+                  item.onClick();
+                }
+          }
+        >
+          {item.icon && <m3e-icon slot="icon" name={item.icon}></m3e-icon>}
+          {/* Wrapped (not a bare text node) so `.sb-app-bar-menu-label` can
+              cap its width and let it ellipsize — see top.scss. */}
+          <span
+            className="sb-app-bar-menu-label"
+            title={item.detail ?? item.label}
+          >
+            {item.label}
+          </span>
+        </m3e-menu-item>
+      ))}
+      {actionButtons.map(actionButtonMenuItem)}
+    </m3e-menu>
   );
 }
 
@@ -123,6 +339,8 @@ function PageNameEditor({
   onRename: (newName?: string) => Promise<void>;
 }) {
   const [name, setName] = useState(pageName ?? "");
+  // Guards against the blur that fires when a successful rename refocuses the
+  // editor, which would otherwise trigger a second (same-name) commit.
   const committing = useRef(false);
   useEffect(() => setName(pageName ?? ""), [pageName]);
 
@@ -143,15 +361,26 @@ function PageNameEditor({
   };
 
   return (
-    <Input
-      // Inline page-title text, not a boxed Material field — see the
-      // `bare` prop's doc comment on plug-api/ui/input.tsx.
-      bare
-      class="sb-page-name-editor"
+    // `<textarea>` so long titles wrap (D5); height auto-grows via
+    // `field-sizing: content` in top.scss, capped at 2 lines.
+    <textarea
+      class="sb-input sb-page-name-editor"
+      rows={1}
       value={name}
       readOnly={readOnly}
       onInput={(e) => setName(e.currentTarget.value)}
-      onConfirm={(value) => commit(value)}
+      onKeyDown={(e) => {
+        // IME guard, as in plug-api/ui/input.tsx.
+        if (e.isComposing) {
+          return;
+        }
+        // Enter commits (the title is one logical line), never a newline.
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit(e.currentTarget.value);
+          e.currentTarget.blur();
+        }
+      }}
       onBlur={(e) => commit(e.currentTarget.value)}
     />
   );
@@ -162,308 +391,192 @@ export function TopBar({
   unsavedChanges,
   isOnline,
   isLoading,
+  notifications,
   onRename,
+  onDismissNotification,
+  actionButtons,
   progressPercentage,
   progressType,
+  progressWithLabel,
   lhs,
   rhs,
   pageNamePrefix,
+  pageIcon,
   cssClass,
   mobileMenuStyle,
   readOnly,
+  readOnlyToggle,
   breadcrumbItems,
   lastModified,
   bodyText,
   menuItems = [],
-  readOnlyToggle,
 }: {
   pageName?: string;
   unsavedChanges: boolean;
   isOnline: boolean;
   isLoading: boolean;
+  notifications: Notification[];
   progressPercentage?: number;
   progressType?: string;
+  progressWithLabel?: boolean;
   onRename: (newName?: string) => Promise<void>;
+  onDismissNotification: (id: number) => void;
+  actionButtons: ActionButton[];
   lhs?: ComponentChildren;
   rhs?: ComponentChildren;
   pageNamePrefix?: string;
+  pageIcon?: string;
   cssClass?: string;
   mobileMenuStyle?: string;
   readOnly: boolean;
-  /** Folder-path trail rendered as the app bar's own leading breadcrumb —
-   * see BreadcrumbItem. `breadcrumbItems[0]` is rendered as the icon-only
-   * asterisk/home item; the rest render as ordinary label items. */
-  breadcrumbItems: BreadcrumbItem[];
-  /** `PageMeta.lastModified` (ISO-8601), used to compute the "Edited Xh
-   * ago" subtitle segment. Kept raw (not pre-formatted by the caller) so
-   * `relativeTime`'s `now` stays live across re-renders. Undefined before
-   * the page's meta has loaded. */
-  lastModified?: string;
-  /** The page's body text (frontmatter range excluded), used to compute
-   * the "N min read" subtitle segment via `reading_time.ts`. */
-  bodyText: string;
-  /** Trailing kebab-menu items (sb-app-bar-menu) — see AppBarMenuItem. */
-  menuItems?: AppBarMenuItem[];
-  /** Read-only mode toggle, rendered in the trailing slot before the kebab
-   * trigger. Undefined hides it entirely (e.g. command unavailable). */
+  /** Read-only mode toggle, rendered in the trailing slot before the action
+   * buttons. Undefined hides it entirely (e.g. command unavailable). */
   readOnlyToggle?: { active: boolean; label: string; onClick: () => void };
+  /** Folder-path trail rendered in the app bar's own `slot="leading"`
+   * breadcrumb (D4). `breadcrumbItems[0]` is the root ("Space" / Navigate:
+   * Home); the rest are the page path's segments, last marked `current`. */
+  breadcrumbItems: BreadcrumbItem[];
+  /** `PageMeta.lastModified` (ISO-8601) for the "Edited …" subtitle
+   * segment — kept raw (not pre-formatted) so `relativeTime`'s `now` stays
+   * live across re-renders. Undefined before the page's meta has loaded. */
+  lastModified?: string;
+  /** The page's body text (frontmatter range excluded) for the "N min
+   * read" subtitle segment via `reading_time.ts`. */
+  bodyText: string;
+  /** Trailing kebab-menu items (`#sb-app-bar-menu`), before any action
+   * buttons the hamburger mobile style moves there. */
+  menuItems?: AppBarMenuItem[];
 }) {
-  // No more overflow/kebab trigger here — every actionButton, plus quick
-  // capture and journal entry, now live in the single floating vertical
-  // toolbar (client/components/floating_toolbar.tsx, rendered as a sibling
-  // of <TopBar> in editor_ui.tsx). The app bar itself is left with exactly
-  // what only it can do: the editable page title and sync/notification
-  // status — it isn't "orphaned," its remaining job is just narrower.
-  //
-  // 2026-09-22 V5b (docs/plans/2026-09-22-appbar-large-frontmatter-scroll-snap.md
-  // §1.5/L8): the app bar is `size="large"` and non-sticky — it scrolls with
-  // the page as part of `#sb-page-scroll` (client/editor_ui.tsx), resting
-  // above the CodeMirror editor host and below the front-matter property
-  // list. The breadcrumb that used to sit in its own row above the app bar
-  // is now the bar's own `slot="leading"` content — `size="large"`'s
-  // compiled template (verified directly against the installed
-  // `@m3e/web@2.7.12` `dist/app-bar.js`, not assumed from the older
-  // `m3e` skill card) puts leading/trailing slot content in a `.heading`
-  // row above a separate `.label` row holding title/subtitle, so the
-  // breadcrumb and the sync/lock/offline/kebab cluster share the top row
-  // for free — no custom placement CSS needed here.
-  //
-  // The leading asterisk breadcrumb item below runs the exact same
-  // navigation as the root breadcrumb segment ("Space", breadcrumbItems[0]
-  // — always constructed first in editor_ui.tsx's breadcrumbItems array)
-  // rather than a second, separately-wired copy of "Navigate: Home" — one
-  // command binding, rendered as that segment's own icon-only item.
-  // Disabled under the same condition the segment itself uses (command
-  // unavailable -> no onClick).
-  const homeOnClick = breadcrumbItems[0]?.onClick;
-  const restBreadcrumbItems = breadcrumbItems.slice(1);
-
-  // V11: one-shot toast on the online<->offline *transition* — the chip
-  // above is the sustained-state indicator; this is just the moment-of-
-  // change nudge, so it must not fire on initial mount (a freshly loaded
-  // page that happens to start offline isn't a "transition"). `isMounted`
-  // guards exactly that first run, same skip-on-mount pattern as
-  // PageNameEditor's `committing` ref above. Not covered by
-  // top_bar.test.ts's preact-render-to-string tests — effects don't run
-  // under SSR-style rendering (no DOM `M3eSnackbar.open` could act on), same
-  // documented gap as this file's e2e note.
-  const isMounted = useRef(false);
-  useEffect(() => {
-    if (!isMounted.current) {
-      isMounted.current = true;
-      return;
-    }
-    M3eSnackbar.open(isOnline ? "Back online" : "You're offline");
-  }, [isOnline]);
-
+  const hamburger = isHamburger(mobileMenuStyle);
+  const kebabActionButtons = hamburger
+    ? actionButtons.filter(overflowsIntoKebab)
+    : [];
+  const pageIconNode = resolveIconNode(pageIcon);
   return (
-    <div
-      id="sb-top"
-      className={isOnline ? undefined : "sb-sync-error"}
-      data-mobile-menu-style={mobileMenuStyle}
-    >
+    <div id="sb-top" className={isOnline ? undefined : "sb-sync-error"}>
       {lhs}
-      <div className="main">
-        <m3e-app-bar size="large">
-          {/* "asterisk" verified as a real glyph in the bundled font
-              subset — client/fonts/MaterialSymbolsOutlined.woff2 decompiled
-              (fontTools) and its glyph order literally contains "asterisk"
-              (alongside "inbox_text_asterisk"/"mail_asterisk", which aren't
-              it), the same way "close"/"history"/"add" etc. already used
-              elsewhere in this file/floating_toolbar.tsx resolve — so no
-              `emergency` fallback is needed here. The breadcrumb's first
-              item renders this icon in its own `slot="icon"`
-              (BreadcrumbItemElement.d.ts) rather than as a standalone
-              icon-button — see the file-level comment above. */}
-          <m3e-breadcrumb slot="leading" aria-label="Breadcrumb">
+      {/* D4: pinned `medium` — a pinned `large` bar costs too much of a
+          phone screen now that the bar can't scroll away with the page. */}
+      <m3e-app-bar className="main" size="medium">
+        <m3e-breadcrumb slot="leading" aria-label="Breadcrumb">
+          {breadcrumbItems.map((item) => (
             <m3e-breadcrumb-item
-              item-label="Home"
-              disabled={!homeOnClick}
-              onClick={homeOnClick
-                ? (e: MouseEvent) => {
-                  e.preventDefault();
-                  homeOnClick();
-                }
-                : undefined}
-            >
-              <m3e-icon slot="icon" name="asterisk"></m3e-icon>
-            </m3e-breadcrumb-item>
-            {restBreadcrumbItems.map((item) => (
-              <m3e-breadcrumb-item
-                key={item.key}
-                current={item.current ? "page" : null}
-                disabled={!item.onClick}
-                onClick={item.onClick
+              key={item.key}
+              current={item.current ? "page" : null}
+              disabled={!item.onClick}
+              onClick={
+                item.onClick
                   ? (e: MouseEvent) => {
-                    e.preventDefault();
-                    item.onClick!();
-                  }
-                  : undefined}
-              >
-                {item.label}
-              </m3e-breadcrumb-item>
-            ))}
-          </m3e-breadcrumb>
-          <span slot="title" className="sb-page-title">
-            <span className="sb-page-prefix">{pageNamePrefix}</span>
-            <span
-              id="sb-current-page"
-              className={pageNameClass(isLoading, unsavedChanges, cssClass)}
+                      e.preventDefault();
+                      item.onClick!();
+                    }
+                  : undefined
+              }
             >
-              <PageNameEditor
-                pageName={pageName}
-                readOnly={readOnly}
-                onRename={onRename}
-              />
-            </span>
+              {item.label}
+            </m3e-breadcrumb-item>
+          ))}
+        </m3e-breadcrumb>
+        <span slot="title" className="sb-page-title">
+          <span className="sb-page-prefix">
+            {pageIconNode && (
+              <Icon node={pageIconNode} class="sb-page-decoration-icon" />
+            )}
+            {pageNamePrefix}
           </span>
-          <span slot="subtitle">
-            Edited {relativeTime(lastModified ?? "")} ·{" "}
-            {readingTimeMinutes(countWords(bodyText))} min read
+          <span
+            id="sb-current-page"
+            className={pageNameClass(isLoading, unsavedChanges, cssClass)}
+          >
+            <PageNameEditor
+              pageName={pageName}
+              readOnly={readOnly}
+              onRename={onRename}
+            />
           </span>
-          {/* Each trailing item carries `slot="trailing"` ITSELF, as a direct
-              child of the app bar — the documented pattern (the app-bar card's
-              own examples slot several sibling buttons into `trailing`, and
-              client/codemirror/lua_widget.ts already builds its card header
-              this way). This replaced a single `<span slot="trailing"
-              className="sb-trailing">` wrapper whose `display:flex;
-              align-items:center; flex:none` CSS merely re-implemented what the
-              app bar's own internal `.trailing-icon` container already applies
-              to the slot (verified in node_modules/@m3e/web/dist/app-bar.js) —
-              custom CSS duplicating a component's own layout, which the
-              styling ladder puts last. It also let the app bar see the real
-              buttons rather than one opaque span, so its
-              `with-trailing-icon` slotchange toggle now reflects whether any
-              action is actually present instead of being permanently on. */}
-          <SyncProgressIndicator
+        </span>
+        <span slot="subtitle">
+          {lastModified ? `Edited ${relativeTime(lastModified)} · ` : ""}
+          {readingTimeMinutes(countWords(bodyText))} min read
+        </span>
+        <SyncProgressIndicator
+          slot="trailing"
+          percentage={progressPercentage}
+          type={progressType}
+          withLabel={progressWithLabel}
+        />
+        {readOnlyToggle && (
+          <m3e-icon-button
             slot="trailing"
-            percentage={progressPercentage}
-            type={progressType}
+            title={readOnlyToggle.label}
+            aria-label={readOnlyToggle.label}
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              readOnlyToggle.onClick();
+            }}
+          >
+            <m3e-icon
+              name={readOnlyToggle.active ? "lock" : "lock_open"}
+            ></m3e-icon>
+          </m3e-icon-button>
+        )}
+        {/* Sustained-state indicator, additive to the whole-bar
+            `#sb-top.sb-sync-error` tint above. `m3e-chip` is the
+            non-interactive chip variant (ChipElement — "a non-interactive
+            chip used to convey small pieces of information"); it carries no
+            color-role attribute (verified against the m3e skill's chips
+            card: `variant` is only "outlined"|"elevated"), so the error
+            treatment is set via the same `--m3e-outlined-chip-outline-color`
+            / `--m3e-chip-label-text-color` custom properties colors.scss
+            uses for chip error roles elsewhere, applied inline since this
+            leaf is scoped to top_bar.tsx. The online/offline M3eSnackbar
+            toast (fork V11) is deferred — main's notifications stay. */}
+        {!isOnline && (
+          <m3e-chip
+            slot="trailing"
+            className="sb-offline-chip"
+            title="Offline — changes will sync once reconnected"
+            aria-label="Offline"
+            style={{
+              "--m3e-outlined-chip-outline-color": "var(--md-sys-color-error)",
+              "--m3e-chip-label-text-color": "var(--md-sys-color-error)",
+            }}
+          >
+            Offline
+          </m3e-chip>
+        )}
+        {hamburger ? (
+          <ActionButtons
+            buttons={actionButtons.filter((b) => !overflowsIntoKebab(b))}
           />
-            {/* V5 (docs/plans/2026-09-17-vertical-toolbar-search-nav-redesign-spec.md
-                §2.2): read-only toggle, added directly to the trailing slot —
-                it previously had no UI home at all (a real regression, not a
-                preservation, per §1.3). `editor_ui.tsx` (V8, later/separate
-                leaf) constructs this object from live command-availability
-                state; undefined here just hides the button. */}
-            {readOnlyToggle && (
-              <m3e-icon-button
-                slot="trailing"
-                title={readOnlyToggle.label}
-                aria-label={readOnlyToggle.label}
-                onClick={(e: MouseEvent) => {
-                  e.preventDefault();
-                  readOnlyToggle.onClick();
-                }}
-              >
-                <m3e-icon
-                  name={readOnlyToggle.active ? "lock" : "lock_open"}
-                >
-                </m3e-icon>
-              </m3e-icon-button>
-            )}
-            {/* V11: persistent offline indicator — replaces the old
-                anchored `m3e-badge` dot on the page title (easy to miss).
-                Offline is a sustained state, so a labeled, glanceable chip
-                in the trailing slot (left of the kebab trigger, per Jack's
-                own placement call) is the right affordance, not a dot or a
-                one-shot snackbar. `m3e-chip` (not m3e-assist-chip) since
-                this isn't clickable — ChipElement.d.ts's own doc comment
-                calls it "a non-interactive chip used to convey small pieces
-                of information," exactly this case. `m3e-chip` has no
-                color-role/`variant` option for an error treatment (verified
-                against custom-elements.json: `variant` is only
-                "outlined" | "elevated" — no color attr) — the error color is
-                set via the same CSS custom properties colors.scss already
-                uses for the analogous case (chip error-role tags, e.g.
-                `m3e-assist-chip[data-tag-name="issue"]`):
-                `--m3e-outlined-chip-outline-color` /
-                `--m3e-chip-label-text-color` pointed at
-                `--md-sys-color-error`. Done inline via `style` rather than a
-                new colors.scss rule since this leaf is scoped to this file
-                only. */}
-            {!isOnline && (
-              <m3e-chip
-                slot="trailing"
-                className="sb-offline-chip"
-                title="Offline — changes will sync once reconnected"
-                aria-label="Offline"
-                style={{
-                  "--m3e-outlined-chip-outline-color":
-                    "var(--md-sys-color-error)",
-                  "--m3e-chip-label-text-color": "var(--md-sys-color-error)",
-                }}
-              >
-                Offline
-              </m3e-chip>
-            )}
-            {/* L7: kebab menu — shell + trigger + positioning only in this
-                leaf. Real content (Web Push toggle, CONFIG link, etc.) is
-                wired in by a follow-up leaf (L8) via the `menuItems` prop,
-                which also touches editor_ui.tsx and is sequenced after this
-                one lands to avoid a merge conflict on this file. */}
-            <m3e-icon-button
-              slot="trailing"
-              title="More actions"
-              aria-label="More actions"
-            >
-              <m3e-menu-trigger for="sb-app-bar-menu">
-                <m3e-icon name="more_vert"></m3e-icon>
-              </m3e-menu-trigger>
-            </m3e-icon-button>
-        </m3e-app-bar>
-        {/* `position-y="below"` is explicit here (it's also the component's
-            own default, MenuPosition.d.ts) for the same self-documenting
-            reason floating_toolbar.tsx's sb-recent-pages-menu is explicit
-            about "above": this anchor lives at the TOP of the viewport (the
-            sticky app bar), not the bottom like that toolbar — "below" is
-            the only direction with room to open into, so it's stated
-            outright rather than left to rely on the default silently being
-            right. */}
-        <m3e-menu id="sb-app-bar-menu" position-y="below">
-          {menuItems.length === 0
-            ? <m3e-menu-item disabled>No actions yet</m3e-menu-item>
-            : menuItems.map((item) => (
-              <m3e-menu-item
-                key={item.key}
-                disabled={item.disabled}
-                onClick={item.disabled
-                  ? undefined
-                  : (e: MouseEvent) => {
-                    e.preventDefault();
-                    item.onClick();
-                  }}
-              >
-                {/* `slot="icon"` is m3e-menu-item's OWN documented leading-
-                    icon slot ("Renders an icon before the item's label",
-                    menu component card / CEM). Without it the icon landed in
-                    the DEFAULT slot, which is the LABEL slot — so it rendered
-                    inline inside the label text instead of in the item's
-                    dedicated leading-icon region, losing the component's icon
-                    sizing/spacing/color treatment. */}
-                {item.icon && (
-                  <m3e-icon slot="icon" name={item.icon}></m3e-icon>
-                )}
-                {/* The label is wrapped rather than slotted as a bare text
-                    node so `.sb-app-bar-menu-label` (client/styles/top.scss)
-                    has something to bind to. m3e-menu-item's own shadow
-                    `.content` declares `text-overflow: ellipsis`, but that
-                    ellipsis can never fire for a long label — see the
-                    stylesheet for the measured root cause. Slotting an
-                    element is the only lever the light DOM has here:
-                    m3e-menu-item exports no `part` and no width-related
-                    custom property. `title` keeps the untruncated text
-                    reachable on hover once the label does ellipsize. */}
-                <span
-                  className="sb-app-bar-menu-label"
-                  title={item.detail ?? item.label}
-                >
-                  {item.label}
-                </span>
-              </m3e-menu-item>
-            ))}
-        </m3e-menu>
-      </div>
+        ) : mobileMenuStyle ? (
+          <>
+            <ActionButtons
+              buttons={actionButtons.filter((b) => b.dropdown === false)}
+            />
+            <ActionButtons
+              buttons={actionButtons.filter((b) => b.dropdown !== false)}
+              mobileMenuStyle={mobileMenuStyle}
+            />
+          </>
+        ) : (
+          <ActionButtons buttons={actionButtons} />
+        )}
+        <m3e-icon-button
+          slot="trailing"
+          title="More actions"
+          aria-label="More actions"
+        >
+          <m3e-menu-trigger for="sb-app-bar-menu">
+            <m3e-icon name="more_vert"></m3e-icon>
+          </m3e-menu-trigger>
+        </m3e-icon-button>
+      </m3e-app-bar>
+      <AppBarMenu items={menuItems} actionButtons={kebabActionButtons} />
+      <NotificationPanel
+        notifications={notifications}
+        onDismiss={onDismissNotification}
+      />
       {rhs}
     </div>
   );

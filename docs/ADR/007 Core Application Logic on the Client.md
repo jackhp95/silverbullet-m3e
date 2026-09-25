@@ -29,7 +29,7 @@ v2 **eliminates the server-side PlugOS runtime**: plug execution, indexing, the 
 * **The server became trivial and swappable.** Because it only moves bytes, the whole backend could be re-implemented in another language without changing application behaviour — what made subsequent server migrations cheap (see [[ADR/010 Rust Backend]]).
 * **Cheap to self-host** — a minimal file-serving process is all that is required. Memory usage was reduced from a few hundred MB to single to low-double digits.
 
-## Negative / trade-offs 
+## Negative / trade-offs
 * **Every client builds and holds its own copy.** Each browser/device must sync all files locally and (re)create its own [[Object Index|object index]] from scratch — duplicated storage and a cold-start indexing cost on every new client, instead of indexing once on the server. Partly mitigated by selective sync (e.g. [[Document|documents]] are fetched on demand) — see [[Sync]].
 * **No thin-client / server-only option.** Large spaces or constrained, low-power devices that could previously lean on server mode no longer can — there is no mode where the heavy lifting stays on the server.
 * **Server-authoritative features are harder.** Anything needing a central source of truth at edit time — notably real-time collaboration / CRDT merging — does not fall out naturally; concurrent edits are resolved by writing a conflicting copy rather than merging. See [[ADR/002 Sync Engine]].

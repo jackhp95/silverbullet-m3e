@@ -6,9 +6,11 @@ import {
   Badge,
   Button,
   Checkbox,
+  Icon,
   Input,
   Progress,
   Select,
+  SegmentedControl,
   Tabs,
   UrlPrefixInput,
 } from "./index.ts";
@@ -74,10 +76,11 @@ test("Select wraps options", () => {
   expect(html).toContain(">A</option>");
 });
 
-test("Checkbox is a checkbox input", () => {
+test("Checkbox renders an m3e-checkbox with the checked attribute", () => {
   const html = render(h(Checkbox, { checked: true }));
-  expect(html).toContain('type="checkbox"');
-  expect(html).toContain("sb-checkbox");
+  expect(html).toContain("<m3e-checkbox");
+  expect(html).toContain("m3e-checkbox");
+  expect(html).toContain("checked");
 });
 
 test("Tabs marks the active tab and wires per-item onSelect", () => {
@@ -87,11 +90,24 @@ test("Tabs marks the active tab and wires per-item onSelect", () => {
     { label: "B", active: true, onSelect: () => (picked = "b") },
   ];
   const html = render(h(Tabs, { items }));
+  expect(html).toContain("<m3e-tabs");
   expect(html).toContain("sb-tab sb-active");
-  expect(html).toContain('aria-selected="true"');
+  expect(html).toContain("selected");
   // each tab carries its own handler
   items[0].onSelect();
   expect(picked).toBe("a");
+});
+
+test("Tabs with href items renders plain nav anchors, not m3e-tab", () => {
+  const items = [
+    { label: "A", href: "#a", active: true },
+    { label: "B", href: "#b", active: false, dirty: true },
+  ];
+  const html = render(h(Tabs, { items }));
+  expect(html).toContain('role="navigation"');
+  expect(html).not.toContain("<m3e-tab");
+  expect(html).toContain('href="#a"');
+  expect(html).toContain("data-dirty");
 });
 
 test("Alert variant class", () => {
@@ -108,10 +124,10 @@ test("Badge", () => {
   expect(render(h(Badge, {}, "b"))).toContain('class="sb-badge">b<');
 });
 
-test("Progress clamps value to a width percentage", () => {
-  expect(render(h(Progress, { value: 0.5 }))).toMatch(/width:\s*50%/);
-  expect(render(h(Progress, { value: 2 }))).toMatch(/width:\s*100%/);
-  expect(render(h(Progress, { value: -1 }))).toMatch(/width:\s*0%/);
+test("Progress clamps value to the m3e-linear-progress-indicator value attribute", () => {
+  expect(render(h(Progress, { value: 0.5 }))).toMatch(/value="50"/);
+  expect(render(h(Progress, { value: 2 }))).toMatch(/value="100"/);
+  expect(render(h(Progress, { value: -1 }))).toMatch(/value="0"/);
 });
 
 test("UrlPrefixInput shows the origin it is given, not the ambient one", () => {
@@ -127,6 +143,52 @@ test("UrlPrefixInput shows the origin it is given, not the ambient one", () => {
   expect(html).toContain("sb-url-input");
   expect(html).toContain(">https://sb.example.com</span>");
   expect(html).toContain('value="/notes"');
+});
+
+test("SegmentedControl defaults to tabIndex -1, so a caller's own input keeps focus", () => {
+  const items = [{ label: "Pages" }, { label: "Meta" }];
+  const html = render(
+    h(SegmentedControl, { items, activeIndex: 0, onPick: () => {} }),
+  );
+  expect(html).toContain('tabindex="-1"');
+  expect(html).not.toContain('tabindex="0"');
+});
+
+test("SegmentedControl takeFocus makes items ordinary tab stops", () => {
+  const items = [{ label: "A" }];
+  const html = render(
+    h(SegmentedControl, {
+      items,
+      activeIndex: 0,
+      onPick: () => {},
+      takeFocus: true,
+    }),
+  );
+  expect(html).toContain('tabindex="0"');
+});
+
+test("SegmentedControl marks the active item and defaults aria-label to Options", () => {
+  const items = [{ label: "A" }, { label: "B" }];
+  const html = render(
+    h(SegmentedControl, { items, activeIndex: 1, onPick: () => {} }),
+  );
+  expect(html).toContain("sb-segment sb-segment-active");
+  expect(html).toContain('aria-label="Options"');
+});
+
+test("SegmentedControl prefers the caller's tooltip over the label", () => {
+  const items = [{ label: "Anchors", tooltip: "Anchors ($)" }];
+  const html = render(
+    h(SegmentedControl, { items, activeIndex: 0, onPick: () => {} }),
+  );
+  expect(html).toContain('title="Anchors ($)"');
+});
+
+test("Icon renders a span carrying the caller's class", () => {
+  const node = {} as unknown as Element;
+  const html = render(h(Icon, { node, class: "sb-nav-icon" }));
+  expect(html).toContain('class="sb-nav-icon"');
+  expect(html).toMatch(/<span[^>]*><\/span>/);
 });
 
 test("UrlPrefixInput trims a trailing slash off the origin", () => {

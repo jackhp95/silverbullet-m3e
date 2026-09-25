@@ -1,25 +1,25 @@
 import type { EditorState } from "@codemirror/state";
 import { Decoration } from "@codemirror/view";
-import type { Client } from "../client.ts";
-import {
-  fileName,
-  isBuiltinPath,
-} from "@silverbulletmd/silverbullet/lib/resolve";
 import {
   encodePageURI,
   encodeRef,
   getNameFromPath,
   parseToRef,
 } from "@silverbulletmd/silverbullet/lib/ref";
-import { isCursorInRange, LinkWidget } from "./util.ts";
+import {
+  fileName,
+  isBuiltinPath,
+} from "@silverbulletmd/silverbullet/lib/resolve";
+import {
+  type ResolveResult,
+  resolvePath,
+} from "@silverbulletmd/silverbullet/lib/resolve_path";
 import type { PageMeta } from "@silverbulletmd/silverbullet/type/index";
+import type { Client } from "../client.ts";
+import { isCursorInRange, LinkWidget } from "./util.ts";
 
-// Building a `path -> PageMeta` lookup requires calling `parseToRef` (two
-// regexes) on every page in the space. Doing that per rendered wiki link, on
-// every editor update, is O(links * pages) and makes typing on link-heavy
-// pages in large spaces painfully slow. Memoize the map and only rebuild it
-// when the `allPages` array identity changes (i.e. when the page list is
-// actually replaced).
+// Cache by page-list identity to avoid parsing every page path for every
+// rendered link on each editor update (O(links * pages)).
 let pageByPathCache: { pages: PageMeta[]; map: Map<string, PageMeta> } | null =
   null;
 
@@ -65,28 +65,42 @@ export function processWikiLink(options: WikiLinkProcessorOptions): any[] {
   const { leadingTrivia, stringRef, alias, trailingTrivia } = match;
   const ref = parseToRef(stringRef);
 
-  let linkStatus: "file-missing" | "default" | "invalid" = "default";
+  let linkStatus: "file-missing" | "default" | "invalid" | "ambiguous" =
+    "default";
+  let resolution: ResolveResult | undefined;
 
   if (!ref) {
     linkStatus = "invalid";
   } else if (ref.path === "" || isBuiltinPath(ref.path)) {
     linkStatus = "default";
-  } else if (client.clientSystem.allKnownFiles.has(ref.path)) {
-    linkStatus = "default";
-  } else if (client.fullSyncCompleted || client.clientSystem.knownFilesLoaded) {
-    linkStatus = "file-missing";
+  } else {
+    resolution = resolvePath(
+      ref.path,
+      client.currentPath(),
+      client.clientSystem.allKnownFiles,
+    );
+    if (resolution.ambiguous) {
+      linkStatus = "ambiguous";
+    } else if (resolution.exists) {
+      linkStatus = "default";
+    } else if (
+      client.fullSyncCompleted ||
+      client.clientSystem.knownFilesLoaded
+    ) {
+      linkStatus = "file-missing";
+    }
   }
 
   let css = {
     "file-missing": "sb-wiki-link-missing",
     invalid: "sb-wiki-link-invalid",
+    ambiguous: "sb-wiki-link-ambiguous",
     default: "",
   }[linkStatus];
 
   const renderingSyntax = client.ui.viewState.uiOptions.markdownSyntaxRendering;
 
   if (isCursorInRange(state, [from, to]) || renderingSyntax) {
-    // Only attach a CSS class, then get out
     if (linkStatus !== "default") {
       widgets.push(
         Decoration.mark({
@@ -97,24 +111,39 @@ export function processWikiLink(options: WikiLinkProcessorOptions): any[] {
     return widgets;
   }
 
+  // Built per rendered link on every editor update: compute only the branch
+  // that is actually shown.
   const cleanedPath = ref ? getNameFromPath(ref.path) : stringRef;
-  const helpText = {
-    default: `Navigate to ${cleanedPath}`,
-    "file-missing": `Create ${cleanedPath}`,
-    invalid: `Cannot create invalid file ${cleanedPath}`,
-  }[linkStatus];
+  let helpText: string;
+  switch (linkStatus) {
+    case "file-missing":
+      helpText = `Create ${cleanedPath}`;
+      break;
+    case "invalid":
+      helpText = `Cannot create invalid file ${cleanedPath}`;
+      break;
+    case "ambiguous":
+      helpText = `Ambiguous — ${
+        resolution?.candidates?.length ?? 0
+      } candidates, resolving to ${
+        resolution ? getNameFromPath(resolution.path) : cleanedPath
+      }`;
+      break;
+    default:
+      helpText = `Navigate to ${cleanedPath}`;
+  }
 
   let linkText = alias || stringRef;
+  let icon: string | undefined;
 
-  // The `&& ref` is only there to make typescript happy
-  if (linkStatus === "default" && ref) {
-    const meta = pageByPath(client.ui.viewState.allPages).get(ref.path);
+  if ((linkStatus === "default" || linkStatus === "ambiguous") && ref) {
+    const meta = pageByPath(client.ui.viewState.allPages).get(
+      resolution?.path ?? ref.path,
+    );
 
     const renderedRef = structuredClone(ref);
 
-    // We don't want to render the meta
     renderedRef.meta = false;
-    // We also don't want to rendered the prefix of the path
     renderedRef.path = options.shortWikiLinks
       ? fileName(renderedRef.path)
       : renderedRef.path;
@@ -123,6 +152,11 @@ export function processWikiLink(options: WikiLinkProcessorOptions): any[] {
       ref.details?.type === "position" || ref.details?.type === "linecolumn"
         ? ""
         : (meta?.pageDecoration?.prefix ?? "");
+
+    icon =
+      ref.details?.type === "position" || ref.details?.type === "linecolumn"
+        ? undefined
+        : meta?.pageDecoration?.icon;
 
     linkText = alias || prefix + encodeRef(renderedRef);
 
@@ -139,6 +173,7 @@ export function processWikiLink(options: WikiLinkProcessorOptions): any[] {
     Decoration.replace({
       widget: new LinkWidget({
         text: linkText,
+        icon,
         title: helpText,
         href: ref ? encodePageURI(encodeRef(ref)) : undefined,
         cssClass: `sb-wiki-link ${css}`,

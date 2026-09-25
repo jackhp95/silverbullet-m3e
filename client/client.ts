@@ -7,7 +7,7 @@ import { syntaxTree } from "@codemirror/language";
 import type { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
-import { jitter } from "@silverbulletmd/silverbullet/lib/async";
+import { jitter, sleep } from "@silverbulletmd/silverbullet/lib/async";
 import { deriveDbName } from "@silverbulletmd/silverbullet/lib/crypto";
 import {
   encodePageURI,
@@ -25,21 +25,23 @@ import type {
   EnrichedClickEvent,
   SlashCompletions,
 } from "@silverbulletmd/silverbullet/type/client";
+import type { IndexQueueBody } from "@silverbulletmd/silverbullet/type/datastore";
 import type {
-  DocumentMeta,
   FileMeta,
   PageMeta,
 } from "@silverbulletmd/silverbullet/type/index";
+import type { SyncState } from "@silverbulletmd/silverbullet/type/revisions";
+import { keyboardHint } from "../plug-api/lib/shortcut.ts";
 import type { StyleObject } from "../plugs/index/space_style.ts";
 import type { ResolveAnchorResult } from "../plugs/index/types.ts";
 import { version as publicVersion } from "../version.json";
 import { ClientSystem } from "./client_system.ts";
+import { withCompletionInfo } from "./codemirror/completion_info.ts";
 import {
   buildMarkdownLanguageExtension,
   createEditorState,
-  isValidEditor,
 } from "./codemirror/editor_state.ts";
-import { withCompletionInfo } from "./codemirror/completion_info.ts";
+import { originLabel } from "./codemirror/external_presence.ts";
 import type { Config } from "./config.ts";
 import { ContentManager } from "./content_manager.ts";
 import { Augmenter } from "./data/data_augmenter.ts";
@@ -49,11 +51,32 @@ import { IndexedDBKvPrimitives } from "./data/indexeddb_kv_primitives.ts";
 import type { KvPrimitives } from "./data/kv_primitives.ts";
 import { DataStoreMQ } from "./data/mq.datastore.ts";
 import { ObjectIndex } from "./data/object_index.ts";
-import { MainUI, PAGE_SCROLL_CONTAINER_ID } from "./editor_ui.tsx";
+import { MainUI } from "./editor_ui.tsx";
+import { setGitSyncStreamConnected } from "./git_sync_status.ts";
+import { isValidEditor } from "./lib/command_filters.ts";
+import { isMobileDevice } from "./lib/mobile.ts";
+import { timedSpan } from "./lib/perf.ts";
+import {
+  logoutInProgress,
+  registerLogoutParticipant,
+  saveCurrentEditor,
+} from "./logout.ts";
+import { waitForLogout } from "./logout_state.ts";
+import { open as openNavigatorView } from "./navigator/navigator.ts";
+import {
+  REVISIONS_CHANGED_EVENT,
+  SYNC_CONFLICT,
+  SYNC_ERROR,
+  SYNC_PAUSED,
+} from "./navigator/views/revisions.ts";
 import { PathPageNavigator, parseRefFromURI } from "./navigator.ts";
-import { pushRecent } from "./lib/recency.ts";
 import { EventHook } from "./plugos/hooks/event.ts";
+import {
+  RealtimeEvents,
+  type RealtimeFsEventOrigin,
+} from "./realtime_events.ts";
 import { Space } from "./space.ts";
+import { LuaBudgetStopped } from "./space_lua/budget.ts";
 import { evalStatement } from "./space_lua/eval.ts";
 import {
   parseExpressionString,
@@ -68,20 +91,46 @@ import {
 } from "./space_lua/runtime.ts";
 import { resolveASTReference } from "./space_lua.ts";
 import { CheckedSpacePrimitives } from "./spaces/checked_space_primitives.ts";
+import { getOrCreateClientId } from "./spaces/client_id.ts";
 import { fsEndpoint } from "./spaces/constants.ts";
-import { EventedSpacePrimitives } from "./spaces/evented_space_primitives.ts";
+import {
+  type ChangedFile,
+  EventedSpacePrimitives,
+} from "./spaces/evented_space_primitives.ts";
 import { HttpSpacePrimitives } from "./spaces/http_space_primitives.ts";
-import type { Command } from "./types/command.ts";
+import { shouldFlashSyncNotification } from "./sync_notification.ts";
+import type { Command, PaletteCommand } from "./types/command.ts";
 import type {
-  AppViewState,
   BootConfig,
   ServiceWorkerSourceMessage,
   ServiceWorkerTargetMessage,
 } from "./types/ui.ts";
+import { syncMessageNotification } from "./types/ui.ts";
 import { WidgetCache } from "./widget_cache.ts";
 
 // Fetch the file list ever so often, this will implicitly kick off a snapshot comparison resulting in the indexing of changed pages
 const fetchFileListInterval = 10000;
+
+// Cap on waiting for the sync engine to record a divergent base: a wedged
+// worker must delay a save, never block it indefinitely.
+const declareDivergentBaseTimeout = 5000;
+
+/**
+ * The page navigator's browsing modes, as segments of `std.pages`. "page" is
+ * that view's default segment, so it asks for nothing.
+ */
+function pickerSegment(mode: "page" | "meta" | "document" | "all") {
+  switch (mode) {
+    case "meta":
+      return "Meta";
+    case "document":
+      return "Documents";
+    case "all":
+      return "All";
+    default:
+      return undefined;
+  }
+}
 
 // Runtime API bridge: written by the client when running headless to evaluate Lua in the live client.
 export type SBRuntime = {
@@ -96,9 +145,21 @@ declare global {
   var sbRuntime: SBRuntime;
 }
 
-// TODO: Clean this up, this has become a god class...
+// How long a realtime event's attribution stays usable while the sync
+// round-trip it describes completes; matches the performFileSync timeout so
+// an origin can't outlive the sync it belongs to.
+const REALTIME_ORIGIN_TTL_MS = 30_000;
+
+const SYNC_FLASH_DEDUP_MS = 5_000;
+
+const SYNC_PROGRESS_MESSAGES = new Set([
+  "file-synced",
+  "file-sync-complete",
+  "space-sync-complete",
+  "sync-status",
+]);
+
 export class Client {
-  // Event bus used to communicate between components
   eventHook: EventHook;
 
   space!: Space;
@@ -106,6 +167,14 @@ export class Client {
   clientSystem!: ClientSystem;
   eventedSpacePrimitives!: EventedSpacePrimitives;
   httpSpacePrimitives!: HttpSpacePrimitives;
+  realtimeEvents?: RealtimeEvents;
+  private syncNotificationId?: number;
+  private lastSyncState?: SyncState;
+  private realtimeOrigins = new Map<
+    string,
+    { origin: RealtimeFsEventOrigin; time: number }
+  >();
+  private recentSyncFlashes = new Map<string, number>();
 
   ui!: MainUI;
   ds!: DataStore;
@@ -115,21 +184,11 @@ export class Client {
   // Used to store additional command data outside the objects themselves persistent between client rusn (specifically: lastRun)
   commandAugmenter!: Augmenter;
 
-  // CodeMirror editor
   editorView!: EditorView;
-  // Set once by <FrontMatterPanel>'s mount effect (client/components/
-  // front_matter_panel.tsx) and read by `frontMatterSyncExtension`, wired
-  // into every editor state by `createEditorState` (client/codemirror/
-  // editor_state.ts) — a stable field on the long-lived `Client`, not a
-  // one-time `StateEffect.appendConfig` onto a single `EditorState`,
-  // because `content_manager.ts`'s `navigateWithinPage` and `client.ts`'s
-  // own boot both load a page via `editorView.setState(...)` (a full state
-  // replacement, not an incremental transaction) — an extension appended
-  // via `appendConfig` onto the state being replaced does not carry over,
-  // so the panel would silently stop syncing after the very first
-  // navigation. Reading this field from inside the extension (rather than
-  // capturing the callback at extension-construction time) makes it
-  // survive every such swap for free.
+  // Set by <FrontMatterPanel> on mount; called by frontMatterSyncExtension
+  // (client/codemirror/frontmatter_folding.ts) whenever a doc change
+  // intersects the frontmatter block, so the panel stays in sync with
+  // live CodeMirror edits across every editorView.setState(...) swap.
   onFrontMatterChanged?: () => void;
   commandKeyHandlerCompartment?: Compartment;
   vimCompartment?: Compartment;
@@ -137,10 +196,16 @@ export class Client {
   undoHistoryCompartment?: Compartment;
   markdownLanguageCompartment?: Compartment;
 
-  // Content manager: handles page/document loading, saving, and editor mode switching
   contentManager!: ContentManager;
-  // Track if plugs have been updated since sync cycle
   fullSyncCompleted = false;
+  // Paths the sync engine has pulled down this session, fed by "file-synced"
+  // messages
+  readonly syncedPaths = new Set<string>();
+  // Seeded at boot so a client that never hears from the sync engine at all
+  // still has a point to measure the stall from.
+  lastSyncProgressAt = Date.now();
+  // Boot-time server round trip in ms; undefined when the ping failed
+  serverPingMs?: number;
   private versionMismatchNotified = false;
   // True once we've confirmed the server reports the same publicVersion as
   // this client bundle and the plugs the server is shipping are aligned with the running build.
@@ -161,19 +226,8 @@ export class Client {
   private resolveWidgetsReady!: () => void;
   private pageNavigator!: PathPageNavigator;
   private onLoadRef: Ref;
-  // Recently-visited pages, most-recent-first, persisted the same way
-  // `lastOpenedPath` already is (this.ds, IndexedDB-backed) so it survives
-  // reloads. Fed from the exact same pageNavigator.subscribe() callback that
-  // already records lastOpenedPath — an extension of SB's own existing
-  // navigation-tracking, not a parallel history mechanism.
-  recentPaths: { path: Path; ts: number }[] = [];
-  // Recently-used search-sheet terms (search_sheet.tsx's "search" mode
-  // history, L9), persisted the exact same way as recentPaths above, just
-  // under its own `ds` key — see `recordSearchTerm()`.
-  recentSearchTerms: { term: string; ts: number }[] = [];
   dbPrefix?: string;
   syncMode = false;
-  // Widget and image height caching
   widgetCache!: WidgetCache;
   objectIndex!: ObjectIndex;
 
@@ -191,39 +245,41 @@ export class Client {
   }
 
   /**
-   * Initialize the client
    * This is a separated from the constructor to allow for async initialization
    */
   async init(encryptionKey?: CryptoKey) {
+    performance.mark("sb:client-init");
     const dbName = await deriveDbName(
       "data",
       this.bootConfig.spaceFolderPath,
       document.baseURI.replace(/\/$/, ""),
       encryptionKey,
     );
-    // Setup the KV (database)
-    let kvPrimitives: KvPrimitives = new IndexedDBKvPrimitives(dbName);
-    await (kvPrimitives as IndexedDBKvPrimitives).init();
+    const idbKvPrimitives = new IndexedDBKvPrimitives(dbName);
+    await timedSpan("idb-open", () => idbKvPrimitives.init());
+    let kvPrimitives: KvPrimitives = idbKvPrimitives;
 
     console.log("Using IndexedDB database", dbName);
 
-    // See if we need to encrypt this
     if (encryptionKey) {
       kvPrimitives = new EncryptedKvPrimitives(kvPrimitives, encryptionKey);
       await (kvPrimitives as EncryptedKvPrimitives).init();
       console.log("Enabled client-side encryption");
     }
-    // Wrap it in a datastore
     this.ds = new DataStore(kvPrimitives);
 
     this.pageMetaAugmenter = new Augmenter(this.ds, ["aug", "pageMeta"]);
     this.commandAugmenter = new Augmenter(this.ds, ["aug", "command"]);
 
-    // Setup message queue on top of that
     this.mq = new DataStoreMQ(this.ds, this.eventHook);
 
     this.widgetCache = new WidgetCache(this.ds);
     this.contentManager = new ContentManager(this);
+    if (!(await waitForLogout())) {
+      this.ds.kv.close();
+      return;
+    }
+    registerLogoutParticipant(() => saveCurrentEditor(this));
 
     this.objectIndex = new ObjectIndex(
       this.ds,
@@ -253,22 +309,12 @@ export class Client {
     });
 
     // If widget rendering is still gated waiting on a full index, the
-    // initial-index handler in ObjectIndex may have unsubscribed or
-    // never fired for this client. After any indexing pass empties the
-    // queue, refresh the page list cache so its index-backed branch
-    // can flip pageListLoaded and unblock widget rendering.
-    this.eventHook.addLocalListener("mq:emptyQueue:indexQueue", async () => {
-      if (this.widgetReadyDispatched) return;
-      if (
-        !this.pageListLoaded &&
-        (await this.objectIndex.hasFullIndexCompleted())
-      ) {
-        this.fullIndexCompleted = true;
-        await this.updatePageListCache();
-      }
-    });
+    // initial-index handler in ObjectIndex may have unsubscribed or never
+    // fired for this client — the index may have been completed by another
+    // window, which produces no event here at all. Poll until the page list
+    // cache can take its index-backed branch, then stop for good.
+    void this.pollForWidgetReadiness();
 
-    // Instantiate a PlugOS system
     this.clientSystem = new ClientSystem(
       this,
       this.mq,
@@ -278,22 +324,16 @@ export class Client {
       this.bootConfig.readOnly,
     );
 
-    this.initSpace();
+    await timedSpan("init-space", () => this.initSpace());
 
     this.ui = new MainUI(this);
     this.ui.render(this.parent);
+    this.registerUnsavedChangesWarning();
 
     this.editorView = new EditorView({
       state: createEditorState(this, "", "", true),
       parent: document.getElementById("sb-editor")!,
     });
-    // The `EDITOR_SCROLL_CONTAINER_ID` stamp that used to live here
-    // (stamping CodeMirror's own `scrollDOM` for `m3e-app-bar`'s `for`-
-    // driven scroll elevation) is gone for good: L6 configures `.cm-scroller`
-    // for auto-height ("page scrolls") mode, so it no longer scrolls at all,
-    // and L8 dropped the app bar's `for`/scroll-elevation entirely in favor
-    // of the non-sticky `size="large"` bar — `#sb-page-scroll` (L5,
-    // `PAGE_SCROLL_CONTAINER_ID`) is the one real scrolling ancestor now.
 
     this.focus();
 
@@ -318,11 +358,13 @@ export class Client {
       }
     }
 
-    await this.widgetCache.load();
+    await timedSpan("widget-cache-load", () => this.widgetCache.load());
 
     // Let's ping the remote space to ensure we're authenticated properly, if not will result in a redirect to auth page
     try {
-      await this.httpSpacePrimitives.ping();
+      const pingStart = performance.now();
+      await timedSpan("ping", () => this.httpSpacePrimitives.ping());
+      this.serverPingMs = performance.now() - pingStart;
     } catch (e: any) {
       if (e.message === "Not authenticated") {
         console.warn("Not authenticated, redirecting to auth page");
@@ -334,14 +376,28 @@ export class Client {
       );
     }
 
-    // Load plugs
-    await this.loadPlugs();
+    await timedSpan("load-plugs", () => this.loadPlugs());
+    performance.mark("sb:plugs-loaded");
 
-    await this.clientSystem.loadLuaScripts();
-    await this.initNavigator();
-    // await this.initSync();
+    if (
+      this.fullIndexCompleted &&
+      !(await this.mq.isQueueEmpty("indexQueue"))
+    ) {
+      // A reload can interrupt replacement of indexed scripts after their
+      // old records were cleared. Recover the queued work before reading them.
+      void this.objectIndex
+        .awaitIndexQueueDrain()
+        .then(() => this.eventHook.dispatchEvent("editor:reloadState"))
+        .catch(console.error);
+    } else {
+      await timedSpan("load-lua-scripts", () =>
+        this.clientSystem.loadLuaScripts(),
+      );
+    }
+    await timedSpan("init-navigator", () => this.initNavigator());
     await this.eventHook.dispatchEvent("system:ready");
     this.systemReady = true;
+    performance.mark("sb:system-ready");
     this.maybeDispatchWidgetsReady();
 
     // When the service worker is disabled (desktop app / headless) there's no
@@ -358,20 +414,16 @@ export class Client {
 
     this.initHeadlessRuntime();
 
-    // Load space snapshot and enable events
     await this.eventedSpacePrimitives.enable();
 
-    // Kick off a cron event interval
     setInterval(() => {
       void this.dispatchAppEvent("cron:secondPassed");
     }, 1000);
 
-    // We can load custom styles async
     this.loadCustomStyles().catch(console.error);
 
-    await this.dispatchAppEvent("editor:init");
+    await timedSpan("editor-init", () => this.dispatchAppEvent("editor:init"));
 
-    // Reset Undo History after editor initialization.
     client.editorView.dispatch({
       effects: client.undoHistoryCompartment?.reconfigure([]),
     });
@@ -379,18 +431,26 @@ export class Client {
       effects: client.undoHistoryCompartment?.reconfigure([history()]),
     });
 
-    // Asynchronously update caches
     this.updatePageListCache().catch(console.error);
-    this.updateDocumentListCache().catch(console.error);
   }
 
-  initSpace() {
+  private registerUnsavedChangesWarning() {
+    globalThis.addEventListener("beforeunload", (event) => {
+      if (!this.ui.viewState.unsavedChanges) return;
+      event.preventDefault();
+      event.returnValue = true;
+    });
+  }
+
+  async initSpace() {
+    const clientId = await getOrCreateClientId(this.ds.kv);
     this.httpSpacePrimitives = new HttpSpacePrimitives(
       document.baseURI.replace(/\/*$/, "") + fsEndpoint,
       this.bootConfig.spaceFolderPath,
       (message, actionOrRedirectHeader) => {
+        if (logoutInProgress()) return;
         alert(message);
-        if (actionOrRedirectHeader === "reload") {
+        if (!actionOrRedirectHeader || actionOrRedirectHeader === "reload") {
           location.reload();
         } else {
           location.href = actionOrRedirectHeader;
@@ -402,6 +462,20 @@ export class Client {
       // HttpSpacePrimitives in its default cookie-only auth mode.
       (globalThis as { silverbullet?: { bearerToken?: string } }).silverbullet
         ?.bearerToken,
+      clientId,
+      // These fetches only actually reach the network when the service
+      // worker isn't intercepting them.
+      "editor",
+      this.bootConfig.disableServiceWorker || !globalThis.isSecureContext
+        ? (isOnline) => {
+            if (this.ui.viewState.isOnline !== isOnline) {
+              this.ui.viewDispatch({
+                type: "online-status-change",
+                isOnline,
+              });
+            }
+          }
+        : undefined,
     );
 
     this.eventedSpacePrimitives = new EventedSpacePrimitives(
@@ -413,16 +487,25 @@ export class Client {
       this.ds,
     );
 
-    // Kick off a regular file listing request to trigger events
     setInterval(() => {
       void this.eventedSpacePrimitives.fetchFileList();
     }, fetchFileListInterval + jitter());
 
-    this.eventHook.addLocalListener("file:changed", async (name: string) => {
-      console.log("Queueing index for", name);
-      await this.objectIndex.clearFileIndex(name);
-      await this.mq.send("indexQueue", name);
-    });
+    this.eventHook.addLocalListener(
+      "file:changedBatch",
+      async (changed: ChangedFile[]) => {
+        console.log("Queueing index for", changed.length, "file(s)");
+        await this.mq.batchSend(
+          "indexQueue",
+          changed.map(
+            ({ name, isNew }): IndexQueueBody => ({
+              path: name,
+              cleared: isNew,
+            }),
+          ),
+        );
+      },
+    );
 
     const space = new Space(
       this.eventedSpacePrimitives,
@@ -433,59 +516,41 @@ export class Client {
 
     this.space = space;
 
-    let lastSaveTimestamp: number | undefined;
-
-    const updateLastSaveTimestamp = () => {
-      lastSaveTimestamp = Date.now();
-    };
-
-    this.eventHook.addLocalListener(
-      "editor:pageSaving",
-      updateLastSaveTimestamp,
-    );
-
-    this.eventHook.addLocalListener(
-      "editor:documentSaving",
-      updateLastSaveTimestamp,
-    );
-
     this.eventHook.addLocalListener(
       "file:changed",
-      (path: string, oldHash: number, newHash: number) => {
-        // Only reload when watching the current page or document (to avoid reloading when switching pages)
+      (path: string, oldHash: number, _newHash: number, ownWrite: boolean) => {
         if (
-          this.space.watchInterval &&
-          this.currentPath() === path &&
-          // Avoid reloading if the page was just saved (5s window)
-          (!lastSaveTimestamp || lastSaveTimestamp < Date.now() - 5000) &&
-          // Avoid reloading if the previous hash was undefined (first load)
-          oldHash !== undefined
+          !this.space.watchInterval ||
+          this.currentPath() !== path ||
+          oldHash === undefined ||
+          ownWrite
         ) {
-          console.log(
-            "Page changed elsewhere, reloading. Old hash",
-            oldHash,
-            "new hash",
-            newHash,
-          );
-          this.ui.flashNotification(
-            "Page or document changed elsewhere, reloading",
-          );
+          return;
+        }
+        const entry = this.realtimeOrigins.get(path);
+        this.realtimeOrigins.delete(path);
+        const origin =
+          entry && Date.now() - entry.time < REALTIME_ORIGIN_TTL_MS
+            ? entry.origin
+            : undefined;
+        if (isMarkdownPath(path)) {
+          this.contentManager
+            .reloadPageContent(originLabel(origin))
+            .catch(console.error);
+        } else {
+          this.ui.flashNotification("Document changed elsewhere, reloading");
           void this.reloadEditor();
         }
       },
     );
 
-    // Caching a list of known files for the wiki_link highlighter (that checks if a file exists)
-    // And keeping it up to date as we go
     this.eventHook.addLocalListener("file:changed", (fileName: string) => {
-      // Make sure this file is in the list of known pages
       this.clientSystem.allKnownFiles.add(fileName);
     });
     this.eventHook.addLocalListener("file:deleted", (fileName: string) => {
       this.clientSystem.allKnownFiles.delete(fileName);
     });
     this.eventHook.addLocalListener("file:listed", (allFiles: FileMeta[]) => {
-      // Update list of known pages
       this.clientSystem.allKnownFiles.clear();
       allFiles.forEach((f) => {
         this.clientSystem.allKnownFiles.add(f.name);
@@ -494,6 +559,109 @@ export class Client {
     });
 
     this.space.watch();
+
+    this.realtimeEvents = new RealtimeEvents({
+      noteOrigin: (name, origin) => {
+        const now = Date.now();
+        for (const [k, v] of this.realtimeOrigins) {
+          if (now - v.time >= REALTIME_ORIGIN_TTL_MS) {
+            this.realtimeOrigins.delete(k);
+          }
+        }
+        this.realtimeOrigins.set(name, { origin, time: now });
+      },
+      probeFile: (name) => this.eventedSpacePrimitives.getFileMeta(name),
+      syncFile: (name, lastModified, revisionHash) =>
+        this.clientSystem
+          .localSyscall("sync.performFileSync", [
+            name,
+            lastModified,
+            revisionHash,
+          ])
+          .catch((e) => console.warn("[realtime] sync nudge failed", e)),
+      syncSpace: () =>
+        this.clientSystem
+          .localSyscall("sync.performSpaceSync", [])
+          .catch((e) => console.warn("[realtime] sync nudge failed", e)),
+      refreshFileList: () =>
+        this.eventedSpacePrimitives.fetchFileListWhenIdle(),
+      serviceWorkerActive: () =>
+        !!globalThis.navigator?.serviceWorker?.controller,
+      notifyStatus: (connected) => {
+        if (setGitSyncStreamConnected(connected)) {
+          void this.eventHook.dispatchEvent(REVISIONS_CHANGED_EVENT, {});
+        }
+        void this.postServiceWorkerMessage({
+          type: "realtime-status",
+          connected,
+        });
+      },
+    });
+    this.realtimeEvents.onSyncState((state) => this.handleSyncState(state));
+    this.realtimeEvents.start(
+      `${document.baseURI.replace(/\/*$/, "")}/.events`,
+    );
+  }
+
+  private handleSyncState(state: SyncState) {
+    void this.eventHook.dispatchEvent(REVISIONS_CHANGED_EVENT, {});
+
+    const isNewProblem = shouldFlashSyncNotification(state, this.lastSyncState);
+    this.lastSyncState = state;
+
+    if (state.state === "conflicted" && state.paths.length > 0) {
+      if (!isNewProblem) return;
+      this.flashSyncNotification(SYNC_CONFLICT(state.paths.length), [
+        {
+          name: "Review conflicts",
+          run: () => {
+            void this.openNavigatorView("std.gitConflicts");
+          },
+        },
+      ]);
+      return;
+    }
+    if (state.state === "error") {
+      if (!isNewProblem) return;
+      this.flashSyncNotification(SYNC_ERROR, [
+        {
+          name: "View Git status",
+          run: () => {
+            void this.openNavigatorView("std.gitStatus");
+          },
+        },
+      ]);
+      return;
+    }
+    if (state.state === "paused") {
+      if (!isNewProblem) return;
+      this.flashSyncNotification(SYNC_PAUSED(state.reason), [
+        {
+          name: "View Git status",
+          run: () => {
+            void this.openNavigatorView("std.gitStatus");
+          },
+        },
+      ]);
+      return;
+    }
+    if (this.syncNotificationId !== undefined) {
+      this.ui.dismissNotification(this.syncNotificationId);
+      this.syncNotificationId = undefined;
+    }
+  }
+
+  private flashSyncNotification(
+    message: string,
+    actions: { name: string; run: () => void }[],
+  ) {
+    if (this.syncNotificationId !== undefined) {
+      this.ui.dismissNotification(this.syncNotificationId);
+    }
+    this.syncNotificationId = this.ui.flashNotification(message, "error", {
+      timeout: 0,
+      actions,
+    });
   }
 
   currentPath(): Path {
@@ -535,9 +703,15 @@ export class Client {
   }
 
   reportError(e: any, context: string = "") {
+    if (e instanceof LuaBudgetStopped) {
+      console.info(
+        `Script stopped by the user during ${context || "execution"}`,
+      );
+      return;
+    }
+
     console.error(`Error during ${context}:`, e);
 
-    // Don't show flash notifications for expected operational errors
     if (
       e.message === "Offline" ||
       e.name === "AbortError" ||
@@ -557,41 +731,35 @@ export class Client {
     }
   }
 
-  startPageNavigate(mode: "page" | "meta" | "document" | "all") {
-    // Then show the page navigator
-    this.ui.viewDispatch({ type: "start-navigate", mode });
-    // And update the page list cache asynchronously
-    this.updatePageListCache().catch(console.error);
-    this.updateDocumentListCache().catch(console.error);
+  /**
+   * Opens a navigator view, reporting whether it actually got one.
+   */
+  async openNavigatorView(
+    name: string,
+    opts?: {
+      segment?: string;
+      phrase?: string;
+      dropdown?: unknown;
+      focus?: boolean;
+    },
+  ): Promise<boolean> {
+    try {
+      // `quiet`, because an unknown view here is not an error the user made:
+      // it means the space redefined this picker in Space Lua that hasn't
+      // been indexed yet, and the caller may have a fallback of its own.
+      return (await openNavigatorView(name, { ...opts, quiet: true })) === true;
+    } catch (e: any) {
+      console.warn("Could not open navigator view", name, e);
+      return false;
+    }
   }
 
-  /**
-   * Opens the Search destination on the bottom nav bar (nav_bar.tsx) — one
-   * entry point covering open/run/search, replacing the need to pick among
-   * the separate page-picker/command-palette keybindings for the common
-   * case. Those older entry points stay reachable independently.
-   *
-   * Retargeted 2026-09-17 (spec's leaf N1) from the old consolidated
-   * `search_sheet.tsx` modal (`show-search-sheet`) to
-   * `select-nav-destination("search")`. Search's own panel content is a
-   * placeholder until leaf N7 relocates `search_sheet.tsx`'s logic into
-   * `nav_views/search.tsx`.
-   *
-   * Mirrors `startCommandPalette`'s own `commandAugmenter.augmentObjectMap`
-   * call (awaited before the dispatch, not after): `registerCommandRun`
-   * only persists `lastRun` to the datastore, it never mutates the
-   * in-memory Command objects living in `viewState.commands` — those only
-   * get pulled fresh here. Without this, run-mode's "sorted by def.lastRun"
-   * history (L12) would show stale recency the next time the panel opens.
-   */
-  async startSearchSheet() {
-    const commands = this.ui.viewState.commands;
-    await this.commandAugmenter.augmentObjectMap(commands);
-    this.ui.viewDispatch({
-      type: "show-search-sheet",
+  async startPageNavigate(
+    mode: "page" | "meta" | "document" | "all",
+  ): Promise<void> {
+    await this.openNavigatorView("std.pages", {
+      segment: pickerSegment(mode),
     });
-    this.updatePageListCache().catch(console.error);
-    this.updateDocumentListCache().catch(console.error);
   }
 
   queryLuaObjects<T>(
@@ -661,18 +829,18 @@ export class Client {
 
     if (indexAvailable) {
       console.log("Initial index complete, loading full page list via index.");
-      // Fetch indexed pages
-      allPages = await this.queryLuaObjects<PageMeta>("page", {});
-      // Overlay augmented meta values
-      await this.pageMetaAugmenter.augmentObjectArray(allPages, "ref");
-      // Fetch aspiring pages
-      const aspiringPageNames = await this.queryLuaObjects<string>(
-        "aspiring-page",
-        { select: parseExpressionString("name"), distinct: true },
+      allPages = await timedSpan("page-list-query", () =>
+        this.queryLuaObjects<PageMeta>("page", {}),
       );
-      // Fetch any augmented page meta data (for now only lastOpened)
-      // this.clientSystem.ds.query({prefix: })
-      // Map and push aspiring pages directly into allPages
+      await timedSpan("page-list-augment", () =>
+        this.pageMetaAugmenter.augmentObjectArray(allPages, "ref"),
+      );
+      const aspiringPageNames = await timedSpan("aspiring-page-query", () =>
+        this.queryLuaObjects<string>("aspiring-page", {
+          select: parseExpressionString("name"),
+          distinct: true,
+        }),
+      );
       allPages.push(
         ...aspiringPageNames.map(
           (name): PageMeta => ({
@@ -691,24 +859,33 @@ export class Client {
         "Initial sync not complete or index plug not loaded. Fetching page list directly using space.fetchPageList().",
       );
       try {
-        // Call fetchPageList directly
         allPages = await this.space.fetchPageList();
 
-        // Let's do some heuristic-based post processing
         for (const page of allPages) {
-          // These are _mostly_ meta pages, let's add a tag for them
           if (page.name.startsWith("Library/")) {
             page.tags = ["meta"];
           }
         }
       } catch (e) {
         console.error("Failed to list pages directly from space:", e);
-        // Handle error, maybe show notification or leave list empty
         this.ui.flashNotification(
           "Could not fetch page list directly.",
           "error",
         );
+        return;
       }
+    }
+
+    // Only flip the readiness flag if allPages reflects the indexed,
+    // transform-applied values (the index branch). The fallback branch
+    // produces raw page meta without pageDecoration, so we keep
+    // showing loading widgets until the index is back.
+    // Flipped before the view dispatch below: widgets shouldn't wait for the
+    // page-list reducer + UI re-render.
+    if (indexAvailable) {
+      this.pageListLoaded = true;
+      performance.mark("sb:page-list-loaded");
+      this.maybeDispatchWidgetsReady();
     }
 
     this.ui.viewDispatch({
@@ -716,17 +893,20 @@ export class Client {
       allPages: allPages,
     });
 
-    // Only flip the readiness flag if allPages reflects the indexed,
-    // transform-applied values (the index branch). The fallback branch
-    // produces raw page meta without pageDecoration, so we keep
-    // showing loading widgets until the index is back.
-    if (indexAvailable) {
-      this.pageListLoaded = true;
-      this.maybeDispatchWidgetsReady();
-    }
-
-    // Async kick-off file listing to bring listing up to date
     void this.space.spacePrimitives.fetchFileList();
+  }
+
+  private async pollForWidgetReadiness() {
+    while (!this.widgetReadyDispatched && !this.pageListLoaded) {
+      await sleep(2000);
+      if (this.widgetReadyDispatched || this.pageListLoaded) {
+        return;
+      }
+      if (await this.objectIndex.hasFullIndexCompleted()) {
+        this.fullIndexCompleted = true;
+        await this.updatePageListCache();
+      }
+    }
   }
 
   /**
@@ -746,30 +926,70 @@ export class Client {
       this.widgetReadyDispatched = true;
       this.rebuildEditorState();
       this.resolveWidgetsReady();
+      performance.mark("sb:widgets-ready");
+      const marks = performance
+        .getEntriesByType("mark")
+        .filter((m) => m.name.startsWith("sb:"));
+      console.log(
+        "[Boot]",
+        marks
+          .map((m) => `${m.name.slice(3)}=${Math.round(m.startTime)}ms`)
+          .join(" "),
+      );
+      const spans = performance
+        .getEntriesByType("measure")
+        .filter(
+          (m) =>
+            m.name.startsWith("sb:") &&
+            !m.name.startsWith("sb:lua-script:") &&
+            !m.name.startsWith("sb:widget:"),
+        );
+      console.log(
+        "[Boot spans]",
+        spans
+          .map((m) => `${m.name.slice(3)}=${Math.round(m.duration)}ms`)
+          .join(" "),
+      );
+      const idbStats = (globalThis as any).sbIdbStats;
+      if (idbStats) {
+        console.log("[Boot idb]", JSON.stringify(idbStats));
+      }
     }
   }
 
-  async updateDocumentListCache() {
-    console.log("Updating document list cache");
-    const allDocuments = await this.queryLuaObjects<DocumentMeta>(
-      "document",
-      {},
-    );
-
-    this.ui.viewDispatch({
-      type: "update-document-list",
-      allDocuments: allDocuments,
-    });
+  /**
+   * The command palette's data, as data: everything a navigator source needs
+   * to draw and order the palette, with the two things no query can reach
+   * (`lastRun`, and the AST context the cursor is in) already applied.
+   */
+  async listPaletteCommands(): Promise<PaletteCommand[]> {
+    // Built fresh rather than read off `viewState`: that map is only as
+    // current as the last `commandsUpdated` the UI happened to receive, and
+    // Space Lua's commands register after it. The hook is the authority.
+    const commands = this.clientSystem.commandHook.buildAllCommands();
+    await this.commandAugmenter.augmentObjectMap(commands);
+    const out: PaletteCommand[] = [];
+    for (const def of this.getCommandsByContext(
+      commands,
+      this.getContext(),
+    ).values()) {
+      if (def.hide) continue;
+      out.push({
+        name: def.name,
+        priority: Number(def.priority) || 0,
+        lastRun: def.lastRun,
+        // Prettified here rather than in the source: which shortcut applies
+        // (and how it is written) is a property of this client's platform --
+        // as is having a keyboard at all. A touch client gets no hint, so the
+        // palette spends that width on the command's name instead.
+        hint: isMobileDevice() ? undefined : keyboardHint(def),
+      });
+    }
+    return out;
   }
 
-  async startCommandPalette() {
-    const commands = this.ui.viewState.commands;
-    await this.commandAugmenter.augmentObjectMap(commands);
-    this.ui.viewDispatch({
-      type: "show-palette",
-      commands,
-      context: client.getContext(),
-    });
+  async startCommandPalette(): Promise<void> {
+    await this.openNavigatorView("std.commands");
   }
 
   /**
@@ -801,21 +1021,14 @@ export class Client {
     // Preserve selection + scroll across the rebuild — this fires on
     // widget loading→ready transitions after the editor is already
     // interactive, so a reset to pos 0 / scrollTop 0 is jarring.
-    //
-    // CodeMirror's own `.cm-scroller` (`editorView.scrollDOM`) no longer
-    // owns scroll once L6 configures it for auto-height ("page scrolls")
-    // mode — `#sb-page-scroll` (L5) is the real scrolling ancestor now, so
-    // both the "is the cursor within the visible scrolled window" calc
-    // below and the final scrollTop write need to read/write that element
-    // instead.
-    const pageScroll = document.getElementById(PAGE_SCROLL_CONTAINER_ID)!;
     const previousSelection = editorView.state.selection;
-    const previousScrollTop = pageScroll.scrollTop;
+    const previousScrollTop = editorView.scrollDOM.scrollTop;
 
     let cursorWasVisible = false;
     try {
       const block = editorView.lineBlockAt(previousSelection.main.head);
-      const scrollBottom = previousScrollTop + pageScroll.clientHeight;
+      const scrollBottom =
+        previousScrollTop + editorView.scrollDOM.clientHeight;
       cursorWasVisible =
         block.bottom > previousScrollTop && block.top < scrollBottom;
     } catch {
@@ -831,7 +1044,7 @@ export class Client {
         previousSelection,
       ),
     );
-    pageScroll.scrollTop = previousScrollTop;
+    editorView.scrollDOM.scrollTop = previousScrollTop;
 
     if (cursorWasVisible) {
       editorView.dispatch({
@@ -840,7 +1053,6 @@ export class Client {
     }
   }
 
-  // Code completion support
   async completeWithEvent(
     context: CompletionContext,
     eventName: AppEvent,
@@ -850,7 +1062,6 @@ export class Client {
     const line = editorState.doc.lineAt(selection.from);
     const linePrefix = line.text.slice(0, selection.from - line.from);
 
-    // Build up list of parent nodes, some completions need this
     const sTree = syntaxTree(editorState);
     const currentNode = sTree.resolveInner(editorState.selection.main.from);
 
@@ -859,7 +1070,6 @@ export class Client {
       currentNode,
     );
 
-    // Dispatch the event
     const results = await this.dispatchAppEvent(eventName, {
       pageName: this.currentName(),
       linePrefix,
@@ -867,14 +1077,12 @@ export class Client {
       parentNodes,
     } as CompleteEvent);
 
-    // Merge results
     let currentResult: CompletionResult | null = null;
     for (const result of results) {
       if (!result) {
         continue;
       }
       if (currentResult) {
-        // Let's see if we can merge results
         if (currentResult.from !== result.from) {
           console.error(
             "Got completion results from multiple sources with different `from` locators, cannot deal with that",
@@ -887,7 +1095,6 @@ export class Client {
           );
           return null;
         } else {
-          // Merge
           currentResult = {
             from: result.from,
             options: [...currentResult.options, ...result.options],
@@ -941,20 +1148,16 @@ export class Client {
     return this.contentManager.reloadEditor();
   }
 
-  // Focus the editor
   focus() {
     const viewState = this.ui.viewState;
     if (
       [
-        viewState.showCommandPalette,
-        viewState.showPageNavigator,
         viewState.showFilterBox,
         viewState.showConfirm,
         viewState.showPrompt,
-      ].some(Boolean)
+      ].some(Boolean) ||
+      document.querySelector(".sb-anchored-menu")
     ) {
-      // console.log("not focusing");
-      // Some other modal UI element is visible, don't focus editor now
       return;
     }
 
@@ -1082,7 +1285,6 @@ export class Client {
       return;
     }
 
-    // Prepare separate <style> tag per custom style (for robustness)
     const customStylesContent = spaceStyles
       .map((s) => `<style>${s.style}</style>`)
       .join("\n\n");
@@ -1095,28 +1297,27 @@ export class Client {
   }
 
   async runCommandByName(name: string, args?: any[]) {
-    const cmd = this.ui.viewState.commands.get(name);
-    if (cmd) {
-      if (args) {
-        await cmd.run!(args);
-      } else {
-        await cmd.run!();
-      }
-    } else {
+    // `viewState.commands` is only as current as the last `commandsUpdated`
+    // the UI received; the hook is the authority, and Space Lua's commands in
+    // particular register after that snapshot is taken.
+    const cmd =
+      this.ui.viewState.commands.get(name) ??
+      this.clientSystem.commandHook.buildAllCommands().get(name);
+    if (!cmd) {
       throw new Error(`Command ${name} not found`);
     }
+    return args ? await cmd.run!(args) : await cmd.run!();
   }
 
-  getCommandsByContext(state: AppViewState): Map<string, Command> {
+  getCommandsByContext(
+    allCommands: Map<string, Command>,
+    context?: string,
+  ): Map<string, Command> {
     const currentEditor = client.contentManager.documentEditor?.name;
     const readOnly = this.isReadOnlyMode();
-    const commands = new Map(state.commands);
-    for (const [k, v] of state.commands.entries()) {
-      if (
-        v.contexts &&
-        (!state.showCommandPaletteContext ||
-          !v.contexts.includes(state.showCommandPaletteContext))
-      ) {
+    const commands = new Map(allCommands);
+    for (const [k, v] of allCommands.entries()) {
+      if (v.contexts && (!context || !v.contexts.includes(context))) {
         commands.delete(k);
       }
 
@@ -1146,10 +1347,33 @@ export class Client {
   }
 
   async handleServiceWorkerMessage(message: ServiceWorkerSourceMessage) {
+    const notification = syncMessageNotification(message);
+    if (notification) {
+      // One conflict can surface through more than one reconcile site (the
+      // background sync cycle and the save path), each broadcasting its own
+      // report — show the identical flash once, not per site.
+      const now = Date.now();
+      const lastShown = this.recentSyncFlashes.get(notification.text);
+      if (lastShown === undefined || now - lastShown > SYNC_FLASH_DEDUP_MS) {
+        this.recentSyncFlashes.set(notification.text, now);
+        this.ui.flashNotification(notification.text, notification.style);
+      }
+    }
+    if (SYNC_PROGRESS_MESSAGES.has(message.type)) {
+      this.lastSyncProgressAt = Date.now();
+    }
     switch (message.type) {
+      case "file-synced": {
+        if (!this.fullSyncCompleted) {
+          this.syncedPaths.add(message.path);
+        }
+        break;
+      }
       case "space-sync-complete": {
         const isFirstSync = !this.fullSyncCompleted;
         this.fullSyncCompleted = true;
+        // fullSyncCompleted supersedes per-path tracking
+        this.syncedPaths.clear();
         // Only trigger a version-bump reindex once we've also confirmed the
         // server is on the same publicVersion as this client — otherwise the
         // reindex could run against stale plug code that's about to be
@@ -1162,7 +1386,6 @@ export class Client {
           // First sync pulled new content — reload the current page
           // (it may have been empty because the file didn't exist locally yet)
           void this.reloadEditor();
-          // Re-evaluate CONFIG and space scripts now that sync has pulled them
           void this.clientSystem.reloadState();
         }
         break;
@@ -1175,14 +1398,15 @@ export class Client {
         break;
       }
       case "auth-error": {
+        if (logoutInProgress()) break;
         alert(message.message);
         if (
-          message.actionOrRedirectHeader &&
-          message.actionOrRedirectHeader !== "reload"
+          !message.actionOrRedirectHeader ||
+          message.actionOrRedirectHeader === "reload"
         ) {
-          location.href = message.actionOrRedirectHeader;
-        } else {
           location.reload();
+        } else {
+          location.href = message.actionOrRedirectHeader;
         }
         break;
       }
@@ -1210,55 +1434,14 @@ export class Client {
       }
     }
 
-    // Also dispatch it on the event hook for any other listeners
     await this.eventHook.dispatchEvent(
       `service-worker:${message.type}`,
       message,
     );
   }
 
-  /**
-   * Records a page/document visit into the recent-pages trail (most-recent
-   * first, deduped by path, capped) and persists it to `this.ds` — the same
-   * datastore `lastOpenedPath` already uses, just an array instead of a
-   * single value.
-   */
-  private async recordRecentPath(path: Path) {
-    this.recentPaths = pushRecent(
-      this.recentPaths,
-      { path, ts: Date.now() },
-      (a, b) => a.path === b.path,
-    );
-    await this.ds.set(["client", "recentPaths"], this.recentPaths);
-  }
-
-  /**
-   * Records a search-sheet query term into the search-mode recency trail
-   * (most-recent first, deduped by exact term, capped) and persists it —
-   * same `ds`/pushRecent pattern as `recordRecentPath` above, just under
-   * `["client", "recentSearchTerms"]`. Public (unlike recordRecentPath)
-   * because it's called directly from search_sheet.tsx on submit, not from
-   * an internal navigation subscription.
-   */
-  async recordSearchTerm(term: string) {
-    const trimmed = term.trim();
-    if (!trimmed) {
-      return;
-    }
-    this.recentSearchTerms = pushRecent(
-      this.recentSearchTerms,
-      { term: trimmed, ts: Date.now() },
-      (a, b) => a.term === b.term,
-    );
-    await this.ds.set(["client", "recentSearchTerms"], this.recentSearchTerms);
-  }
-
   private async initNavigator() {
     this.pageNavigator = new PathPageNavigator(this);
-
-    this.recentPaths = (await this.ds.get(["client", "recentPaths"])) ?? [];
-    this.recentSearchTerms =
-      (await this.ds.get(["client", "recentSearchTerms"])) ?? [];
 
     this.pageNavigator.subscribe(async (locationState) => {
       console.log(`Now navigating to ${encodeRef(locationState)}`);
@@ -1271,10 +1454,8 @@ export class Client {
 
       // Persist this page as the last opened page, we'll use this for cold start PWA loads
       await this.ds.set(["client", "lastOpenedPath"], locationState.path);
-      await this.recordRecentPath(locationState.path);
     });
 
-    // Initial navigation
     let ref = this.onLoadRef;
 
     if (ref.details?.type === "header" && ref.details.header === "boot") {
@@ -1296,7 +1477,6 @@ export class Client {
   }
 
   async wipeClient() {
-    // Clean out _other_ IndexedDB databases
     console.log("Wiping IndexedDB databses not connected to this space...");
     const dbName = (this.ds.kv as any).dbName;
     const suffix = dbName.replace("sb_data", "");
@@ -1309,9 +1489,7 @@ export class Client {
         }
       }
     }
-    // Instructe service worker to wipe
     if (navigator.serviceWorker?.controller) {
-      // We will attempt to unregister the service worker, best effort
       await new Promise<void>((resolve) => {
         navigator.serviceWorker.addEventListener("message", async (e: any) => {
           const message: ServiceWorkerSourceMessage = e.data;
@@ -1328,8 +1506,7 @@ export class Client {
             resolve();
           }
         });
-        // Send wipe request
-        navigator.serviceWorker.getRegistration().then((registration) => {
+        navigator.serviceWorker?.getRegistration().then((registration) => {
           console.log(
             "Sending data wipe request to service worker",
             registration,
@@ -1346,6 +1523,7 @@ export class Client {
     }
     console.log("Stopping all systems");
     this.space.unwatch();
+    this.realtimeEvents?.stop();
 
     console.log("Clearing data store");
     await this.ds.kv.clear();
@@ -1353,11 +1531,60 @@ export class Client {
   }
 
   public async postServiceWorkerMessage(message: ServiceWorkerTargetMessage) {
-    const registration = await navigator.serviceWorker.getRegistration();
+    const registration = await navigator.serviceWorker?.getRegistration();
     if (!registration?.active) {
-      console.warn("No active service worker, skipping message:", message.type);
+      // This causes too much noise
+      // console.warn("No active service worker, skipping message:", message.type);
       return;
     }
     registration.active.postMessage(message);
+  }
+
+  public canDeferExternalUpdate(): boolean {
+    return !!globalThis.navigator?.serviceWorker?.controller;
+  }
+
+  /**
+   * Tells the sync engine that the page about to be written descends from
+   * `baseText` rather than from whatever the local replica holds now (see
+   * SyncEngine.declareDivergentBase for what it does with that).
+   */
+  public async declareDivergentBase(
+    path: string,
+    baseText: string,
+  ): Promise<void> {
+    const worker = (
+      await globalThis.navigator?.serviceWorker?.getRegistration()
+    )?.active;
+    if (!worker) {
+      return;
+    }
+    const channel = new MessageChannel();
+    const acknowledged = new Promise<boolean>((resolve) => {
+      const settle = (delivered: boolean) => {
+        clearTimeout(timer);
+        channel.port1.close();
+        resolve(delivered);
+      };
+      const timer = setTimeout(
+        () => settle(false),
+        declareDivergentBaseTimeout,
+      );
+      channel.port1.onmessage = () => settle(true);
+      worker.postMessage(
+        {
+          type: "declare-divergent-base",
+          path,
+          baseText,
+        } as ServiceWorkerTargetMessage,
+        [channel.port2],
+      );
+    });
+    if (!(await acknowledged)) {
+      console.warn(
+        "Service worker did not acknowledge divergent base, saving anyway:",
+        path,
+      );
+    }
   }
 }

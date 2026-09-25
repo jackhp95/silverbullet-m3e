@@ -1,4 +1,3 @@
-// Message Queue related types
 export type MQMessage = {
   id: string;
   queue: string;
@@ -13,9 +12,10 @@ export type MQStats = {
 export type MQSubscribeOptions = {
   batchSize?: number;
   pollInterval?: number;
+  /** How often a running callback refreshes its messages' processing lease. */
+  leaseRenewIntervalMs?: number;
 };
 
-// KV types
 export type KvKey = string[];
 
 export type KV<T = any> = {
@@ -26,3 +26,12 @@ export type KV<T = any> = {
 export type KvQuery = {
   prefix?: KvKey;
 };
+
+/**
+ * Body of an `indexQueue` message: a plain path, or a path a producer has
+ * already cleared the index for (a full reindex empties the index wholesale
+ * before queueing). Shared by the producers (`client/data/object_index.ts`)
+ * and the consumer (`plugs/index/queue.ts`) so the two ends of the queue
+ * cannot drift.
+ */
+export type IndexQueueBody = string | { path: string; cleared?: boolean };

@@ -3,6 +3,11 @@ import type { Client } from "../../client.ts";
 import { version as publicVersion } from "../../../version.json";
 import type { CommandDef } from "@silverbulletmd/silverbullet/type/manifest";
 import type { SyscallMeta } from "@silverbulletmd/silverbullet/type/index";
+import { loadAccounts, loadProfile } from "../../accounts.ts";
+import type {
+  Account,
+  ClientProfile,
+} from "../../../plug-api/types/profile.ts";
 
 export function systemSyscalls(
   client: Client,
@@ -96,6 +101,27 @@ export function systemSyscalls(
       },
       description:
         "Returns a map of every currently available command definition.",
+    },
+    "system.listPaletteCommands": {
+      callback: () => client.listPaletteCommands(),
+      description: `Returns the commands the command palette would show right now: context- and mode-filtered, hidden ones dropped, each with its prettified key hint and the time it was last run on this client.`,
+      signatures: ["system.listPaletteCommands()"],
+    },
+    "system.runPaletteCommand": {
+      callback: async (_ctx, name: string) => {
+        await client.registerCommandRun(name);
+        try {
+          return await client.runCommandByName(name);
+        } catch (e: any) {
+          client.reportError(e, "Command invocation");
+          return false;
+        }
+      },
+      description: `Runs a command as if it had been picked from the command palette: records it as the most recently run, then invokes it and returns its result. A command that throws is reported to the user and answered as false, which in this protocol means "do not move focus on my behalf".`,
+      parameters: [
+        { name: "name", type: "string", description: "Command name." },
+      ],
+      returns: [{ description: "Whatever the command returned." }],
     },
     "system.listSyscalls": {
       callback: (): SyscallMeta[] => {
@@ -225,6 +251,18 @@ export function systemSyscalls(
     "system.getVersion": {
       callback: () => publicVersion,
       description: "Returns the running SilverBullet version.",
+    },
+    "system.getProfile": {
+      callback: (): Promise<ClientProfile> => loadProfile(client),
+      description:
+        'The current user\'s identity. `username` is "me" when the server has no account for this session.',
+      signatures: ["system.getProfile()"],
+    },
+    "system.listAccounts": {
+      callback: (): Promise<Account[]> => loadAccounts(client),
+      description:
+        "Every account with access to this space, with the current user marked.",
+      signatures: ["system.listAccounts()"],
     },
     "system.getConfig": {
       callback: (_ctx, key: string, defaultValue: any = undefined) =>

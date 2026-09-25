@@ -1,7 +1,7 @@
 
 # Unordered lists
 * Short
-* [ ] This is a task 
+* [ ] This is a task
 * Long item that will wrap its line eventually when I keep typing, this will be good
   * Short sub-item
   * Longer sub-item that will eventually wrap the line when I keep typing
@@ -11,7 +11,6 @@
 * Unordered list item:
   * [ ] With a task sub item
   * [ ] And a long one that will eventually wrap its line if I keep typing
-
 # Mixed bullet markers
 - Hyphen marker
 * Asterisk marker

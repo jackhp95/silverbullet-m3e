@@ -16,10 +16,10 @@ There are various ways to visualize what objects exist:
 
 # Terminology
 * [[Object]]: represent _things_ in your space at various level of granularity. Examples include [[Object/page]] at the highest level, but also more granular things like [[Object/task]] and [[Object/link]]. In relational database parlance, you can think of Objects as **database rows**.
-* [[Tag]]: represent Object **types** or **tables** (in relational database parlance). Every Object has at least one tag, but can have additional tags attached explicitly, usually through the [[Markdown/Hashtags]] syntax. 
+* [[Tag]]: represent Object **types** or **tables** (in relational database parlance). Every Object has at least one tag, but can have additional tags attached explicitly, usually through the [[Markdown/Hashtags]] syntax.
 
 # Principles
-**Markdown always is the source of truth**: all data indexed as objects will have some representation in markdown text as well. 
+**Markdown always is the source of truth**: all data indexed as objects will have some representation in markdown text as well.
 
 As a result, the [[Object Index]] can be flushed at any time and be rebuilt from its source markdown files kept in your space (and you can do so on demand using the `Space: Reindex` command).
 
@@ -33,6 +33,7 @@ The following attributes are predefined, you can expect all objects to have them
 In addition, most objects will also contain:
 * `tags`: an optional set of additional, explicitly assigned tags.
 * `itags`: a set of _implicit_ or _inherited_ tags: including the object’s `tag`, `tags` as well as any tags _assigned to its containing page_.
+* `inComment`: `true` on any object that originates inside an HTML [[Markdown/Comment]]. Absent otherwise.
 
 Beside these, any number of additional tag-specific and custom [[Attribute|Attributes]] can be defined. It is also possible to restrict this set of attributes via [[Schema]].
 

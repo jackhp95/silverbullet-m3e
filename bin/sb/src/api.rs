@@ -8,12 +8,9 @@
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::io::Read;
 
 use crate::conn::{self, SpaceConnection};
-
-// ---------------------------------------------------------------------------
-// Shared types
-// ---------------------------------------------------------------------------
 
 /// A single console log entry from `/.runtime/logs`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -23,17 +20,29 @@ pub struct LogEntry {
     pub timestamp: i64,
 }
 
-// ---------------------------------------------------------------------------
-// Helper: interpret a non-2xx response from the Rust runtime endpoints.
-// ---------------------------------------------------------------------------
+const MAX_EVAL_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_LOG_RESPONSE_BYTES: u64 = 8 * 1024 * 1024;
+
+fn read_response(
+    response: reqwest::blocking::Response,
+    max_bytes: u64,
+    description: &str,
+) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    response
+        .take(max_bytes + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("reading {description}: {e}"))?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(format!("{description} exceeded {max_bytes} bytes"));
+    }
+    Ok(bytes)
+}
 
 fn runtime_error(status: StatusCode, body: &[u8]) -> String {
-    if status == StatusCode::UNAUTHORIZED || (status.as_u16() >= 300 && status.as_u16() < 400) {
-        return "authentication required; use --token, or configure a space with 'space add'"
-            .to_string();
+    if status == StatusCode::UNAUTHORIZED || status.is_redirection() {
+        return "authentication required; run `sb space login <name>` for a saved browser connection, or provide --token.".into();
     }
-
-    // Try to extract {"error": "..."} from the body.
     if let Ok(text) = std::str::from_utf8(body) {
         if let Ok(v) = serde_json::from_str::<Value>(text) {
             if let Some(msg) = v.get("error").and_then(|e| e.as_str()) {
@@ -45,15 +54,7 @@ fn runtime_error(status: StatusCode, body: &[u8]) -> String {
     format!("server returned {}", status.as_u16())
 }
 
-// ---------------------------------------------------------------------------
-// impl SpaceConnection — API methods
-// ---------------------------------------------------------------------------
-
 impl SpaceConnection {
-    // -----------------------------------------------------------------------
-    // Internal: POST /.runtime/lua or /.runtime/lua_script
-    // -----------------------------------------------------------------------
-
     fn post_runtime(&self, path: &str, body: &str) -> Result<Value, String> {
         let url = format!("{}{path}", self.base_url);
         let req = self
@@ -66,7 +67,7 @@ impl SpaceConnection {
         let resp = req.send().map_err(|e| format!("request failed: {e}"))?;
 
         let status = resp.status();
-        let bytes = resp.bytes().map_err(|e| format!("reading body: {e}"))?;
+        let bytes = read_response(resp, MAX_EVAL_RESPONSE_BYTES, "runtime response")?;
 
         if status.is_success() {
             // On 200, the body is the `{ "result": <value> }` envelope (Core's
@@ -83,10 +84,6 @@ impl SpaceConnection {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // eval_lua / eval_lua_script
-    // -----------------------------------------------------------------------
-
     /// Evaluate a Lua expression via `POST /.runtime/lua`.
     pub fn eval_lua(&self, expr: &str) -> Result<Value, String> {
         self.post_runtime("/.runtime/lua", expr)
@@ -96,10 +93,6 @@ impl SpaceConnection {
     pub fn eval_lua_script(&self, code: &str) -> Result<Value, String> {
         self.post_runtime("/.runtime/lua_script", code)
     }
-
-    // -----------------------------------------------------------------------
-    // logs
-    // -----------------------------------------------------------------------
 
     /// Fetch console logs via `GET /.runtime/logs`.
     pub fn logs(&self, limit: usize, since: Option<i64>) -> Result<Vec<LogEntry>, String> {
@@ -117,11 +110,11 @@ impl SpaceConnection {
         let resp = req.send().map_err(|e| format!("request failed: {e}"))?;
 
         let status = resp.status();
-        let bytes = resp.bytes().map_err(|e| format!("reading body: {e}"))?;
+        let bytes = read_response(resp, MAX_LOG_RESPONSE_BYTES, "logs response")?;
 
         if status == StatusCode::UNAUTHORIZED || (status.as_u16() >= 300 && status.as_u16() < 400) {
             return Err(
-                "authentication required; use --token, or configure a space with 'space add'"
+                "authentication required; run `sb space login <name>`, use --token, or configure a space with 'space add'"
                     .to_string(),
             );
         }
@@ -138,10 +131,6 @@ impl SpaceConnection {
             serde_json::from_slice(&bytes).map_err(|e| format!("parsing logs response: {e}"))?;
         Ok(data.logs)
     }
-
-    // -----------------------------------------------------------------------
-    // config / ping / probe / auth_check
-    // -----------------------------------------------------------------------
 
     /// GET `/.config` and return the parsed JSON body on 200.
     pub fn config(&self) -> Result<Value, String> {
@@ -204,12 +193,14 @@ impl SpaceConnection {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn revoked_authentication_points_to_login_without_replaying() {
+        let error = super::runtime_error(reqwest::StatusCode::UNAUTHORIZED, b"unauthorized");
+        assert!(error.contains("sb space login"));
+    }
+
     use crate::conn::{Auth, SpaceConnection};
     use reqwest::blocking::Client;
     use std::{
@@ -218,10 +209,6 @@ mod tests {
         thread,
         time::Duration,
     };
-
-    // -----------------------------------------------------------------------
-    // Mock server (duplicated here to keep tests self-contained)
-    // -----------------------------------------------------------------------
 
     #[derive(Debug)]
     struct RecordedRequest {
@@ -307,10 +294,6 @@ mod tests {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // eval_lua — happy path (200, raw JSON)
-    // -----------------------------------------------------------------------
-
     #[test]
     fn eval_lua_200_returns_value() {
         let response = concat!(
@@ -343,10 +326,6 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
-    // eval_lua — 503 "Runtime API is not enabled"
-    // -----------------------------------------------------------------------
-
     #[test]
     fn eval_lua_503_runtime_not_enabled() {
         let body = r#"{"error":"Runtime API is not enabled"}"#;
@@ -368,10 +347,6 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
-    // eval_lua — 401 → auth error
-    // -----------------------------------------------------------------------
-
     #[test]
     fn eval_lua_401_auth_required() {
         let response = concat!(
@@ -389,10 +364,6 @@ mod tests {
             "expected auth error in: {err}"
         );
     }
-
-    // -----------------------------------------------------------------------
-    // logs — 200, parse LogEntry array
-    // -----------------------------------------------------------------------
 
     #[test]
     fn logs_200_parses_entries() {
@@ -413,10 +384,6 @@ mod tests {
         assert_eq!(entries[0].text, "hi");
         assert_eq!(entries[0].timestamp, 5);
     }
-
-    // -----------------------------------------------------------------------
-    // Cookie auth path
-    // -----------------------------------------------------------------------
 
     #[test]
     fn cookie_auth_sends_cookie_header() {

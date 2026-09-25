@@ -25,7 +25,7 @@ class InlineFootnoteWidget extends WidgetType {
 
   toDOM(): HTMLElement {
     const span = document.createElement("span");
-    span.className = "sb-footnote-ref";
+    span.className = FOOTNOTE_REF_LAYOUT_CLASSES;
     span.textContent = "…";
     return span;
   }
@@ -36,6 +36,12 @@ class InlineFootnoteWidget extends WidgetType {
     );
   }
 }
+
+// Layout/shape (border-width, radius, padding, font-size, flex, cursor) —
+// see client/styles/colors.scss's `.sb-footnote-ref` comment; the theme-var
+// colors stay in that SCSS rule.
+const FOOTNOTE_REF_LAYOUT_CLASSES =
+  "sb-footnote-ref border rounded-[3px] px-0.5 text-[0.75em] inline-flex items-center align-middle cursor-pointer";
 
 class FootnoteRefWidget extends WidgetType {
   constructor(
@@ -49,8 +55,8 @@ class FootnoteRefWidget extends WidgetType {
   toDOM(): HTMLElement {
     const span = document.createElement("span");
     span.className = this.resolved
-      ? "sb-footnote-ref"
-      : "sb-footnote-ref sb-footnote-ref-unresolved";
+      ? FOOTNOTE_REF_LAYOUT_CLASSES
+      : `${FOOTNOTE_REF_LAYOUT_CLASSES} sb-footnote-ref-unresolved`;
     span.textContent = "…";
     // Use mousedown to intercept before CodeMirror moves the cursor
     // (which would remove the widget via isCursorInRange)
@@ -122,7 +128,6 @@ function footnoteRefDecorator(editorView: () => EditorView) {
           return;
         }
 
-        // Extract label from the FootnoteRefLabel child
         const cursor = node.cursor();
         let labelText = "";
         cursor.firstChild();
@@ -141,13 +146,11 @@ function footnoteRefDecorator(editorView: () => EditorView) {
               widget: new FootnoteRefWidget(labelText, resolved, (e) => {
                 const view = editorView();
                 if (e.altKey || !resolved) {
-                  // Alt-click or unresolved: move cursor into the ref marker
                   view.dispatch({
                     selection: { anchor: refFrom + 2 }, // after [^
                   });
                   view.focus();
                 } else {
-                  // Normal click: jump to definition
                   const def = findFootnoteDef(state, labelText);
                   if (def) {
                     view.dispatch({
@@ -181,7 +184,6 @@ const inlineFootnoteDecorator = decoratorStateField((state) => {
         return;
       }
 
-      // Extract content from the InlineFootnoteContent child
       const cursor = node.cursor();
       let content = "";
       cursor.firstChild();
@@ -233,7 +235,6 @@ const footnoteTooltip = hoverTooltip((view, pos) => {
   const tree = syntaxTree(view.state);
   const node = tree.resolveInner(pos, 1);
 
-  // Check if we're hovering over a FootnoteRef or its children
   let refNode = node;
   while (refNode && refNode.name !== "FootnoteRef") {
     refNode = refNode.parent!;
@@ -242,7 +243,6 @@ const footnoteTooltip = hoverTooltip((view, pos) => {
     return null;
   }
 
-  // Extract label
   const cursor = refNode.cursor();
   let labelText = "";
   cursor.firstChild();
@@ -279,7 +279,6 @@ const inlineFootnoteTooltip = hoverTooltip((view, pos) => {
   const tree = syntaxTree(view.state);
   const node = tree.resolveInner(pos, 1);
 
-  // Check if we're hovering over an InlineFootnote or its children
   let fnNode = node;
   while (fnNode && fnNode.name !== "InlineFootnote") {
     fnNode = fnNode.parent!;
@@ -288,7 +287,6 @@ const inlineFootnoteTooltip = hoverTooltip((view, pos) => {
     return null;
   }
 
-  // Extract content
   const cursor = fnNode.cursor();
   let content = "";
   cursor.firstChild();

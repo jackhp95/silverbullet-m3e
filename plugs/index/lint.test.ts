@@ -1,10 +1,10 @@
+import type { LintEvent } from "@silverbulletmd/silverbullet/type/client";
+import type { PageMeta } from "@silverbulletmd/silverbullet/type/index";
 import { describe, expect, test } from "vitest";
 import { parseMarkdown } from "../../client/markdown_parser/parser.ts";
 import { createMockSystem } from "../../plug-api/system_mock.ts";
-import type { PageMeta } from "@silverbulletmd/silverbullet/type/index";
-import type { LintEvent } from "@silverbulletmd/silverbullet/type/client";
-import { lintAnchors } from "./lint.ts";
 import { indexMarkdown } from "./indexer.ts";
+const { lintAnchors } = await import("./lint.ts");
 
 const defaultPageMeta: PageMeta = {
   ref: "TestPage",

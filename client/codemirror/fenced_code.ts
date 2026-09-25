@@ -20,7 +20,6 @@ export function fencedCodePlugin(client: Client) {
       enter({ from, to, name, node }) {
         if (name === "FencedCode") {
           if (isCursorInRange(state, [from, to])) {
-            // Don't render the widget if the cursor is inside the fenced code
             return;
           }
           const text = state.sliceDoc(from, to);
@@ -50,7 +49,6 @@ export function fencedCodePlugin(client: Client) {
             const firstLine = lines[0],
               lastLine = lines[lines.length - 1];
 
-            // In case of doubt, back out
             if (!firstLine || !lastLine) return;
 
             widgets.push(
@@ -59,7 +57,13 @@ export function fencedCodePlugin(client: Client) {
             widgets.push(invisibleDecoration.range(lastLine.from, lastLine.to));
             widgets.push(
               Decoration.line({
-                class: "sb-fenced-code-iframe",
+                // background-color moved to a Tailwind utility — see
+                // editor.scss's audit note. The `iframe` descendant rule
+                // stays: it targets widget_sandbox_iframe.ts's shared
+                // `createWidgetSandboxIFrame`, also used by lua_widget.ts
+                // for a differently-styled iframe context (grep-verified),
+                // so this file can't safely fork that element's styling.
+                class: "sb-fenced-code-iframe bg-transparent",
               }).range(firstLine.from),
             );
             widgets.push(
@@ -107,9 +111,7 @@ export function fencedCodePlugin(client: Client) {
             return false;
           }
 
-          // Only custom render when we have a custom renderer, and the current page is not a template
           if (codeWidgetCallback && renderMode !== "disabled") {
-            // We got a custom renderer!
             const lineStrings = text.split("\n");
 
             const lines: { from: number; to: number }[] = [];
@@ -125,7 +127,6 @@ export function fencedCodePlugin(client: Client) {
             const firstLine = lines[0],
               lastLine = lines[lines.length - 1];
 
-            // In case of doubt, back out
             if (!firstLine || !lastLine) return;
 
             widgets.push(
@@ -134,7 +135,13 @@ export function fencedCodePlugin(client: Client) {
             widgets.push(invisibleDecoration.range(lastLine.from, lastLine.to));
             widgets.push(
               Decoration.line({
-                class: "sb-fenced-code-iframe",
+                // background-color moved to a Tailwind utility — see
+                // editor.scss's audit note. The `iframe` descendant rule
+                // stays: it targets widget_sandbox_iframe.ts's shared
+                // `createWidgetSandboxIFrame`, also used by lua_widget.ts
+                // for a differently-styled iframe context (grep-verified),
+                // so this file can't safely fork that element's styling.
+                class: "sb-fenced-code-iframe bg-transparent",
               }).range(firstLine.from),
             );
             widgets.push(
@@ -170,7 +177,6 @@ export function fencedCodePlugin(client: Client) {
         }
         if (name === "CodeMark") {
           const parent = node.parent!;
-          // Hide ONLY if CodeMark is not insine backticks (InlineCode) and the cursor is placed outside
           if (
             parent.node.name !== "InlineCode" &&
             !isCursorInRange(state, [parent.from, parent.to])

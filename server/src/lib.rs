@@ -5,23 +5,29 @@
 //! additional routes on top of it.
 
 pub mod auth;
+pub mod fs_guard;
 pub mod handlers;
+pub mod link_resolve;
 pub mod metrics;
 pub mod multi;
+pub mod revisions;
 pub mod router;
 pub mod runtime;
 pub mod shell;
 mod ssr;
 pub mod state;
+pub mod watcher;
 
+pub use fs_guard::FsGuard;
 pub use router::{build_router, metrics_router};
 pub use state::{ServerState, ServerVersion};
+pub use watcher::{start_watcher, FsAction, FsEvent, WatchMode};
 
 #[cfg(test)]
 mod test_support {
     use crate::state::ServerState;
     use silverbullet_server_common::space::MemorySpacePrimitives;
-    use silverbullet_server_common::BootConfig;
+    use silverbullet_server_common::{BootConfig, RevisionsMode};
 
     /// An `ServerState` backed by a fresh in-memory space and a fresh in-memory
     /// "bundle" (also a MemorySpacePrimitives). Tests seed files as needed.
@@ -40,7 +46,10 @@ mod test_support {
                 account_managed: false,
                 shell_backend: "local".into(),
                 disable_service_worker: true,
+                sync_protocol_version: 2,
+                revisions: RevisionsMode::Disabled,
             },
+            space_prefixes: Default::default(),
             space_folder_path: "/tmp".into(),
             version: "test-version".into(),
             host_url_prefix: String::new(),
@@ -48,6 +57,9 @@ mod test_support {
             theme_color: "#e1e1e1".into(),
             space_description: "Powerful and programmable note taking app".into(),
             authorizer: None,
+            anonymous_readable: false,
+            anonymous_writable: false,
+            access_policy: std::sync::Arc::new(crate::auth::AuthorizedPolicy),
             login: None,
             shell: crate::shell::ShellConfig {
                 enabled: true,
@@ -55,6 +67,11 @@ mod test_support {
             },
             metrics: None,
             runtime: None,
+            fs_events: None,
+            shutdown: None,
+            fs_guard: Default::default(),
+            revisions: None,
+            identity: crate::auth::username_only(),
         }
     }
 }

@@ -1,6 +1,24 @@
-import type { ObjectValue } from "@silverbulletmd/silverbullet/type/index";
+import type {
+  IndexQueueBody,
+  KV,
+  KvKey,
+} from "@silverbulletmd/silverbullet/type/datastore";
+import type {
+  FileMeta,
+  ObjectValue,
+} from "@silverbulletmd/silverbullet/type/index";
+import { relationToLink } from "../../plugs/index/link.ts";
 import type { Config } from "../config.ts";
+import type { EventHook } from "../plugos/hooks/event.ts";
+import { validateObject } from "../plugos/syscalls/jsonschema.ts";
+import type { Space } from "../space.ts";
 import {
+  getAggregateSpec,
+  getBuiltinAggregateEntries,
+} from "../space_lua/aggregates.ts";
+import { parseExpressionString } from "../space_lua/parse.ts";
+import {
+  applyQuery,
   ArrayQueryCollection,
   type LuaCollectionQuery,
   type LuaQueryCollection,
@@ -11,18 +29,8 @@ import {
   LuaStackFrame,
   LuaTable,
 } from "../space_lua/runtime.ts";
-import { parseExpressionString } from "../space_lua/parse.ts";
 import type { DataStore } from "./datastore.ts";
-import type { KV, KvKey } from "@silverbulletmd/silverbullet/type/datastore";
-import type { EventHook } from "../plugos/hooks/event.ts";
 import type { DataStoreMQ } from "./mq.datastore.ts";
-import type { Space } from "../space.ts";
-import { validateObject } from "../plugos/syscalls/jsonschema.ts";
-import {
-  getAggregateSpec,
-  getBuiltinAggregateEntries,
-} from "../space_lua/aggregates.ts";
-import { relationToLink } from "../../plugs/index/link.ts";
 
 const indexKey = "idx";
 const pageKey = "ridx";
@@ -36,7 +44,7 @@ const indexVersionKey = ["$indexVersion"];
 const reindexInProgressKey = ["$reindexInProgress"];
 
 // Bump this one every time a full reindex is needed
-const desiredIndexVersion = 12;
+const desiredIndexVersion = 14;
 
 type TagDefinition = {
   tagPage?: string;
@@ -63,65 +71,115 @@ export class ObjectValidationError extends Error {
 }
 
 export class ObjectIndex {
+  // True while a wholesale reindex (manual or version-bump) is running in
+  // this window
+  public rebuildInProgress = false;
+
   constructor(
     private ds: DataStore,
     private config: Config,
     private eventHook: EventHook,
     private mq: DataStoreMQ,
   ) {
-    // Clear any entries for deleted files
     this.eventHook.addLocalListener("file:deleted", (path: string) => {
       return this.clearFileIndex(path);
     });
 
-    // Tracks if the file:listed event has been triggered,
-    // which is fired after all file:changed events have been dispatched
-    // resulting in new index entries (if any) being queued in the index queue
-    // this is later used to track if the index is complete
+    // file:listed follows the change events that enqueue index work; both
+    // listing and queue drain are needed to establish completion.
     let indexStarted = false;
-    this.eventHook.addLocalListener("file:listed", () => {
+    let finishInitialIndex: (() => Promise<void>) | undefined;
+    // The queue announces a drain, not the state of being empty, so a client
+    // that has already listed and drained gets no further event. Both signals
+    // re-check the other rather than waiting for one that has been spent.
+    const finishIfDrained = async () => {
+      if (finishInitialIndex && (await this.mq.isQueueEmpty("indexQueue"))) {
+        await finishInitialIndex();
+      }
+    };
+
+    let lastFileList: FileMeta[] | undefined;
+    this.eventHook.addLocalListener("file:listed", (allFiles: FileMeta[]) => {
       indexStarted = true;
+      lastFileList = allFiles;
+      return finishIfDrained();
     });
 
-    // Handle initial index completion for fresh installs only.
     void this.getCurrentIndexVersion().then((currentVersion) => {
       if (currentVersion === undefined) {
         const emptyQueueHandler = async () => {
           console.log("Index queue empty, checking if index is complete");
           // Theoretically we could get empty queue notifications before the file:listed event has been triggered, so let's account for this
           if (indexStarted) {
-            // Indexing has just finished for the first time for this client
+            await finishInitialIndex?.();
+          }
+        };
+        // Guards against the two arming paths (a drained queue and a fresh
+        // listing) overlapping and both acting on the same missing set.
+        let finishing = false;
+        let outstanding = Infinity;
+        finishInitialIndex = async () => {
+          if (finishing) {
+            return;
+          }
+          finishing = true;
+          try {
+            // Queue drain alone cannot prove completeness after an interrupted boot.
+            // Requeue missing files while the set shrinks, stopping if none make progress.
+            const missingFiles = lastFileList
+              ? await this.findUnindexedPages(lastFileList)
+              : [];
+            if (missingFiles.length > 0) {
+              if (missingFiles.length < outstanding) {
+                outstanding = missingFiles.length;
+                console.warn(
+                  "[index]",
+                  `Initial index is missing ${missingFiles.length} page(s), queueing them`,
+                );
+                await this.mq.batchSend(
+                  "indexQueue",
+                  missingFiles.map((path): IndexQueueBody => ({ path })),
+                );
+                // Still armed: the drain after these index re-runs this check
+                return;
+              }
+              console.warn(
+                "[index]",
+                `Giving up on ${missingFiles.length} page(s) that never indexed`,
+              );
+            }
+            finishInitialIndex = undefined;
             console.info("Initial index complete, reloading editor state");
             await this.markFullIndexComplete();
-            // Unsubscribe yourself
             this.eventHook.removeLocalListener(
               "mq:emptyQueue:indexQueue",
               emptyQueueHandler,
             );
-            // Trigger an editor:reloadState event to reload the editor state (render widgets etc.)
             void this.eventHook.dispatchEvent("editor:reloadState");
+          } finally {
+            finishing = false;
           }
         };
         this.eventHook.addLocalListener(
           "mq:emptyQueue:indexQueue",
           emptyQueueHandler,
         );
+        if (indexStarted) {
+          void finishIfDrained();
+        }
       }
     });
   }
 
   private enricher(key: KvKey, value: any): any {
     const tag = key[1];
-    // See if we have a meta table defined, which we'll then slap on
     const mt = this.config.get<LuaTable | undefined>(
       ["tags", tag, "metatable"],
       undefined,
     );
     if (!mt) {
-      // Return as is
       return value;
     }
-    // Convert to LuaTable
     value = jsToLuaValue(value);
     value.metatable = mt;
     return value;
@@ -141,8 +199,8 @@ export class ObjectIndex {
     }
     return {
       query: (query, env, sf, config?): Promise<any[]> => {
-        return this.ds.luaQuery(
-          ["idx", tagName],
+        return this.memoLuaQuery(
+          tagName,
           query,
           env,
           sf,
@@ -160,8 +218,8 @@ export class ObjectIndex {
   linkObjects(): LuaQueryCollection {
     return {
       query: (query, env, sf, config?): Promise<any[]> => {
-        return this.ds.luaQuery(
-          ["idx", "relation"],
+        return this.memoLuaQuery(
+          "relation",
           query,
           env,
           sf,
@@ -200,6 +258,32 @@ export class ObjectIndex {
     return this.objectsWithTag("aspiring-page");
   }
 
+  ambiguousLinks(): LuaQueryCollection {
+    return this.objectsWithTag("ambiguous-link");
+  }
+
+  relations(kind?: string): LuaQueryCollection {
+    if (kind) {
+      // `kind` isn't part of the key, so this still scans every relation --
+      // but rejecting in the enricher skips both enrichment and the Lua
+      // predicate for the rows that don't match, and never materializes them.
+      return {
+        query: (query, env, sf, config?): Promise<any[]> => {
+          return this.memoLuaQuery(
+            "relation",
+            query,
+            env,
+            sf,
+            (key, value) =>
+              value?.kind === kind ? this.enricher(key, value) : undefined,
+            config,
+          );
+        },
+      };
+    }
+    return this.objectsWithTag("relation");
+  }
+
   rootTaggedObjects(rootTag: string, tag?: string): LuaQueryCollection {
     if (tag) {
       return this.filteredTag(
@@ -236,8 +320,8 @@ export class ObjectIndex {
               ctx: {},
             }
           : filter;
-        return this.ds.luaQuery(
-          ["idx", tagName],
+        return this.memoLuaQuery(
+          tagName,
           { ...query, where },
           env,
           sf,
@@ -274,7 +358,6 @@ export class ObjectIndex {
       });
     }
 
-    // Config entries (user-defined overrides and aliases)
     const userAggs: Record<string, any> = this.config.get("aggregates", {});
     for (const [key, spec] of Object.entries(userAggs)) {
       const aliasTarget =
@@ -344,7 +427,6 @@ export class ObjectIndex {
   async ensureFullIndex(space: Space) {
     const currentIndexVersion = await this.getCurrentIndexVersion();
 
-    // Fast path: the index is present and already at the desired version.
     if (
       currentIndexVersion !== undefined &&
       currentIndexVersion >= desiredIndexVersion
@@ -352,14 +434,8 @@ export class ObjectIndex {
       return;
     }
 
-    // An `undefined` version is ambiguous. A genuinely fresh install builds
-    // its index lazily as sync streams files in (handled by the
-    // constructor's one-shot empty-queue handler), so there's nothing to do
-    // here. But a reindex *also* deletes the version key at its start, so an
-    // `undefined` version that still carries the in-progress marker means a
-    // prior reindex was interrupted (e.g. the window was closed mid-reindex)
-    // and must be resumed — otherwise the index stays permanently empty and
-    // `ensureFullIndex` would keep mistaking it for a fresh install.
+    // A fresh install has no version and indexes lazily. An interrupted reindex
+    // also has no version, but its marker requires resuming the rebuild.
     if (
       currentIndexVersion === undefined &&
       !(await this.isReindexInProgress())
@@ -403,7 +479,6 @@ export class ObjectIndex {
 
         await this.reindexSpaceUnlocked(space);
 
-        // Dispatch an editor:reloadState event to reload the editor state (render widgets etc.)
         void this.eventHook.dispatchEvent("editor:reloadState");
       });
     } finally {
@@ -424,26 +499,37 @@ export class ObjectIndex {
   }
 
   private async reindexSpaceUnlocked(space: Space) {
-    // Record that a reindex is underway *before* we delete the version key,
-    // so an interruption between here and `markFullIndexComplete` is
-    // recoverable (see `ensureFullIndex`).
-    await this.markReindexInProgress();
-    console.log("Clearing page index...");
-    await this.clearIndex();
-    await this.markFullIndexInComplete();
+    // In-memory mirror for the UI: the boot progress label shows during any
+    // wholesale rebuild, and `fullIndexCompleted` never flips back to false
+    // after a first boot.
+    this.rebuildInProgress = true;
+    try {
+      // Record that a reindex is underway *before* we delete the version key,
+      // so an interruption between here and `markFullIndexComplete` is
+      // recoverable (see `ensureFullIndex`).
+      await this.markReindexInProgress();
+      console.log("Clearing page index...");
+      await this.clearIndex();
+      await this.markFullIndexInComplete();
 
-    const files = await space.deduplicatedFileList();
+      const files = await space.deduplicatedFileList();
 
-    console.log("Queing", files.length, "pages to be indexed.");
-    // Queue all file names to be indexed
-    const startTime = Date.now();
-    await this.mq.batchSend(
-      "indexQueue",
-      files.map((file) => file.name),
-    );
-    await this.mq.awaitEmptyQueue("indexQueue");
-    await this.markFullIndexComplete();
-    console.log("Full index completed after", Date.now() - startTime, "ms");
+      console.log("Queing", files.length, "pages to be indexed.");
+      const startTime = Date.now();
+      await this.mq.batchSend(
+        "indexQueue",
+        // `clearIndex` above already dropped every file's entries, so tell the
+        // indexer not to clear them again one file at a time.
+        files.map(
+          (file): IndexQueueBody => ({ path: file.name, cleared: true }),
+        ),
+      );
+      await this.mq.awaitEmptyQueue("indexQueue");
+      await this.markFullIndexComplete();
+      console.log("Full index completed after", Date.now() - startTime, "ms");
+    } finally {
+      this.rebuildInProgress = false;
+    }
   }
 
   /**
@@ -479,9 +565,28 @@ export class ObjectIndex {
     await this.mq.awaitEmptyQueue("indexQueue");
   }
 
+  /**
+   * Markdown files from `files` that have no `page` object in the index.
+   */
+  private async findUnindexedPages(files: FileMeta[]): Promise<string[]> {
+    const indexedPages = new Set<string>();
+    for await (const { key } of this.ds.query({ prefix: [indexKey, "page"] })) {
+      indexedPages.add(String(key[key.length - 1]));
+    }
+    const missing: string[] = [];
+    for (const file of files) {
+      if (
+        file.name.endsWith(".md") &&
+        !indexedPages.has(file.name.slice(0, -3))
+      ) {
+        missing.push(file.name);
+      }
+    }
+    return missing;
+  }
+
   async markFullIndexComplete() {
     await this.ds.set(indexVersionKey, desiredIndexVersion);
-    // The index is whole again — drop the interrupted-reindex marker.
     await this.ds.delete(reindexInProgressKey);
   }
 
@@ -505,6 +610,76 @@ export class ObjectIndex {
     }
   }
 
+  /**
+   * How long a memoized full-tag scan stays valid. Same-window index writes
+   * invalidate immediately; the TTL bounds staleness from writes made by
+   * another window/tab sharing the IndexedDB.
+   */
+  scanMemoTTLMs = 5000;
+  private scanMemo = new Map<string, { rows: KV[]; at: number }>();
+  private scanInFlight = new Map<string, Promise<KV[]>>();
+
+  private invalidateScanMemo() {
+    this.scanMemo.clear();
+  }
+
+  /**
+   * Materializes the full `["idx", tag]` range, memoized. During boot the
+   * page list, widgets, and script loading all scan the same ranges within
+   * a few hundred ms — one walk serves them all.
+   */
+  private scanTagRawRows(tag: string): Promise<KV[]> {
+    const memo = this.scanMemo.get(tag);
+    if (memo && performance.now() - memo.at < this.scanMemoTTLMs) {
+      return Promise.resolve(memo.rows);
+    }
+    const inFlight = this.scanInFlight.get(tag);
+    if (inFlight) {
+      return inFlight;
+    }
+    const scan = (async () => {
+      const rows: KV[] = [];
+      for await (const row of this.ds.query({ prefix: [indexKey, tag] })) {
+        rows.push(row);
+      }
+      this.scanMemo.set(tag, { rows, at: performance.now() });
+      return rows;
+    })();
+    this.scanInFlight.set(tag, scan);
+    return scan.finally(() => {
+      this.scanInFlight.delete(tag);
+    });
+  }
+
+  /**
+   * Drop-in equivalent of `ds.luaQuery(["idx", tag], ...)` backed by the
+   * memoized scan. Values are cloned per caller so consumers can mutate
+   * results freely, exactly as they can with the structured clones IndexedDB
+   * hands out.
+   */
+  private async memoLuaQuery<T>(
+    tag: string,
+    query: LuaCollectionQuery,
+    env: LuaEnv,
+    sf: LuaStackFrame,
+    enricher?: (key: KvKey, item: any) => any,
+    config?: Config,
+  ): Promise<T[]> {
+    const rawRows = await this.scanTagRawRows(tag);
+    const results: any[] = [];
+    for (const { key, value } of rawRows) {
+      let item = structuredClone(value);
+      if (enricher) {
+        item = enricher(key, item);
+        if (item === undefined) {
+          continue;
+        }
+      }
+      results.push(item);
+    }
+    return applyQuery(results, query, env, sf, config);
+  }
+
   queryLuaObjects<T>(
     globalEnv: LuaEnv,
     tag: string,
@@ -520,15 +695,15 @@ export class ObjectIndex {
       }
     }
     if (tag === "link") {
-      // Route through the virtual link collection
       return this.linkObjects().query(query, env, sf) as Promise<
         ObjectValue<T>[]
       >;
     }
-    return this.ds.luaQuery([indexKey, tag], query, env, sf);
+    return this.memoLuaQuery(tag, query, env, sf);
   }
 
   batchSet(page: string, kvs: KV[]): Promise<void> {
+    this.invalidateScanMemo();
     const finalBatch: KV[] = [];
     for (const { key, value } of kvs) {
       finalBatch.push(
@@ -547,6 +722,7 @@ export class ObjectIndex {
   }
 
   batchDelete(page: string, keys: KvKey[]): Promise<void> {
+    this.invalidateScanMemo();
     const finalBatch: KvKey[] = [];
     for (const key of keys) {
       finalBatch.push([indexKey, ...key, page]);
@@ -562,7 +738,6 @@ export class ObjectIndex {
     if (file.endsWith(".md")) {
       file = file.replace(/\.md$/, "");
     }
-    // console.log("Clearing index for", file);
     const allKeys: KvKey[] = [];
     for await (const { key } of this.ds.query({
       prefix: [pageKey, file],
@@ -570,6 +745,7 @@ export class ObjectIndex {
       allKeys.push(key);
       allKeys.push([indexKey, ...key.slice(2), file]);
     }
+    this.invalidateScanMemo();
     await this.ds.batchDelete(allKeys);
   }
 
@@ -591,6 +767,7 @@ export class ObjectIndex {
    * Clears the entire index
    */
   public async clearIndex(): Promise<void> {
+    this.invalidateScanMemo();
     const allKeys: KvKey[] = [];
     for await (const { key } of this.ds.query({ prefix: [indexKey] })) {
       allKeys.push(key);
@@ -598,7 +775,6 @@ export class ObjectIndex {
     for await (const { key } of this.ds.query({ prefix: [pageKey] })) {
       allKeys.push(key);
     }
-    // Delete in chunks rather than as one giant transaction.
     const deleteChunkSize = 500;
     for (let i = 0; i < allKeys.length; i += deleteChunkSize) {
       await this.ds.batchDelete(allKeys.slice(i, i + deleteChunkSize));
@@ -674,7 +850,6 @@ export class ObjectIndex {
       const allTags = [obj.tag, ...(obj.tags || [])];
       for (const tag of allTags) {
         const tagDefinition = tagDefinitions[tag];
-        // Validate object based on schema if required
         if (
           tagDefinition?.schema &&
           (tagDefinition?.mustValidate || throwOnValidationErrors)
@@ -697,7 +872,6 @@ export class ObjectIndex {
             }
           }
         }
-        // Validate object based on validate callback if required
         if (
           tagDefinition?.validate &&
           (tagDefinition?.mustValidate || throwOnValidationErrors)
@@ -717,7 +891,6 @@ export class ObjectIndex {
             }
           }
         }
-        // Transform object
         if (tagDefinition?.transform) {
           let newObjects;
           try {
@@ -727,13 +900,11 @@ export class ObjectIndex {
           }
 
           if (!newObjects) {
-            // null value returned, just index as usual
             tagsToWrite.push(tag);
             continue;
           }
 
           if (!Array.isArray(newObjects)) {
-            // Probably returned single object, let's normalize
             newObjects = [newObjects];
           }
           // A transform function _must_ either return an empty list of objects to index, or return at least one object with the same ref
@@ -753,7 +924,6 @@ export class ObjectIndex {
               current = newObj;
               foundAssignedRef = true;
             } else {
-              // Some other object — needs its own processing pass
               objects.push(newObj);
             }
           }
@@ -767,8 +937,6 @@ export class ObjectIndex {
           tagsToWrite.push(tag);
         }
       }
-      // Emit kvs with the final transformed value so every tag's row shares
-      // the same post-transform state.
       const refKey = this.cleanKey(current.ref, page);
       for (const tag of tagsToWrite) {
         kvs.push({

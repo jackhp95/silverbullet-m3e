@@ -17,7 +17,7 @@ Then, decorate your library page with some [[Frontmatter]]. Here is an minimal e
     tags: meta/library
     ---
     This implements my super awesome hello world library!
-    
+
     ```space-lua
     command.define {
       name = "Hello world",
@@ -62,14 +62,14 @@ You’ll notice that a few [[Share]] related frontmatter keys were set in your l
 
 If you used `files` to include additional assets, you have to commit those to the repository through other means.
 
-Your library is now ready to install, you can test this by running ${widgets.commandButton "Library: Install"} in a fresh space. As URI use the value of what is generated under `share.uri` in your library’s frontmatter. 
+Your library is now ready to install, you can test this by running ${widgets.commandButton "Library: Install"} in a fresh space. As URI use the value of what is generated under `share.uri` in your library’s frontmatter.
 
 You can now [broadcast that your library is ready to install](https://community.silverbullet.md/c/plugs-libraries/14)!
 
 # Create a repository
 If you develop a few libraries, it may be good to make them more discoverable. To do so, you can group them in a [[Repository|Repository]].
 
-For this, create another page in your space, this time under `Repository/`, e.g. `Repository/myuser` and tag it with `#meta/repository`. 
+For this, create another page in your space, this time under `Repository/`, e.g. `Repository/myuser` and tag it with `#meta/repository`.
 
 In the page body, put a list of all your libraries, encoded as [[Object#data|data objects]] as follows:
 
@@ -77,7 +77,7 @@ In the page body, put a list of all your libraries, encoded as [[Object#data|dat
     tags: meta/repository
     ---
     This is my curated list of awesome libraries!
-    
+
     ```#meta/library/remote
     name: Library1
     description: This is my first awesome library

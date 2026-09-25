@@ -13,13 +13,13 @@ ${some(query[[
 ]==](a)
 ]]) or "No aspiring pages, all good!"}
 
-# Conflicting copies
-These are pages that have conflicting copies (as a result of sync). Have a look at them as well as their original (non-conflicting) versions and decide which one to keep.
+# Ambiguous links
+These links are written as a bare page name that matches more than one page, so which page they open depends on where they are written. Following one asks which page you meant; to pin a link for good, write it out as a unique path or rename one of the colliding pages.
 
 ${some(query[[
-  from p = index.pages()
-  where p.name:find("%.conflicted:")
+  from a = index.ambiguousLinks()
+  limit 20
   select template.new[==[
-    * [[${name:gsub("%.conflicted:.+$", "")}]]: conflict copy [[${name}]]
-]==](p)
-]]) or "No conflicting pages!"}
+    * [[${ref}]]: ${name} currently opens ${resolvesTo}
+]==](a)
+]]) or "No ambiguous links, all good!"}

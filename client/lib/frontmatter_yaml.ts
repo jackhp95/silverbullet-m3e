@@ -212,17 +212,30 @@ export function serializeYamlValue(
 }
 
 /**
+ * Strips the leading/trailing `---` fence lines off a full frontmatter
+ * block's raw text, leaving just the inner YAML. Shared by
+ * `tryParseFrontMatter` (below) and `FrontMatterEditableCard`
+ * (front_matter_panel.tsx, 2026-09-22 raw-YAML-card task) — the card shows
+ * this same inner text as the editable textarea's value, so both must agree
+ * on exactly what counts as "the YAML" versus "the fences".
+ */
+export function stripFrontMatterFences(rawBlockText: string): string {
+  return rawBlockText
+    .replace(/^---[ \t]*(?:\r?\n|$)/, "")
+    .replace(/(?:\r?\n)?---[ \t]*$/, "");
+}
+
+/**
  * Re-parses a candidate full frontmatter block text and returns the parsed
  * object, or `undefined` if it's invalid YAML — the writeback validation
- * gate (L4.2) always calls this on the SPLICED result before dispatching a
- * CM transaction, never trusts the edit blind.
+ * gate (L4.2, and `FrontMatterEditableCard`'s own commit path) always calls
+ * this on the SPLICED result before dispatching a CM transaction, never
+ * trusts the edit blind.
  */
 export function tryParseFrontMatter(
   rawBlockText: string,
 ): Record<string, unknown> | undefined {
-  const yamlText = rawBlockText
-    .replace(/^---[ \t]*(?:\r?\n|$)/, "")
-    .replace(/(?:\r?\n)?---[ \t]*$/, "");
+  const yamlText = stripFrontMatterFences(rawBlockText);
   try {
     const parsed = YAML.load(yamlText);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {

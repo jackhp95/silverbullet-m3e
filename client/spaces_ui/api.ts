@@ -1,4 +1,14 @@
-import type { FieldError, UserInfo } from "./types.ts";
+import type { RuntimeAvailability } from "./runtime_availability.ts";
+import type {
+  AuthenticationStatus,
+  FieldError,
+  GitStatus,
+  GitDraft,
+  ProfileInfo,
+  UserInfo,
+  SpaceInfo,
+  VisibleSpace,
+} from "./types.ts";
 
 export async function api(
   method: string,
@@ -24,6 +34,11 @@ export async function api(
       },
     ];
     if (resp.status === 404) errors.notFound = true;
+    // A handful of routes (git sync) attach a structured `kind`/`message`
+    // alongside the generic `errors` array, for callers that want to run
+    // their own copy (e.g. `describeSyncError`) instead of the raw string.
+    if (typeof json.kind === "string") errors.kind = json.kind;
+    if (typeof json.message === "string") errors.detail = json.message;
     throw errors;
   }
   return json;
@@ -53,7 +68,24 @@ export function formatApiError(e: unknown): string {
   return "Request failed";
 }
 
-// --- User management (backed by users.json via the admin API) ------------
+/** Server-level facts for admin screens. See `RuntimeAvailability`. */
+export function getServerInfo(): Promise<{
+  runtimeApi: RuntimeAvailability;
+  runtimeApiEnabled: boolean;
+  primaryUrl?: string | null;
+}> {
+  return adminApi("GET", "server-info");
+}
+
+export async function listSpaceBindings(): Promise<VisibleSpace[]> {
+  const spaces: Record<string, SpaceInfo> = await adminApi("GET", "spaces");
+  return Object.entries(spaces).map(([id, space]) => ({
+    id,
+    name: space.name,
+    binding: space.binding,
+    access: space.access,
+  }));
+}
 
 export function listUsers(): Promise<Record<string, UserInfo>> {
   return adminApi("GET", "users");
@@ -71,8 +103,24 @@ export function createUser(
   username: string,
   password: string,
   admin: boolean,
+  fullName: string,
+  email: string,
+  loginMethod: "local" | "sso" = "local",
+  providerId = "",
+  expectedEmail = "",
 ): Promise<void> {
-  return adminApi("POST", "users", { username, password, admin });
+  const profile = { username, admin, fullName, email, loginMethod };
+  return adminApi(
+    "POST",
+    "users",
+    loginMethod === "sso"
+      ? { ...profile, providerId, expectedEmail }
+      : { ...profile, password },
+  );
+}
+
+export function getAuthenticationStatus(): Promise<AuthenticationStatus> {
+  return adminApi("GET", "authentication");
 }
 
 export function deleteUser(name: string): Promise<void> {
@@ -89,6 +137,34 @@ export function setUserAdmin(name: string, admin: boolean): Promise<void> {
   return adminApi("PUT", `users/${encodeURIComponent(name)}`, { admin });
 }
 
+export function setUserDisabled(
+  name: string,
+  disabled: boolean,
+): Promise<void> {
+  return adminApi("POST", `users/${encodeURIComponent(name)}/disabled`, {
+    disabled,
+  });
+}
+
+export function setUserProfile(
+  name: string,
+  fullName: string,
+  email: string,
+): Promise<void> {
+  return adminApi("PUT", `users/${encodeURIComponent(name)}/profile`, {
+    fullName,
+    email,
+  });
+}
+
+export function getProfile(): Promise<ProfileInfo> {
+  return api("GET", "api/profile");
+}
+
+export function setProfile(fullName: string, email: string): Promise<void> {
+  return api("PUT", "api/profile", { fullName, email });
+}
+
 export async function createToken(user: string, name: string): Promise<string> {
   const r = await adminApi("POST", `users/${encodeURIComponent(user)}/tokens`, {
     name,
@@ -96,9 +172,89 @@ export async function createToken(user: string, name: string): Promise<string> {
   return r.token;
 }
 
+export function signOutEverywhere(user: string): Promise<void> {
+  return adminApi("DELETE", `users/${encodeURIComponent(user)}/sessions`);
+}
+
 export function deleteToken(user: string, name: string): Promise<void> {
   return adminApi(
     "DELETE",
     `users/${encodeURIComponent(user)}/tokens/${encodeURIComponent(name)}`,
   );
+}
+
+export function getGitStatus(spaceId: string): Promise<GitStatus> {
+  return adminApi("GET", `spaces/${encodeURIComponent(spaceId)}/git`);
+}
+
+export function createGitDraft(spaceId: string): Promise<GitDraft> {
+  return adminApi("POST", `spaces/${encodeURIComponent(spaceId)}/git/draft`);
+}
+
+export function updateGitDraft(
+  spaceId: string,
+  draft: GitDraft,
+): Promise<GitDraft> {
+  return adminApi(
+    "PUT",
+    `spaces/${encodeURIComponent(spaceId)}/git/draft/${encodeURIComponent(draft.id)}`,
+    {
+      version: draft.version,
+      url: draft.url,
+      mode: draft.mode,
+      pullIntervalSecs: draft.pullIntervalSecs,
+    },
+  );
+}
+
+export function discardGitDraft(
+  spaceId: string,
+  draftId: string,
+): Promise<void> {
+  return adminApi(
+    "DELETE",
+    `spaces/${encodeURIComponent(spaceId)}/git/draft/${encodeURIComponent(draftId)}`,
+  );
+}
+
+export function gitDraftAction(
+  spaceId: string,
+  draft: GitDraft,
+  action: "key" | "test",
+): Promise<GitDraft> {
+  return adminApi(
+    "POST",
+    `spaces/${encodeURIComponent(spaceId)}/git/draft/${encodeURIComponent(draft.id)}/${action}`,
+    { version: draft.version },
+  );
+}
+
+export function applyGitDraft(
+  spaceId: string,
+  draft: GitDraft,
+  allowUnrelated: boolean,
+): Promise<void> {
+  return adminApi(
+    "POST",
+    `spaces/${encodeURIComponent(spaceId)}/git/draft/${encodeURIComponent(draft.id)}/apply`,
+    { version: draft.version, allowUnrelated },
+  );
+}
+
+export function setGitPaused(spaceId: string, paused: boolean): Promise<void> {
+  return adminApi(
+    "POST",
+    `spaces/${encodeURIComponent(spaceId)}/git/${paused ? "pause" : "resume"}`,
+  );
+}
+
+export function disconnectGit(spaceId: string): Promise<void> {
+  return adminApi(
+    "DELETE",
+    `spaces/${encodeURIComponent(spaceId)}/git/connection`,
+  );
+}
+
+export function syncGitNow(spaceId: string): Promise<void> {
+  return adminApi("POST", `spaces/${encodeURIComponent(spaceId)}/git/sync`, {});
 }

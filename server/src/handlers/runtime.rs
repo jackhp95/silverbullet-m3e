@@ -1,15 +1,16 @@
 //! `/.runtime/{lua,lua_script,logs}` — bridge HTTP to the Lua `RuntimeBackend`.
 //! When no backend is configured the runtime API is "not enabled" and every
-//! endpoint returns 503 (the per-space runtime gate).
+//! endpoint returns 503.
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::auth::Actor;
 use axum::body::Bytes;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::Json;
+use axum::{Extension, Json};
 use serde_json::json;
 
 use crate::runtime::RuntimeError;
@@ -17,8 +18,7 @@ use crate::state::ServerState;
 
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 
-/// `X-Timeout` is a whole number of **seconds** (default 30), matching the
-/// legacy standalone server.
+/// X-Timeout is a whole number of seconds, defaulting to 30.
 pub(crate) fn parse_timeout(headers: &HeaderMap) -> Duration {
     headers
         .get("X-Timeout")
@@ -39,6 +39,7 @@ fn not_enabled() -> Response {
 
 fn runtime_error_response(e: RuntimeError) -> Response {
     let (status, code) = match e {
+        RuntimeError::Forbidden => (StatusCode::FORBIDDEN, "forbidden"),
         RuntimeError::NotReady | RuntimeError::Transport(_) => {
             (StatusCode::SERVICE_UNAVAILABLE, "bridge_unavailable")
         }
@@ -62,27 +63,29 @@ enum EvalKind {
 
 pub async fn handle_runtime_lua(
     State(state): State<Arc<ServerState>>,
+    Extension(actor): Extension<Actor>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    runtime_eval(state, headers, body, EvalKind::Lua).await
+    runtime_eval(state, actor, headers, body, EvalKind::Lua).await
 }
 
 pub async fn handle_runtime_lua_script(
     State(state): State<Arc<ServerState>>,
+    Extension(actor): Extension<Actor>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    runtime_eval(state, headers, body, EvalKind::Script).await
+    runtime_eval(state, actor, headers, body, EvalKind::Script).await
 }
 
 async fn runtime_eval(
     state: Arc<ServerState>,
+    actor: Actor,
     headers: HeaderMap,
     body: Bytes,
     kind: EvalKind,
 ) -> Response {
-    // Counted on entry (the eval endpoints only).
     if let Some(metrics) = state.metrics.as_ref() {
         metrics.runtime_api_requests.inc();
     }
@@ -107,9 +110,11 @@ async fn runtime_eval(
     // the blocking pool so it never stalls an async worker.
     let st = state.clone();
     let result = tokio::task::spawn_blocking(move || {
-        st.runtime
+        let runtime = st.runtime.as_ref().expect("runtime present");
+        let selected = runtime.for_actor(&actor)?;
+        selected
             .as_ref()
-            .expect("runtime present (checked above)")
+            .unwrap_or(runtime)
             .eval_global(fn_name, &code, timeout)
     })
     .await;
@@ -133,14 +138,28 @@ pub struct LogsQuery {
 
 pub async fn handle_runtime_logs(
     State(state): State<Arc<ServerState>>,
+    Extension(actor): Extension<Actor>,
     Query(params): Query<LogsQuery>,
 ) -> Response {
     let Some(rt) = state.runtime.as_ref() else {
         return not_enabled();
     };
-    let limit = params.limit.unwrap_or(100);
-    let logs = rt.logs(limit, params.since);
-    (StatusCode::OK, Json(json!({ "logs": logs }))).into_response()
+    let runtime = rt.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let selected = runtime.for_actor(&actor)?;
+        Ok::<_, RuntimeError>(
+            selected
+                .as_ref()
+                .unwrap_or(&runtime)
+                .logs(params.limit.unwrap_or(100), params.since),
+        )
+    })
+    .await;
+    match result {
+        Ok(Ok(logs)) => (StatusCode::OK, Json(json!({ "logs": logs }))).into_response(),
+        Ok(Err(error)) => runtime_error_response(error),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 }
 
 #[cfg(test)]
@@ -150,7 +169,7 @@ mod tests {
     use crate::test_support::test_state;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tower::ServiceExt;
 
@@ -158,6 +177,7 @@ mod tests {
     struct FakeBackend {
         eval: Result<serde_json::Value, RuntimeErrorKind>,
         logs: Vec<LogEntry>,
+        calls: Arc<Mutex<Vec<(String, String)>>>,
     }
     /// A `Clone`-able error description (RuntimeError isn't Clone).
     #[derive(Clone)]
@@ -171,12 +191,14 @@ mod tests {
             Self {
                 eval: Ok(value),
                 logs: vec![],
+                calls: Arc::new(Mutex::new(vec![])),
             }
         }
         fn failing(kind: RuntimeErrorKind) -> Self {
             Self {
                 eval: Err(kind),
                 logs: vec![],
+                calls: Arc::new(Mutex::new(vec![])),
             }
         }
         fn err(&self) -> RuntimeError {
@@ -190,10 +212,14 @@ mod tests {
     impl RuntimeBackend for FakeBackend {
         fn eval_global(
             &self,
-            _fn_name: &str,
-            _arg: &str,
+            fn_name: &str,
+            arg: &str,
             _t: Duration,
         ) -> Result<serde_json::Value, RuntimeError> {
+            self.calls
+                .lock()
+                .unwrap()
+                .push((fn_name.to_string(), arg.to_string()));
             self.eval.clone().map_err(|_| self.err())
         }
         fn logs(&self, _limit: usize, _since: Option<i64>) -> Vec<LogEntry> {
@@ -206,7 +232,7 @@ mod tests {
 
     fn state_with_runtime(backend: Option<Box<dyn RuntimeBackend>>) -> Arc<ServerState> {
         let mut s = test_state();
-        s.runtime = backend;
+        s.runtime = backend.map(Arc::from);
         Arc::new(s)
     }
 
@@ -237,10 +263,38 @@ mod tests {
 
     #[tokio::test]
     async fn eval_success_returns_envelope_200() {
-        let backend = Box::new(FakeBackend::returning(serde_json::json!(2)));
-        let (status, body) = post_lua(state_with_runtime(Some(backend)), "1 + 1").await;
+        let backend = FakeBackend::returning(serde_json::json!(2));
+        let calls = backend.calls.clone();
+        let (status, body) = post_lua(state_with_runtime(Some(Box::new(backend))), "1 + 1").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, r#"{"result":2}"#);
+        assert_eq!(
+            calls.lock().unwrap().as_slice(),
+            &[("sbRuntime.evalLua".into(), "1 + 1".into())]
+        );
+    }
+
+    #[tokio::test]
+    async fn script_endpoint_uses_script_evaluator() {
+        let backend = FakeBackend::returning(serde_json::json!(null));
+        let calls = backend.calls.clone();
+        let state = state_with_runtime(Some(Box::new(backend)));
+        let resp = crate::build_router(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/.runtime/lua_script")
+                    .body(Body::from("value = 1"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            calls.lock().unwrap().as_slice(),
+            &[("sbRuntime.evalLuaScript".into(), "value = 1".into())]
+        );
     }
 
     #[tokio::test]
@@ -264,7 +318,6 @@ mod tests {
         let (status, body) = post_lua(state_with_runtime(Some(backend)), "editor.reload()").await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert!(body.contains("script_error"), "{body}");
-        // The clean message flows verbatim into the `error` field (no Debug dump).
         assert!(
             body.contains(r#""error":"attempt to call a nil value""#),
             "{body}"
@@ -301,9 +354,11 @@ mod tests {
         let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
-        let body = String::from_utf8_lossy(&bytes);
-        assert!(body.contains(r#""logs":["#), "{body}");
-        assert!(body.contains(r#""text":"hi""#), "{body}");
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({"logs": [{"level": "log", "text": "hi", "timestamp": 1}]})
+        );
     }
 
     #[tokio::test]

@@ -1,126 +1,120 @@
-import { Confirm, Prompt } from "./components/basic_modals.tsx";
-import {
-  CommandPalette,
-  keyboardHint,
-  triggerCommand,
-} from "./components/command_palette.tsx";
-import { FilterList } from "./components/filter.tsx";
-import {
-  AnythingPicker,
-  navigateToAnythingPickerName,
-  navigateToAnythingPickerRef,
-} from "./components/anything_picker.tsx";
-import {
-  type AppBarMenuItem,
-  type BreadcrumbItem,
-  TopBar,
-} from "./components/top_bar.tsx";
-import { FloatingToolbar } from "./components/floating_toolbar.tsx";
-import { FrontMatterPanel } from "./components/front_matter_panel.tsx";
-import { findFrontmatterBlock } from "./codemirror/frontmatter_folding.ts";
-import { SearchSheet } from "./components/search_sheet.tsx";
-import { NavigationSheet } from "./components/navigation_sheet.tsx";
-import { notificationsIconFor } from "./lib/push_ui.ts";
-import reducer from "./reducer.ts";
-import {
-  type Action,
-  type AppViewState,
-  initialViewState,
-} from "./types/ui.ts";
-import "@m3e/web/theme";
-import "@m3e/web/snackbar";
-// Registers m3e-chip/-assist-chip/etc (used by codemirror/hashtag.ts,
-// frontmatter_folding.ts, and markdown_renderer/markdown_render.ts for tag
-// pills) here rather than in those lower-level modules: they're imported by
-// plain-Node vitest unit tests with no DOM, where a side-effect import
-// defining a `class extends LitElement` would throw at load time.
-// Registration is global, so importing it once here covers all of them.
-import "@m3e/web/chips";
-// Side-panel chrome (lhs/rhs) — see the `#sb-main` block below. Only the
-// host/wrapper is reskinned here; Panel (panel.tsx) itself, the plug-owned
-// iframe/Shadow-DOM content it hosts, is untouched.
-import "@m3e/web/drawer-container";
-import "@m3e/web/icon-button";
-import "@m3e/web/icon";
-import "./components/m3e-jsx.d.ts";
-import { h, render as preactRender } from "preact";
-import { useEffect, useReducer, useState } from "preact/hooks";
 import { closeSearchPanel } from "@codemirror/search";
 import { runScopeHandlers } from "@codemirror/view";
-import type { Client } from "./client.ts";
-import { Panel } from "./components/panel.tsx";
-import { safeRun } from "@silverbulletmd/silverbullet/lib/async";
+// Global custom-element registration for `<m3e-assist-chip>` (tag pills, both
+// in the live CodeMirror editor via codemirror/hashtag.ts, and in rendered
+// markdown/widgets via markdown_renderer/markdown_render.ts's Hashtag case).
+// This is the browser-only app root, so one side-effect import here covers
+// every module that renders the tag — those modules can't import it
+// themselves because they're also loaded by plain-Node vitest unit tests
+// with no DOM (see frontmatter_folding.test.ts's `domTest` guard; a
+// LitElement class throws immediately at import time without a global
+// `HTMLElement`).
+import "@m3e/web/chips";
+// Global custom-element registration for the navigator panel's m3e reskin
+// (client/navigator/ui/components/{nav_root,dock_menu,content_view,
+// loading_indicator}.tsx) -- same reason as the chips import just above:
+// this is the browser-only app root, and none of those files may
+// self-import an `@m3e/web/*` module at module scope, because several
+// siblings under client/navigator/ have `.test.ts` files that run under
+// vitest's DOM-less `node` environment (a Lit custom-element class throws
+// immediately at import time with no global `HTMLElement`).
+import "@m3e/web/search"; // m3e-search-bar: the filter input's chrome; also registers m3e-search-view (CS-4's FilterList)
+import "@m3e/web/icon-button"; // m3e-icon-button: close/copy/dock-menu-trigger
+import "@m3e/web/menu"; // m3e-menu/-item-radio/-trigger: the dock-placement menu
+import "@m3e/web/progress-indicator"; // m3e-circular-progress-indicator: the loading spinner
+// m3e-list / m3e-list-item: CS-4's FilterList result rows (client/components/filter.tsx).
+import "@m3e/web/list";
+// Same reasoning as `@m3e/web/chips` above, for `<m3e-button>`: `Button`
+// (plug-api/ui/button.tsx) is reachable from plug FUNCTION code too (no
+// DOM), so its kit file deliberately doesn't self-register — every real
+// DOM-side consumer must, and this app root is the one that covers
+// client/navigator/ui/components/revision_preview.tsx's `<Button>` usage
+// (the only direct Button consumer left in the editor bundle;
+// client/components/basic_modals.tsx self-registers its own `@m3e/web/button`
+// since it isn't reachable from plug FUNCTION code, and
+// client/components/filter.tsx / top_bar.tsx render `Input` with `bare`,
+// which never renders an m3e element at all).
+import "@m3e/web/button";
+// m3e-theme: dynamic-color root wrapping MainUI (CS-1), seeded from the
+// space's `--ui-accent-color` custom property.
+import "@m3e/web/theme";
+// m3e-card / m3e-app-bar / m3e-icon: client/codemirror/lua_widget.ts's
+// TOP/BOTTOM Lua array widgets (Linked Mentions, TOC, Linked Tasks) have
+// rendered these tags since Slice 2's `3f6ba829` -- registering them here
+// is what actually upgrades them from inert HTML.
+import "@m3e/web/card";
+import "@m3e/web/app-bar";
+import "@m3e/web/breadcrumb"; // m3e-breadcrumb/-item: top_bar.tsx's app-bar leading-slot folder trail (CS-7a).
+import "@m3e/web/icon";
+// m3e-dialog: the plug modal (`showPanel("modal", ...)`) below.
+import "@m3e/web/dialog";
+// m3e-textarea-autosize: the frontmatter raw-YAML card
+// (client/components/front_matter_panel.tsx, a CodeMirror block widget).
+import "@m3e/web/textarea-autosize";
+// m3e-toolbar: the floating toolbar (client/components/floating_toolbar.tsx).
+import "@m3e/web/toolbar";
+import { getNameFromPath } from "@silverbulletmd/silverbullet/lib/ref";
 import type {
   FilterOption,
   NotificationAction,
   NotificationType,
 } from "@silverbulletmd/silverbullet/type/client";
 import { notificationDismissTimeouts } from "@silverbulletmd/silverbullet/type/client";
+import { h, render as preactRender } from "preact";
+import { useEffect, useMemo, useReducer, useState } from "preact/hooks";
+import * as featherIcons from "preact-feather";
+import { isMacLike, keyboardHint } from "../plug-api/lib/shortcut.ts";
 import {
-  getNameFromPath,
-  isMarkdownPath,
-  isValidName,
-  parseToRef,
-  type Path,
-} from "@silverbulletmd/silverbullet/lib/ref";
+  type ConfiguredActionButton,
+  visibleActionButtons,
+} from "./action_buttons.ts";
+import type { Client } from "./client.ts";
+import { AnchoredMenu } from "./components/anchored_menu.tsx";
+import { Confirm, Prompt } from "./components/basic_modals.tsx";
+import { findFrontmatterBlock } from "./codemirror/frontmatter_folding.ts";
+import { FilterList } from "./components/filter.tsx";
+import { FloatingToolbar } from "./components/floating_toolbar.tsx";
+import { Panel } from "./components/panel.tsx";
 import {
-  getPushSubscriptionState,
-  isPushSupported,
-  subscribeToPush,
-  unsubscribeFromPush,
-} from "./lib/push_subscribe.ts";
+  editorProfileMenuItems,
+  ProfileAvatar,
+  profileMenuHeader,
+  profileMenuLabel,
+} from "./components/profile_button.tsx";
+import {
+  type AppBarMenuItem,
+  type BreadcrumbItem,
+  TopBar,
+} from "./components/top_bar.tsx";
+import * as mdi from "./filtered_material_icons.ts";
+import { kebabToPascal } from "./lib/feather_icons.ts";
+import { accentSeed } from "./lib/theme_seed.ts";
+import { RevisionPreviewModal } from "./navigator/ui/components/revision_preview.tsx";
+import { NavigatorDock, NavigatorModal } from "./navigator/ui/panels.tsx";
+import { useNavigatorSlot } from "./navigator/ui/slots.ts";
+import {
+  CHECKING_LABEL,
+  isPushActionable,
+  notificationsIconFor,
+  PUSH_STATE_DETAILS,
+  type PushState,
+  pushMenuLabel,
+} from "./lib/push_ui.ts";
+import { loadProfile, type ProfileState } from "./profile.ts";
+import { readPushState, togglePush } from "./push_toggle.ts";
+import reducer from "./reducer.ts";
+import {
+  type Action,
+  type AppViewState,
+  initialViewState,
+} from "./types/ui.ts";
 
-// `EDITOR_SCROLL_CONTAINER_ID` ("sb-editor-scroller" — the stable id
-// formerly stamped onto CodeMirror's own `scrollDOM` for `m3e-app-bar`'s
-// `for`-driven scroll elevation) was deleted 2026-09-22 (L7 removed the
-// stamp in client.ts, L8 removed its last consumer, `top_bar.tsx`'s
-// `scrollContainerId` prop) — CodeMirror's `.cm-scroller` no longer scrolls
-// at all (L6, auto-height/"page scrolls" mode) and the app bar is no
-// longer `for`-attached (L8, non-sticky `size="large"`). `PAGE_SCROLL_
-// CONTAINER_ID` below is the one real scrolling ancestor now.
+// _tokens.scss's own `--ui-accent-color` default -- used only if the
+// computed custom property can't be read at all (e.g. no matching rule).
+const FALLBACK_ACCENT = "#3569b8";
 
-// Stable id of the new light-DOM scroll+snap container introduced by the
-// 2026-09-22 large-app-bar/inline-frontmatter plan (§2/L5) — the sole child
-// of `m3e-drawer-container`'s default slot, holding the front-matter panel,
-// `<TopBar>`, and `#sb-editor` in document order. CodeMirror's own
-// `.cm-scroller` no longer owns scroll once L6 configures it for
-// auto-height ("page scrolls") mode — every consumer that used to read
-// `editorView.scrollDOM.scrollTop` must read this element's `scrollTop`
-// instead (L7).
-export const PAGE_SCROLL_CONTAINER_ID = "sb-page-scroll";
-
-// m3e-snackbar (node_modules/@m3e/web/dist/src/snackbar/SnackbarElement.d.ts,
-// v2.7.12, verified against the installed CEM — not the older v2.7.3 pinned
-// in the m3e skill card) has no `type`/severity/variant/role attribute or
-// option at all; its only styling seam for this is the documented
-// `--m3e-snackbar-container-color` cssprop. Map each real `NotificationType`
-// to the matching M3 system-color token (core.js confirms the live var
-// names: `--md-sys-color-error`, `--md-sys-color-tertiary`); "info" is left
-// `undefined` to keep the library's own neutral default.
-const SEVERITY_CONTAINER_COLOR: Record<NotificationType, string | undefined> = {
-  info: undefined,
-  warning: "var(--md-sys-color-tertiary)",
-  error: "var(--md-sys-color-error)",
-};
-
-// TopBar's "N min read" subtitle segment (2026-09-22 V5b, L8) should reflect
-// body prose, not YAML key/value noise — slice the frontmatter range out the
-// same way `client/lib/reading_time.ts`'s doc comment specifies (§1.3 of the
-// plan). Computed inline at render time, same as `pageNamePrefix`/`cssClass`
-// just below in the JSX — this file's `ViewComponent` already re-renders on
-// every `page-changed`/`document-editor-changed` dispatch (reducer.ts), i.e.
-// on every doc edit, so no separate live-doc subscription is needed here.
-// `FrontMatterPanel` (client/components/front_matter_panel.tsx) re-derives
-// the same frontmatter range independently via its own CM `ViewPlugin` —
-// a candidate to unify behind one shared hook if the duplication grows,
-// per the plan's own note, not attempted in this leaf.
-//
-// Guarded against `client.editorView` not existing yet: `client.ts` calls
-// `this.ui.render(this.parent)` (MainUI's first render) BEFORE `this.
-// editorView = new EditorView(...)` a few lines later — so the very first
-// render pass has no editor view at all. Without this guard the first
-// render throws (`Cannot read properties of undefined (reading 'state')`),
-// verified live at :3333 during this leaf's own verification pass.
+// Page body minus frontmatter, for the app bar's "N min read" subtitle.
+// `editorView` is unset on MainUI's first render (fork `1f8b8943`).
 function computeBodyText(client: Client): string {
   const state = client.editorView?.state;
   if (!state) return "";
@@ -132,12 +126,38 @@ export class MainUI {
   viewState: AppViewState = initialViewState;
 
   constructor(private client: Client) {
+    // Safari treats Cmd-O as its own "Open File..." shortcut and wins before
+    // any bubble-phase listener -- including CodeMirror's own keymap and the
+    // bubble-phase fallback right below -- ever sees the keydown. Caught here
+    // at capture phase, ahead of that default, and only prevented when a
+    // handler actually claims it (an unbound Cmd-O still opens Safari's
+    // dialog, same as before). `stopPropagation` keeps the bubble-phase
+    // listeners from also matching the same chord and running it twice.
+    globalThis.addEventListener(
+      "keydown",
+      (ev) => {
+        if (
+          ev.target instanceof Element &&
+          ev.target.closest(".sb-anchored-menu")
+        )
+          return;
+        const cmd = isMacLike ? ev.metaKey : ev.ctrlKey;
+        if (!cmd || ev.altKey || ev.shiftKey || ev.key.toLowerCase() !== "o") {
+          return;
+        }
+        if (runScopeHandlers(client.editorView, ev, "editor")) {
+          ev.preventDefault();
+          ev.stopPropagation();
+        }
+      },
+      { capture: true },
+    );
+
     // Make keyboard shortcuts work even when the editor is in read only mode or not focused
     globalThis.addEventListener("keydown", (ev) => {
       if (!client.editorView.hasFocus) {
         const target = ev.target as HTMLElement;
         if (target.className === "cm-textfield" && ev.key === "Escape") {
-          // Search panel is open, let's close it
           console.log("Closing search panel");
           closeSearchPanel(client.editorView);
           return;
@@ -146,17 +166,12 @@ export class MainUI {
           target.closest(".cm-content") ||
           target.closest(".cm-vim-panel")
         ) {
-          // In some cm element, let's back out
           return;
         } else if (
           target.closest('input, textarea, select, [contenteditable="true"]')
         ) {
-          // Focus is in a native form field (e.g. the top-bar page-name
-          // editor). Let the field own keys it handles natively — typing,
-          // caret navigation, and the standard clipboard/undo/select-all
-          // combos — but still forward genuine command shortcuts (e.g. Cmd-K)
-          // so they keep working from the field, like they did in the old
-          // CodeMirror mini-editor.
+          // Let native fields handle typing, navigation, and editing shortcuts while
+          // forwarding command shortcuts such as Cmd-K.
           const cmd = ev.metaKey || ev.ctrlKey;
           const key = ev.key.toLowerCase();
           const fieldHandlesNatively =
@@ -175,7 +190,6 @@ export class MainUI {
           if (fieldHandlesNatively) {
             return;
           }
-          // Otherwise fall through and forward the shortcut to the editor.
         }
         if (runScopeHandlers(client.editorView, ev, "editor")) {
           ev.preventDefault();
@@ -184,13 +198,11 @@ export class MainUI {
     });
 
     globalThis.addEventListener("touchstart", (ev) => {
-      // Launch the page picker on a two-finger tap
       if (ev.touches.length === 2) {
         ev.stopPropagation();
         ev.preventDefault();
-        client.startPageNavigate("page");
+        void client.startPageNavigate("page");
       }
-      // Launch the command palette using a three-finger tap
       if (ev.touches.length === 3) {
         ev.stopPropagation();
         ev.preventDefault();
@@ -205,44 +217,16 @@ export class MainUI {
     });
   }
 
-  // Progress circle handling
-  private progressTimeout?: ReturnType<typeof setTimeout>;
+  private progressMap = new Map<
+    "index" | "sync",
+    {
+      percentage: number;
+      timeout: ReturnType<typeof setTimeout>;
+    }
+  >();
 
   viewDispatch: (action: Action) => void = () => {};
 
-  // Real m3e-snackbar (node_modules/@m3e/web/dist/src/snackbar/Snackbar.d.ts,
-  // v2.7.12) replaces the old ad hoc `viewState.notifications` + portal-
-  // rendered toast (top_bar.tsx's old NotificationPanel). `M3eSnackbar.open`
-  // is the component's own documented global imperative API — a real
-  // singleton snackbar element it creates/appends/removes itself, not a
-  // hand-rolled store. External signature is unchanged (this is still the
-  // exact method `editor.flashNotification` — a public, Space-Lua-facing
-  // syscall, client/plugos/syscalls/editor.ts — calls), only the rendering
-  // is swapped, matching every other component patch this round.
-  //
-  // Severity: error/warning now also drive `--m3e-snackbar-container-color`
-  // (SEVERITY_CONTAINER_COLOR above) in addition to the existing text
-  // prefix — color alone would be a WCAG 1.4.1 "use of color" violation for
-  // anyone who can't distinguish the hue, so the prefix stays as the
-  // non-color channel. `M3eSnackbar.open()` returns void and creates its own
-  // element internally (Snackbar.d.ts) — `M3eSnackbarElement.current` only
-  // updates inside its async `beforetoggle` handler (Lit's update cycle is
-  // microtask-deferred), so it isn't readable synchronously here. The
-  // synchronously-reliable handle is `document.body.lastElementChild`: the
-  // compiled source (snackbar.js) does `document.body.append(snackbar)`
-  // immediately before returning, and nothing else can run between that and
-  // this line (single JS thread) — so it's guaranteed to be the element
-  // `.open()` just created, not a DOM-hunt.
-  //
-  // Single-at-a-time (deliberate, not a gap): kept as-is. Material's
-  // snackbar pattern — and this library's implementation specifically
-  // (`M3eSnackbarElement.__current`, `_handleBeforeToggle` forcibly closes
-  // whatever's showing before opening the next) — is a hard singleton, not
-  // a policy choice on our side. Reintroducing a stacked queue would mean
-  // bypassing `M3eSnackbar.open()` entirely and hand-rolling our own
-  // multi-toast stack outside the vendored component, which is exactly the
-  // kind of hand-rolled store this reskin was removing. A second
-  // `flashNotification` while one is showing replaces it, same as before.
   flashNotification(
     message: string,
     type: NotificationType = "info",
@@ -250,48 +234,85 @@ export class MainUI {
       timeout?: number;
       actions?: NotificationAction[];
     },
-  ) {
+  ): number {
+    const id = Math.floor(Math.random() * 1000000);
+    const dismiss = () => {
+      this.viewDispatch({ type: "dismiss-notification", id });
+    };
     const persistent = options?.timeout === 0;
-    const duration = persistent
-      ? 0
-      : (options?.timeout ?? notificationDismissTimeouts[type]);
-    const prefix = type === "error" ? "Error: " : type === "warning" ? "Warning: " : "";
-    const primaryAction = options?.actions?.[0];
-    if (primaryAction) {
-      globalThis.M3eSnackbar.open(`${prefix}${message}`, primaryAction.name, true, {
-        duration,
-        actionCallback: primaryAction.run,
-      });
-    } else {
-      globalThis.M3eSnackbar.open(`${prefix}${message}`, persistent, { duration });
+    const actions = options?.actions?.map((action) => ({
+      name: action.name,
+      run: () => {
+        action.run();
+        dismiss();
+      },
+    }));
+    this.viewDispatch({
+      type: "show-notification",
+      notification: {
+        id,
+        type,
+        message,
+        date: new Date(),
+        actions,
+        persistent,
+      },
+    });
+    if (!persistent) {
+      const timeout = options?.timeout ?? notificationDismissTimeouts[type];
+      setTimeout(dismiss, timeout);
+    }
+    return id;
+  }
+
+  dismissNotification(id: number) {
+    this.viewDispatch({ type: "dismiss-notification", id });
+  }
+
+  private dispatchProgressState() {
+    if (this.progressMap.size === 0) {
+      this.viewDispatch({ type: "set-progress" });
+      return;
     }
 
-    const containerColor = SEVERITY_CONTAINER_COLOR[type];
-    if (containerColor) {
-      const el = document.body.lastElementChild;
-      if (el?.tagName === "M3E-SNACKBAR") {
-        (el as HTMLElement).style.setProperty(
-          "--m3e-snackbar-container-color",
-          containerColor,
-        );
-      }
+    // Sync takes precedence over index so the indicator
+    // doesn't flip between the two when both streams are firing.
+    const progressType: "sync" | "index" = this.progressMap.has("sync")
+      ? "sync"
+      : "index";
+    const entry = this.progressMap.get(progressType);
+    if (entry) {
+      this.viewDispatch({
+        type: "set-progress",
+        progressPercentage: entry.percentage,
+        progressType,
+      });
     }
   }
 
-  showProgress(progressPercentage?: number, progressType?: "sync" | "index") {
-    this.viewDispatch({
-      type: "set-progress",
-      progressPercentage,
-      progressType,
-    });
-    if (this.progressTimeout) {
-      clearTimeout(this.progressTimeout);
+  private removeProgressType(progressType: "index" | "sync") {
+    const entry = this.progressMap.get(progressType);
+    if (entry) {
+      clearTimeout(entry.timeout);
+      this.progressMap.delete(progressType);
     }
-    this.progressTimeout = setTimeout(() => {
-      this.viewDispatch({
-        type: "set-progress",
+  }
+
+  showProgress(progressType: "sync" | "index", progressPercentage?: number) {
+    this.removeProgressType(progressType);
+
+    if (progressPercentage !== undefined) {
+      const timeout = setTimeout(() => {
+        this.removeProgressType(progressType);
+        this.dispatchProgressState();
+      }, 5000);
+      this.progressMap.set(progressType, {
+        percentage: progressPercentage,
+        timeout,
       });
-    }, 5000);
+    }
+
+    this.dispatchProgressState();
   }
 
   filterBox(
@@ -353,186 +374,65 @@ export class MainUI {
     const [viewState, dispatch] = useReducer(reducer, initialViewState);
     this.viewState = viewState;
     this.viewDispatch = dispatch;
+
     const client = this.client;
 
-    // Single source of truth for read-only state — the same expression that
-    // already drove TopBar's readOnly prop below and CodeMirror's editable
-    // config (client/codemirror/editor_state.ts). Reused for the floating
-    // toolbar's lock/unlock icon and the mono→sans editor-font swap so all
-    // three stay in lockstep with the real state, not separately guessed.
-    const isReadOnly = viewState.uiOptions.forcedROMode ||
-      client.bootConfig.readOnly;
+    // Single source of truth for read-only state — same expression that
+    // used to be inlined at TopBar's `readOnly` prop below, now also
+    // driving whether the Std library's static "lock" actionButton is
+    // filtered out in favor of TopBar's own live toggle.
+    const isReadOnly =
+      viewState.uiOptions.forcedROMode || client.bootConfig.readOnly;
 
-    // Reflects read-only mode onto <html> so a space-style-independent CSS
-    // rule (theme.scss, `html[data-read-only="on"]`) can swap
-    // --editor-font to the sans-serif --ui-font stack. Same
-    // dataset-attribute pattern as the darkMode/markdownSyntaxRendering
-    // effects below.
+    // Loaded once on mount, not polled or re-fetched on navigation
+    const [profile, setProfile] = useState<ProfileState>({
+      status: "unavailable",
+    });
     useEffect(() => {
-      document.documentElement.dataset.readOnly = isReadOnly ? "on" : "off";
-    }, [isReadOnly]);
-
-    // Web Push subscribe toggle (spec §5.1) — floating toolbar's bell icon.
-    // `pushState` mirrors what `PushManager.getSubscription()`/
-    // `Notification.permission` actually report, checked once at mount, so
-    // a reload (or a permission the user changed in browser settings) still
-    // renders correctly instead of just tracking this session's own clicks.
-    // See client/lib/push_subscribe.ts for the actual subscribe/unsubscribe
-    // logic and where `vapidPublicKey`/`pushSidecarUrl` come from.
-    const [pushState, setPushState] = useState<
-      | "checking"
-      | "unsupported"
-      | "not-configured"
-      | "denied"
-      | "off"
-      | "pending"
-      | "on"
-      | "error"
-    >("checking");
-
-    useEffect(() => {
-      safeRun(async () => {
-        if (!isPushSupported()) {
-          setPushState("unsupported");
-          return;
-        }
-        if (!client.bootConfig.vapidPublicKey || !client.bootConfig.pushSidecarUrl) {
-          setPushState("not-configured");
-          return;
-        }
-        if (Notification.permission === "denied") {
-          setPushState("denied");
-          return;
-        }
-        const registration = await navigator.serviceWorker.ready;
-        const subscribed =
-          (await getPushSubscriptionState(registration)) === "subscribed";
-        setPushState(subscribed ? "on" : "off");
-      });
-      // Deliberately once-at-mount: there's no browser event for a
-      // permission change made outside the app, and re-deriving on every
-      // render would fight the "pending" state set during the click handler
-      // below.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+      // `/.spaces/*` only exists on account-managed servers; asking for it
+      // anywhere else is a guaranteed 404 on every boot.
+      if (!client.bootConfig.accountManaged) return;
+      void loadProfile().then(setProfile);
     }, []);
 
-    // Two registers for the same state, because a kebab menu item and a
-    // flash notification want different lengths. `PUSH_TOGGLE_LABELS` is
-    // what the item renders: short enough to fit the ~228px an m3e-menu-item
-    // gives a label (see `AppBarMenuItem.label` in
-    // client/components/top_bar.tsx). `PUSH_TOGGLE_DETAILS` is the full
-    // sentence — it becomes the item's hover tooltip, and it's what gets
-    // flashed when an unavailable state is clicked, so nothing that
-    // explained *why* was lost in shortening the labels.
-    const PUSH_TOGGLE_LABELS: Record<typeof pushState, string> = {
-      checking: "Checking push support…",
-      unsupported: "Push not supported",
-      "not-configured": "Push not configured",
-      denied: "Push permission denied",
-      // These two are asserted verbatim by e2e/push-notifications.test.ts
-      // and are the states a working install actually sits in — leave the
-      // wording alone.
-      off: "Enable push notifications",
-      pending: "Enabling push notifications…",
-      on: "Push notifications are on — click to turn off",
-      error: "Push failed — click to retry",
-    };
+    const [menuTrigger, setMenuTrigger] = useState<HTMLElement | undefined>(
+      undefined,
+    );
 
-    const PUSH_TOGGLE_DETAILS: Record<typeof pushState, string> = {
-      checking: "Checking push notification support…",
-      unsupported: "Push notifications are not supported in this browser",
-      "not-configured": "Push notifications are not configured for this server",
-      denied:
-        "Notification permission was denied — enable it in your browser settings",
-      off: "Enable push notifications",
-      pending: "Enabling push notifications…",
-      on: "Push notifications are on — click to turn off",
-      error: "Push notifications failed — click to retry",
-    };
-
-    const pushToggle = pushState === "checking" ? undefined : {
-      active: pushState === "on",
-      unavailable: pushState === "unsupported" || pushState === "not-configured" ||
-        pushState === "denied",
-      pending: pushState === "pending",
-      label: PUSH_TOGGLE_LABELS[pushState],
-      detail: PUSH_TOGGLE_DETAILS[pushState],
-      onClick: () =>
-        safeRun(async () => {
-          if (
-            pushState === "unsupported" || pushState === "not-configured" ||
-            pushState === "denied"
-          ) {
-            // Nothing actionable from here — surface why, same channel as
-            // every other client-side notice.
-            client.ui.flashNotification(
-              PUSH_TOGGLE_DETAILS[pushState],
-              "info",
-            );
-            return;
-          }
-          const registration = await navigator.serviceWorker.ready;
-          if (pushState === "on") {
-            await unsubscribeFromPush(registration);
-            setPushState("off");
-            client.ui.flashNotification("Push notifications turned off");
-            return;
-          }
-          setPushState("pending");
-          const result = await subscribeToPush(registration, {
-            vapidPublicKey: client.bootConfig.vapidPublicKey!,
-            sidecarUrl: client.bootConfig.pushSidecarUrl!,
-          });
-          if (result.ok) {
-            setPushState("on");
-            client.ui.flashNotification("Push notifications enabled");
-          } else if (result.reason === "denied") {
-            setPushState("denied");
-            client.ui.flashNotification(
-              "Notification permission denied",
-              "error",
-            );
-          } else {
-            setPushState("error");
-            client.ui.flashNotification(
-              `Could not enable push notifications: ${
-                result.detail ?? result.reason
-              }`,
-              "error",
-            );
-          }
-        }),
-    };
-
-    // m3e-theme's `color` seed is sourced from the space's own
-    // `--ui-accent-color` custom property (client/styles/_tokens.scss;
-    // theme.scss overrides it per dark/light scheme) rather than a
-    // hardcoded literal, so a space that recolors its own accent via
-    // CONFIG.md space-style also recolors m3e's Material color roles
-    // instead of the two silently diverging. It's re-read every time
-    // `uiOptions.customStyles` changes rather than once at mount: a
-    // space-style override loads asynchronously well after this component's
-    // first render (client.ts's boot sequence mounts the UI at
-    // `this.ui.render(this.parent)` long before the awaited
-    // `this.loadCustomStyles()` near the end of boot has a chance to run,
-    // since it depends on the object index being available) — the
-    // `<style>` tag(s) it injects into `#custom-styles` are what can
-    // actually override `--ui-accent-color` on `html`, so reading the
-    // computed value only at mount would always see the pre-override
-    // default. `customStyles` starts `undefined` and changes exactly once
-    // (to the loaded content, even if empty) once `loadCustomStyles`
-    // dispatches, which is enough to trigger a re-read after the override
-    // (if any) is actually in the DOM. Falls back to the token's own
-    // default if the read ever comes back empty (shouldn't happen — the
-    // var always has a value from _tokens.scss — but a hardcoded fallback
-    // is cheap insurance against a blank m3e-theme color crashing render).
-    const [accentColor, setAccentColor] = useState("#464cfc");
+    // Kebab push item: `undefined` until the (async) first read resolves,
+    // re-read after every toggle; `togglePush` flashes its own outcome.
+    const [pushState, setPushState] = useState<PushState | undefined>();
+    const [pushPending, setPushPending] = useState(false);
     useEffect(() => {
-      const computed = getComputedStyle(document.documentElement)
-        .getPropertyValue("--ui-accent-color")
-        .trim();
-      if (computed) setAccentColor(computed);
+      void readPushState(client.bootConfig).then(setPushState);
+    }, []);
+
+    // `<m3e-theme>`'s color seed. Read once on mount and again whenever a
+    // space style finishes loading (`loadCustomStyles` sets `customStyles`
+    // after the `#custom-styles` stylesheet is in the DOM) -- a space style
+    // overriding `--ui-accent-color` only takes effect on the *next* read of
+    // the computed value, not retroactively on an already-read one.
+    const [themeColor, setThemeColor] = useState(FALLBACK_ACCENT);
+    useEffect(() => {
+      const computed = getComputedStyle(
+        document.documentElement,
+      ).getPropertyValue("--ui-accent-color");
+      setThemeColor(accentSeed(computed, FALLBACK_ACCENT));
     }, [viewState.uiOptions.customStyles]);
+
+    const themeScheme =
+      viewState.uiOptions.darkMode === undefined
+        ? "auto"
+        : viewState.uiOptions.darkMode
+          ? "dark"
+          : "light";
+
+    const navSlots = {
+      lhs: useNavigatorSlot("lhs"),
+      rhs: useNavigatorSlot("rhs"),
+      bhs: useNavigatorSlot("bhs"),
+      modal: useNavigatorSlot("modal"),
+    };
 
     useEffect(() => {
       if (viewState.current) {
@@ -582,124 +482,94 @@ export class MainUI {
         : "off";
     }, [viewState.uiOptions.markdownSyntaxRendering]);
 
+    // A navigator dock reserves top-bar space the same way a plug's own
+    // sidebar panel does, falling back to that panel's mode when no dock is
+    // open so nothing changes for a plug that has one.
+    const sidebarSpacer = (slot: "lhs" | "rhs") => {
+      const mode = navSlots[slot]?.mode ?? viewState.panels[slot].mode;
+      if (!mode) {
+        return false;
+      }
+      // The navigator's spacer deliberately doesn't carry the classic "panel"
+      // class: space styles that target `#sb-top .panel` (a common hack to
+      // neutralize the classic spacer) would otherwise break the title
+      // alignment this spacer exists for.
+      return (
+        <div
+          className={navSlots[slot] ? "sb-nav-spacer" : "panel"}
+          style={{ flex: mode }}
+        />
+      );
+    };
+    const navDockSignature = (["lhs", "rhs"] as const)
+      .map((slot) => `${slot}:${navSlots[slot]?.mode ?? ""}`)
+      .join(",");
+
     useEffect(() => {
       // Need to dispatch a resize event so that the top_bar can pick it up
       globalThis.dispatchEvent(new Event("resize"));
-    }, [viewState.panels]);
-    const actionButtons = client.config.get<ActionButtonConfig[]>(
+    }, [viewState.panels, navDockSignature]);
+
+    const actionButtons = client.config.get<ConfiguredActionButton[]>(
       "actionButtons",
       [],
     );
-    // Same filter/priority/icon-resolution logic the old TopBar
-    // `actionButtons` prop used to run inline — moved here, unchanged,
-    // shared by both the floating toolbar (below) AND the app-bar kebab's
-    // configMenuItems (also below, L8): same underlying CONFIG-defined
-    // buttons, two render targets, temporarily duplicated per L8's own
-    // scope (removal from the toolbar is a later leaf, L13).
-    const filteredActionButtons = actionButtons
-      .filter(
-        (button) =>
-          button.icon &&
-          (typeof button.mobile === "undefined" ||
-            button.mobile === viewState.isMobile) &&
-          (typeof button.standalone === "undefined" ||
-            button.standalone === viewState.isStandalone) &&
-          // The Std library's "Read Only Mode.md" ships this exact
-          // actionButton (icon "lock", mobile-only, static icon that never
-          // reflects real state). Our own `readOnlyToggle`, passed to TopBar
-          // and rendered in the app-bar trailing slot (spec §2.2), replaces it
-          // with a live, state-reflecting one shown regardless of device —
-          // filter the static original out here so it's not duplicated.
-          !(button.icon === "lock" &&
-            button.description === "Toggle read-only mode") &&
-          // The Std library's default Config.md ships a "home" actionButton
-          // (icon "home", command "Navigate: Home" — libraries/Library/Std/
-          // Config.md) whose exact function — go to the index/root page —
-          // the breadcrumb's own root "Space" segment now performs directly
-          // (see the breadcrumbItems computation below, which literally
-          // runs the same "Navigate: Home" command). And a demo/user space
-          // may ship a "github" actionButton (verified against this repo's
-          // own demo-space/CONFIG.md convention: icon "github", opening a
-          // repo URL) — that's a link-out, not a workspace action, and
-          // doesn't belong in a content-creation/navigation toolbar.
-          // Filtering by icon here (not editing either CONFIG.md) keeps
-          // this robust regardless of which space defines them — the same
-          // reasoning the pre-existing "lock" filter above already
-          // establishes. No "help"/question-mark actionButton exists
-          // anywhere in this repo state today (checked libraries/ and the
-          // repo root — there is no demo-space/ directory in this
-          // checkout), so there's nothing to filter for that concept yet.
-          button.icon !== "home" &&
-          button.icon !== "github",
-      )
-      .map((button, index) => ({
-        ...button,
-        priority: button.priority ?? actionButtons.length - index,
-      }))
-      .sort((a, b) => b.priority - a.priority);
-
-    // Item 11 / L8 (docs/plans/2026-09-16-toolbar-search-feedback-spec.md):
-    // every CONFIG-defined actionButton, surfaced as a trailing app-bar
-    // kebab entry (top_bar.tsx's `menuItems`) — as of L13 (the toolbar
-    // reduction, see floating_toolbar.tsx's header comment) this is the ONLY
-    // render target left for these; the toolbar itself no longer takes an
-    // `actions` prop at all. `icon` is
-    // deliberately left unset here: `button.icon` is a feather-icon name
-    // (APIs/Action Button.md: "feather icon to use for your button") — a
-    // different vocabulary than `AppBarMenuItem.icon`'s Material Symbols
-    // ligature string (top_bar.tsx). Reusing the raw feather name as a
-    // Material Symbols glyph name would render nothing or the wrong glyph
-    // for most of the icon set (verified: "activity"/"message-circle"/
-    // "book"/"terminal"/"chevron-left" etc. are not Material Symbols names).
-    // Text-only menu entries are correct here, not a placeholder.
-    const configMenuItems: AppBarMenuItem[] = filteredActionButtons.map(
-      (button, index): AppBarMenuItem => {
-        let label = button.description || button.icon;
-        if (button.command) {
-          const cmd = viewState.commands.get(button.command);
-          if (cmd) {
-            const hint = keyboardHint(cmd);
-            if (hint) label = `${label} (${hint})`;
-          }
-        }
-        return {
-          key: `config-action-${index}`,
-          label,
-          onClick: button.command
-            ? () => this.client.runCommandByName(button.command!)
-            : button.run ||
-              (() => {
-                this.flashNotification(
-                  "actionButton did not specify a command or run() callback",
-                  "error",
-                );
-              }),
-        };
-      },
+    // A fresh component identity would remount the avatar on every
+    // top-bar render, and the top bar re-renders on sync progress.
+    const profileAvatarComponent = useMemo(
+      () => ProfileAvatar(profile),
+      [profile],
+    );
+    // Gates both TopBar's own live toggle (below) and the Std static
+    // "lock" button filter (visibleActionButtons) — undefined when the
+    // command isn't registered (e.g. system.getMode() !== "rw", see
+    // "Read Only Mode.md"), same guard the fork used.
+    const readOnlyToggleShown = viewState.commands.has(
+      "Editor: Toggle Read Only Mode",
     );
 
-    // Breadcrumb segments for TopBar's <m3e-breadcrumb> (top_bar.tsx),
-    // derived from the current page's path. SB has no literal folder/
-    // directory concept — just a flat page-path namespace where "/" is an
-    // ordinary character in the page NAME (verified: no "folder"/
-    // "directory" concept anywhere in client/client.ts or
-    // plug-api/lib/ref.ts; `client.navigate`/`startPageNavigate` only take
-    // a `Ref` or a picker `mode`, never a path-prefix filter) — so there's
-    // no real "open this folder's index page" target to invent:
-    //  - the root "Space" segment reuses the exact real "Navigate: Home"
-    //    command (plugs/editor/editor.plug.yaml's `navigateHome`, `page:
-    //    ""` — the identical command the removed "home" actionButton used
-    //    to run, see the filteredActionButtons filter above), guarded the same way
-    //    readOnlyToggle already guards on command availability below.
-    //  - intermediate "folder" segments (everything between the root and
-    //    the final page-name segment) open the real, already-wired,
-    //    unfiltered page picker (`client.startPageNavigate("page")`) — not
-    //    a folder-prefix-filtered picker, since that would need new
-    //    plumbing through reducer.ts/types/ui.ts/anything_picker.tsx (none
-    //    of which this round touches); "search from here" is the closest
-    //    real, non-invented affordance SB's own APIs support today.
-    //  - the final segment is the current page itself: `current`, no
-    //    onClick (see BreadcrumbItem's own doc in top_bar.tsx).
+    const pushActionable =
+      pushState !== undefined && isPushActionable(pushState);
+    const pushLabel = pushMenuLabel(pushState, pushPending);
+    const onPushClick = () => {
+      setPushPending(true);
+      void togglePush(client)
+        .then(() => readPushState(client.bootConfig))
+        .then(setPushState)
+        .finally(() => setPushPending(false));
+    };
+    const appBarMenuItems: AppBarMenuItem[] = [
+      {
+        key: "push",
+        icon: notificationsIconFor(
+          pushState === undefined
+            ? undefined
+            : {
+                active: pushState === "on",
+                unavailable: !pushActionable,
+                pending: pushPending,
+                label: pushLabel,
+                onClick: onPushClick,
+              },
+        ),
+        label: pushLabel,
+        detail:
+          pushState === undefined
+            ? CHECKING_LABEL
+            : PUSH_STATE_DETAILS[pushState],
+        disabled: pushPending || !pushActionable,
+        onClick: onPushClick,
+      },
+      {
+        key: "open-config",
+        icon: "settings",
+        label: "Open Config",
+        onClick: () => void client.navigate({ path: "CONFIG.md" }),
+      },
+    ];
+
+    // App-bar breadcrumb: root runs "Navigate: Home", intermediate segments
+    // open the page navigator, the last segment is the current page.
     const currentPageName = viewState.current
       ? getNameFromPath(viewState.current.path)
       : undefined;
@@ -712,10 +582,7 @@ export class MainUI {
         label: "Space",
         current: pathSegments.length === 0,
         onClick: viewState.commands.has("Navigate: Home")
-          ? () =>
-            safeRun(async () => {
-              await client.runCommandByName("Navigate: Home");
-            })
+          ? () => void client.runCommandByName("Navigate: Home")
           : undefined,
       },
       ...pathSegments.map((segment, i) => {
@@ -724,137 +591,46 @@ export class MainUI {
           key: `sb-breadcrumb-${i}`,
           label: segment,
           current: isLast,
-          onClick: isLast ? undefined : () => client.startPageNavigate("page"),
+          onClick: isLast
+            ? undefined
+            : () => void client.startPageNavigate("page"),
         };
       }),
     ];
 
-    // Shared by AnythingPicker (below) and SearchSheet's "open" mode — same
-    // computation, one call instead of two.
-    const documentExtensions = new Set(
-      Array.from(
-        client.clientSystem.documentEditorHook.documentEditors.values(),
-      ).flatMap(({ extensions }) => extensions),
-    );
+    // Only one modal may occupy the slot; close the plug panel before the
+    // navigator takes its backdrop and focus.
+    const plugModalMode = viewState.panels.modal.mode;
+    useEffect(() => {
+      if (navSlots.modal && plugModalMode !== undefined) {
+        dispatch({ type: "hide-panel", id: "modal" });
+      }
+    }, [navSlots.modal, plugModalMode]);
+    const modalVisible = plugModalMode !== undefined && !navSlots.modal;
+    const modalInset = plugModalMode;
+    // PanelMode is a px inset (number) or a CSS length (string); m3e-dialog
+    // has no inset, so it becomes explicit width/max-height tokens.
+    const modalDialogWidth = typeof modalInset === "number"
+      ? `calc(100% - ${modalInset * 2}px)`
+      : `calc(100% - 2 * (${modalInset}))`;
+    const modalDialogHeight = typeof modalInset === "number"
+      ? `calc(100dvh - ${modalInset * 2}px)`
+      : `calc(100dvh - 2 * (${modalInset}))`;
+    // m3e-dialog's `.base` only caps height, so `.sb-modal` needs an explicit
+    // one; reserve ~88px for the dialog's own header row inside the cap.
+    const modalPanelHeight =
+      `calc(${modalDialogHeight} - 88px)`;
 
-    // Item 11 / L8, then 2026-09-17 vertical-toolbar redesign spec §2.10 (V8):
-    // trailing app-bar kebab contents (top_bar.tsx's `menuItems` prop, shell
-    // built in L6/L7). The Web Push toggle (`pushMenuItem`, all 8 `pushState`
-    // labels via `pushToggle`/`PUSH_TOGGLE_LABELS` above) is RESTORED here —
-    // N9 had moved it out to a notifications destination view, but this spec
-    // deletes that view and makes the toolbar's Notifications button a plain
-    // page-nav action, so the settings-shaped push toggle comes back to the
-    // kebab where non-primary toggles belong (spec §2.10, symmetric to the
-    // read-only toggle's app-bar trailing placement in §2.2). Three sources,
-    // in display order: the push toggle, a CONFIG-page link, then every
-    // CONFIG-defined actionButton (`configMenuItems` above).
-    //
-    // No dedicated "open the CONFIG page" command exists in
-    // `viewState.commands` — "Configuration: Open" (Cmd/Ctrl-,,
-    // plugs/configuration-manager) opens a different thing, a rich
-    // settings-manager panel (schemas/values/categories editor), not plain
-    // page navigation. `client.navigate({ path: "CONFIG" })` is the direct,
-    // already-established pattern in this file for jumping straight to a
-    // named page (see the recent-pages item below), and is what the
-    // configuration-manager plug's own `openConfigPage()` does via the
-    // equivalent plug-side syscall (`editor.navigate("CONFIG")`,
-    // plugs/configuration-manager/ui/components/app.tsx) — so this mirrors
-    // a real, already-used code path rather than inventing a new one.
-    const configLinkItem: AppBarMenuItem = {
-      key: "open-config",
-      icon: "settings",
-      label: "Open Config",
-      onClick: () =>
-        safeRun(async () => {
-          await client.navigate({ path: "CONFIG.md" as Path });
-        }),
-    };
-
-    // Web Push toggle, restored to the kebab (spec §2.10 / R9). Built from the
-    // `pushToggle` object above — `undefined` during the one-time "checking"
-    // state, same guard the pre-N9 item used, so that state simply omits the
-    // item rather than rendering something misleading. Icon comes from the
-    // extracted single-source `notificationsIconFor()` (client/lib/push_ui.ts,
-    // V2) — the same unavailable→off / active→active / else→notifications
-    // selection the old inline `pushMenuItem` hardcoded, now shared with the
-    // floating toolbar's Notifications button.
-    const pushMenuItem: AppBarMenuItem | undefined = pushToggle && {
-      key: "push-toggle",
-      icon: notificationsIconFor(pushToggle),
-      label: pushToggle.label,
-      detail: pushToggle.detail,
-      disabled: pushToggle.unavailable || pushToggle.pending,
-      onClick: pushToggle.onClick,
-    };
-
-    const menuItems: AppBarMenuItem[] = [
-      ...(pushMenuItem ? [pushMenuItem] : []),
-      configLinkItem,
-      ...configMenuItems,
-    ];
+    const bhsVisible = viewState.panels.bhs.mode !== undefined;
+    const plugBhsMode = viewState.panels.bhs.mode;
+    useEffect(() => {
+      if (navSlots.bhs && plugBhsMode !== undefined) {
+        dispatch({ type: "hide-panel", id: "bhs" });
+      }
+    }, [navSlots.bhs, plugBhsMode]);
 
     return (
-      // m3e components read Material color-role tokens (--md-sys-color-*)
-      // that only exist once something computes them — @m3e/web ships no
-      // static/baseline fallback for them anywhere in its bundle, they're
-      // set entirely at runtime by m3e-theme. Without this wrapper every
-      // m3e-app-bar/m3e-icon-button/m3e-search-view/m3e-list in the tree
-      // renders against unset custom properties (verified directly against
-      // node_modules/@m3e/web/dist/{core,theme}.js — zero static
-      // `--md-sys-color-*: value` definitions anywhere, only
-      // `--md-sys-color-${role}` built and .setProperty'd by ThemeElement).
-      // m3e-theme is `display: contents`, so swapping it in for the bare
-      // Fragment this used to be has no layout effect.
-      // Seed color is SB's own accent, read at mount from the computed
-      // `--ui-accent-color` custom property (client/styles/_tokens.scss;
-      // theme.scss overrides it per scheme; a space's CONFIG.md can
-      // override it further) — see the `accentColor` useState above — not
-      // a guessed or hardcoded brand color. That keeps a space that
-      // recolors its own accent in sync with m3e's Material color roles
-      // instead of the two silently diverging. scheme mirrors the same
-      // darkMode resolution the effect above already applies to
-      // `document.documentElement.dataset.theme`, so m3e and SB's own
-      // Flexoki theme never disagree about light/dark.
-      <m3e-theme
-        color={accentColor}
-        scheme={
-          viewState.uiOptions.darkMode === undefined
-            ? "auto"
-            : viewState.uiOptions.darkMode
-              ? "dark"
-              : "light"
-        }
-      >
-        {viewState.showPageNavigator && (
-          <AnythingPicker
-            allDocuments={viewState.allDocuments}
-            allPages={viewState.allPages}
-            extensions={documentExtensions}
-            currentPath={client.currentPath()}
-            mode={viewState.pageNavigatorMode}
-            darkMode={viewState.uiOptions.darkMode}
-            onModeSwitch={(mode) => {
-              dispatch({ type: "stop-navigate" });
-              setTimeout(() => {
-                dispatch({ type: "start-navigate", mode });
-              });
-            }}
-            onNavigate={(name) =>
-              navigateToAnythingPickerName(name, () =>
-                dispatch({ type: "stop-navigate" }))}
-            onNavigateRef={(ref) =>
-              navigateToAnythingPickerRef(ref, () =>
-                dispatch({ type: "stop-navigate" }))}
-          />
-        )}
-        {viewState.showCommandPalette && (
-          <CommandPalette
-            onTrigger={(cmd) =>
-              triggerCommand(cmd, () => dispatch({ type: "hide-palette" }))}
-            commands={client.getCommandsByContext(viewState)}
-            darkMode={viewState.uiOptions.darkMode}
-          />
-        )}
+      <m3e-theme color={themeColor} scheme={themeScheme}>
         {viewState.showFilterBox && (
           <FilterList
             label={viewState.filterBoxLabel}
@@ -887,285 +663,236 @@ export class MainUI {
             }}
           />
         )}
-        <m3e-drawer-container
-          id="sb-main"
-          start={viewState.panels.lhs.mode !== undefined}
-          start-mode="side"
-          end={viewState.panels.rhs.mode !== undefined}
-          end-mode="side"
-        >
-          {viewState.panels.lhs.mode !== undefined && (
-            <div slot="start" id="sb-panel-lhs" className="sb-panel-drawer">
-              <m3e-icon-button
-                className="sb-panel-drawer-close"
-                aria-label="Close panel"
-                onClick={() => dispatch({ type: "hide-panel", id: "lhs" })}
-              >
-                <m3e-drawer-toggle for="sb-panel-lhs" />
-                <m3e-icon name="close" />
-              </m3e-icon-button>
-              <Panel config={viewState.panels.lhs} editor={client} />
-            </div>
-          )}
-          {/* §2/L5: sole child of the default slot — the new light-DOM
-              scroll+snap container. CodeMirror shares this one scroll flow
-              (L6) instead of owning its own; front matter renders above the
-              (now non-sticky, per L8/L9) app bar, above the editor host, in
-              document order. */}
-          <div id={PAGE_SCROLL_CONTAINER_ID}>
-            <FrontMatterPanel client={client} />
-            <TopBar
-              pageName={
-                !viewState.current
-                  ? ""
-                  : getNameFromPath(viewState.current.path)
-              }
-              isOnline={viewState.isOnline}
-              unsavedChanges={viewState.unsavedChanges}
-              isLoading={viewState.isLoading}
-              progressPercentage={viewState.progressPercentage}
-              progressType={viewState.progressType}
-              onRename={async (newName) => {
-                if (client.contentManager.isDocumentEditor()) {
-                  if (!newName) return;
+        <TopBar
+          pageName={
+            !viewState.current ? "" : getNameFromPath(viewState.current.path)
+          }
+          notifications={viewState.notifications}
+          onDismissNotification={(id) => {
+            dispatch({ type: "dismiss-notification", id });
+          }}
+          isOnline={viewState.isOnline}
+          unsavedChanges={viewState.unsavedChanges}
+          isLoading={viewState.isLoading}
+          progressPercentage={viewState.progressPercentage}
+          progressType={viewState.progressType}
+          progressWithLabel={
+            !client.fullIndexCompleted || client.objectIndex.rebuildInProgress
+          }
+          onRename={async (newName) => {
+            if (client.contentManager.isDocumentEditor()) {
+              if (!newName) return;
 
-                  console.log("Now renaming document to...", newName);
-                  await client.clientSystem.system.invokeFunction(
-                    "index.renameDocumentCommand",
-                    [{ document: newName }],
-                  );
-                } else {
-                  if (!newName) {
-                    // Always move cursor to the start of the page
-                    client.editorView.dispatch({
-                      selection: { anchor: 0 },
-                    });
-                    client.focus();
-                    return;
-                  }
-                  console.log("Now renaming page to...", newName);
-                  await client.clientSystem.system.invokeFunction(
-                    "index.renamePageCommand",
-                    [{ page: newName }],
-                  );
-                  client.focus();
+              console.log("Now renaming document to...", newName);
+              await client.clientSystem.system.invokeFunction(
+                "index.renameDocumentCommand",
+                [{ document: newName }],
+              );
+            } else {
+              if (!newName) {
+                client.editorView.dispatch({
+                  selection: { anchor: 0 },
+                });
+                client.focus();
+                return;
+              }
+              console.log("Now renaming page to...", newName);
+              await client.clientSystem.system.invokeFunction(
+                "index.renamePageCommand",
+                [{ page: newName }],
+              );
+              client.focus();
+            }
+          }}
+          menuItems={appBarMenuItems}
+          actionButtons={[
+            ...visibleActionButtons(actionButtons, {
+              isMobile: viewState.isMobile,
+              isStandalone: viewState.isStandalone,
+              accountManaged: !!client.bootConfig.accountManaged,
+              readOnlyToggleShown,
+            })
+              // Until the profile request settles we do not know who the
+              // visitor is, and offering "Log in" to someone who is signed in
+              // is worse than offering nothing.
+              .filter(
+                (button) =>
+                  button.icon !== "profile" || profile.status !== "unavailable",
+              )
+              .map((button) => {
+                const isProfileButton = button.icon === "profile";
+                const iconName = kebabToPascal(button.icon);
+                const mdiIcon = (mdi as any)[iconName];
+                let featherIcon = (featherIcons as any)[iconName];
+                if (!featherIcon) {
+                  featherIcon = featherIcons.HelpCircle;
                 }
-              }}
-              rhs={
-                !!viewState.panels.rhs.mode && (
-                  <div
-                    className="panel"
-                    style={{ flex: viewState.panels.rhs.mode }}
-                  />
-                )
-              }
-              lhs={
-                !!viewState.panels.lhs.mode && (
-                  <div
-                    className="panel"
-                    style={{ flex: viewState.panels.lhs.mode }}
-                  />
-                )
-              }
-              pageNamePrefix={
-                client.currentPageMeta()?.pageDecoration?.prefix ?? ""
-              }
-              cssClass={(client.currentPageMeta()?.pageDecoration?.cssClasses ??
-                [])
-                .join(" ")
-                .replaceAll(/[^a-zA-Z0-9-_ ]/g, "")}
-              mobileMenuStyle={
-                viewState.isMobile
-                  ? client.config.get<string>("mobileMenuStyle", "hamburger")
-                  : undefined
-              }
-              readOnly={isReadOnly}
-              breadcrumbItems={breadcrumbItems}
-              lastModified={client.currentPageMeta()?.lastModified}
-              bodyText={computeBodyText(client)}
-              menuItems={menuItems}
-              // Read-only toggle in the app-bar trailing slot (spec §2.2 / R2) —
-              // a 1:1 port of the old floating-toolbar lock button's logic. Guarded
-              // on command availability the same way breadcrumb's "Navigate: Home"
-              // is above; `undefined` hides the button entirely. `isReadOnly` is
-              // the same single-source expression driving CodeMirror's editable
-              // config and the editor-font swap.
-              readOnlyToggle={viewState.commands.has(
-                  "Editor: Toggle Read Only Mode",
-                )
-                ? {
+                let description = button.description || "";
+                if (button.command) {
+                  const cmd = viewState.commands.get(button.command);
+                  if (cmd) {
+                    const hint = keyboardHint(cmd);
+                    if (hint) {
+                      description = description
+                        ? `${description} (${hint})`
+                        : hint;
+                    }
+                  }
+                }
+
+                return {
+                  icon: isProfileButton
+                    ? profileAvatarComponent
+                    : mdiIcon
+                      ? mdiIcon
+                      : featherIcon,
+                  description,
+                  dropdown: button.dropdown,
+                  native: isProfileButton,
+                  hasPopup: isProfileButton ? true : undefined,
+                  expanded: isProfileButton
+                    ? menuTrigger !== undefined
+                    : undefined,
+                  callback: isProfileButton
+                    ? (el?: HTMLElement) => {
+                        const items = editorProfileMenuItems(profile, client);
+                        if (viewState.isMobile || !el) {
+                          void client.ui
+                            .filterBox(
+                              profileMenuLabel(profile),
+                              items.map((i) => ({ name: i.name })),
+                            )
+                            .then((selected) => {
+                              items
+                                .find((i) => i.name === selected?.name)
+                                ?.run();
+                            });
+                          return;
+                        }
+                        setMenuTrigger((current) =>
+                          current === el ? undefined : el,
+                        );
+                      }
+                    : button.command
+                      ? () => this.client.runCommandByName(button.command!)
+                      : button.run ||
+                        (() => {
+                          this.flashNotification(
+                            "actionButton did not specify a command or run() callback",
+                            "error",
+                          );
+                        }),
+                  href: "",
+                };
+              }),
+          ]}
+          rhs={sidebarSpacer("rhs")}
+          lhs={sidebarSpacer("lhs")}
+          pageNamePrefix={
+            client.currentPageMeta()?.pageDecoration?.prefix ?? ""
+          }
+          pageIcon={client.currentPageMeta()?.pageDecoration?.icon}
+          cssClass={(client.currentPageMeta()?.pageDecoration?.cssClasses ?? [])
+            .join(" ")
+            .replaceAll(/[^a-zA-Z0-9-_ ]/g, "")}
+          mobileMenuStyle={
+            viewState.isMobile
+              ? client.config.get<string>("mobileMenuStyle", "hamburger")
+              : undefined
+          }
+          readOnly={isReadOnly}
+          breadcrumbItems={breadcrumbItems}
+          lastModified={client.currentPageMeta()?.lastModified}
+          bodyText={computeBodyText(client)}
+          readOnlyToggle={
+            readOnlyToggleShown
+              ? {
                   active: isReadOnly,
                   label: isReadOnly ? "Disable read-only" : "Enable read-only",
-                  onClick: () =>
-                    client.runCommandByName("Editor: Toggle Read Only Mode"),
+                  onClick: () => {
+                    void client.runCommandByName(
+                      "Editor: Toggle Read Only Mode",
+                    );
+                  },
                 }
-                : undefined}
-            />
-            <div id="sb-editor" />
-          </div>
-          {viewState.panels.rhs.mode !== undefined && (
-            <div slot="end" id="sb-panel-rhs" className="sb-panel-drawer">
-              <m3e-icon-button
-                className="sb-panel-drawer-close"
-                aria-label="Close panel"
-                onClick={() => dispatch({ type: "hide-panel", id: "rhs" })}
-              >
-                <m3e-drawer-toggle for="sb-panel-rhs" />
-                <m3e-icon name="close" />
-              </m3e-icon-button>
-              <Panel config={viewState.panels.rhs} editor={client} />
-            </div>
-          )}
-        </m3e-drawer-container>
-        {viewState.panels.modal.mode !== undefined && (
-          <div className="sb-modal-backdrop">
-            <div
-              className="sb-modal"
-              style={{ inset: `${viewState.panels.modal.mode}px` }}
-            >
-              <Panel config={viewState.panels.modal} editor={client} />
-            </div>
-          </div>
+              : undefined
+          }
+        />
+        {menuTrigger && (
+          <AnchoredMenu
+            trigger={menuTrigger}
+            header={profileMenuHeader(profile)}
+            items={editorProfileMenuItems(profile, client)}
+            onClose={() => setMenuTrigger(undefined)}
+          />
         )}
-        {viewState.panels.bhs.mode !== undefined && (
-          <div className="sb-bhs">
-            <Panel config={viewState.panels.bhs} editor={client} />
-          </div>
-        )}
-        {/* Vertical floating toolbar (spec §2.1 / R1) — Search / Navigation /
-            Journal / Notifications. `position:fixed` via `.sb-floating-toolbar`,
-            so its place in the tree is immaterial to layout. Search/Navigation
-            open their own modal bottom-sheets; Journal/Notifications are plain
-            page-nav actions guarded on command availability (same guard the
-            breadcrumb's "Navigate: Home" uses). Notifications' icon mirrors the
-            kebab push toggle via the shared `notificationsIconFor()`. */}
         <FloatingToolbar
-          onSearchClick={() => dispatch({ type: "show-search-sheet" })}
-          onNavigationClick={() => dispatch({ type: "show-navigation-sheet" })}
+          onSearchClick={() => {
+            void client.startPageNavigate("page");
+          }}
           journal={{
             available: viewState.commands.has("Journal: Today"),
-            onClick: () => client.runCommandByName("Journal: Today"),
-          }}
-          notifications={{
-            iconName: notificationsIconFor(pushToggle),
             onClick: () => {
-              if (viewState.commands.has("Notifications: Today")) {
-                client.runCommandByName("Notifications: Today");
-              }
+              void client.runCommandByName("Journal: Today");
             },
           }}
         />
-        {/* Search bottom sheet (spec §2.4 / R4), toggled by the toolbar's Search
-            button. navigate/trigger handlers reuse the exact same helpers
-            AnythingPicker/CommandPalette already use above, closing the sheet
-            (dispatch `hide-search-sheet`) once navigation/command actually
-            fires — not on every keypress. */}
-        <SearchSheet
-          open={viewState.searchSheetOpen}
-          onClose={() => dispatch({ type: "hide-search-sheet" })}
-          allPages={viewState.allPages}
-          allDocuments={viewState.allDocuments}
-          extensions={documentExtensions}
-          currentPath={client.currentPath()}
-          commands={viewState.commands}
-          recentPaths={client.recentPaths}
-          recentSearchTerms={client.recentSearchTerms}
-          onNavigate={(name) =>
-            navigateToAnythingPickerName(
-              name,
-              () => dispatch({ type: "hide-search-sheet" }),
-            )}
-          onNavigateRef={(ref) =>
-            navigateToAnythingPickerRef(
-              ref,
-              () => dispatch({ type: "hide-search-sheet" }),
-            )}
-          onTriggerCommand={(cmd) =>
-            triggerCommand(cmd, () => dispatch({ type: "hide-search-sheet" }))}
-        />
-        {/* Navigation bottom sheet (spec §2.6 / R6), toggled by the toolbar's
-            Navigation button. History/Changelog/Sitemap tabs; passive browse,
-            no input box (typed jump-to-page lives in the Search sheet's Open
-            mode). Tabs close the sheet on navigate via `onClose`. */}
-        <NavigationSheet
-          open={viewState.navigationSheetOpen}
-          onClose={() => dispatch({ type: "hide-navigation-sheet" })}
-          recentPaths={client.recentPaths}
-          currentPath={client.currentPath()}
-          allPages={viewState.allPages}
-        />
+        <div id="sb-main">
+          <NavigatorDock slot="lhs" state={navSlots.lhs} client={client} />
+          {viewState.panels.lhs.mode !== undefined && (
+            <Panel config={viewState.panels.lhs} editor={client} slot="lhs" />
+          )}
+          <div id="sb-editor" />
+          {viewState.panels.rhs.mode !== undefined && (
+            <Panel config={viewState.panels.rhs} editor={client} slot="rhs" />
+          )}
+          <NavigatorDock slot="rhs" state={navSlots.rhs} client={client} />
+        </div>
+        <NavigatorModal state={navSlots.modal} client={client} />
+        <RevisionPreviewModal />
+        {modalVisible && (
+          // Escape/backdrop close -> one `closed` event -> one hide-panel.
+          // Inner `.sb-modal` kept: extensions.test.ts targets `.sb-modal iframe`.
+          <m3e-dialog
+            open
+            style={{
+              "--m3e-dialog-min-width": modalDialogWidth,
+              "--m3e-dialog-max-width": modalDialogWidth,
+              "--m3e-dialog-max-height": modalDialogHeight,
+            }}
+            onclosed={() => dispatch({ type: "hide-panel", id: "modal" })}
+          >
+            <div
+              className="sb-modal"
+              style={{
+                position: "relative",
+                width: "100%",
+                height: modalPanelHeight,
+              }}
+            >
+              <Panel
+                config={viewState.panels.modal}
+                editor={client}
+                slot="modal"
+              />
+            </div>
+          </m3e-dialog>
+        )}
+        {navSlots.bhs ? (
+          <div className="sb-bhs" style={{ flex: navSlots.bhs.mode }}>
+            <NavigatorDock slot="bhs" state={navSlots.bhs} client={client} />
+          </div>
+        ) : bhsVisible ? (
+          <div className="sb-bhs">
+            <Panel config={viewState.panels.bhs} editor={client} slot="bhs" />
+          </div>
+        ) : null}
       </m3e-theme>
     );
   }
 
   render(container: Element) {
-    // const ViewComponent = this.ui.ViewComponent.bind(this.ui);
     container.innerHTML = "";
     preactRender(h(this.ViewComponent.bind(this), {}), container);
   }
-
-  async promptDocumentOperation(path: Path, msg: string) {
-    const options: string[] = ["View", "Delete", "Rename"];
-
-    const option = await this.filterBox(
-      "Modify",
-      options.map((x) => ({ name: x }) as FilterOption),
-      msg,
-    );
-    if (!option) return;
-
-    switch (option.name) {
-      case "View": {
-        await this.client.open({ path: path });
-        break;
-      }
-      case "Delete": {
-        if (
-          await this.confirm(
-            `Are you sure you would like delete ${getNameFromPath(path)}?`,
-            { destructive: true },
-          )
-        ) {
-          if (isMarkdownPath(path)) {
-            await this.client.space.deletePage(getNameFromPath(path));
-          } else {
-            await this.client.space.deleteDocument(getNameFromPath(path));
-          }
-        }
-        break;
-      }
-      case "Rename": {
-        if (isMarkdownPath(path)) {
-          await this.client.clientSystem.system.invokeFunction(
-            "index.renamePageCommand",
-            [{ oldPage: getNameFromPath(path) }],
-          );
-        } else {
-          await this.client.clientSystem.system.invokeFunction(
-            "index.renameDocumentCommand",
-            [{ oldDocument: getNameFromPath(path) }],
-          );
-        }
-        break;
-      }
-    }
-  }
 }
-
-// Raw shape of a space-config `actionButtons` entry (CONFIG.md), as read
-// from `client.config.get<ActionButtonConfig[]>("actionButtons", [])` above.
-// `filteredActionButtons`'s `.map()` (above) turns this unresolved config
-// record (`icon` a string name, `command` a string to look up) into
-// `AppBarMenuItem`s (top_bar.tsx) for the app-bar kebab — its only render
-// target as of L13 (floating_toolbar.tsx no longer has an `actions` prop at
-// all; see that file's header comment).
-type ActionButtonConfig = {
-  icon: string;
-  description?: string;
-  command?: string;
-  mobile?: boolean;
-  standalone?: boolean;
-  dropdown?: boolean;
-  priority?: number;
-  run?: () => void;
-};

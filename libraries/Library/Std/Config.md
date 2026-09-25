@@ -52,7 +52,7 @@ config.define("sync", {
     documents = {
       type = "boolean",
       default = false,
-      description = "Sync document files (non-markdown) to the server",
+      description = "Sync document files (non-markdown) locally from the server. Allows access to document files while offline.",
       ui = { category = "Sync", label = "Sync documents", priority = 1 },
     },
     -- In .gitignore format, either in a single string, or as a list of strings
@@ -107,7 +107,6 @@ config.define("index", {
   additionalProperties = true
 })
 
--- Editor configuration options
 config.define("autoCloseBrackets", {
   description = "List of opening bracket characters to auto-close",
   type = "string",
@@ -119,6 +118,14 @@ config.define("shortWikiLinks", {
   type = "boolean",
   default = true,
   ui = { category = "Editor", label = "Short wiki links", priority = 1 },
+})
+
+config.define("linkWriteFormat", {
+  description = "How SilverBullet writes wiki links it generates: 'shortest' uses the bare page name when that name is unique in the space and the full path when it is not, 'shortest-suffix' writes the shortest path suffix that still uniquely identifies the page instead of the full path, 'full-path' always writes the full path",
+  type = "string",
+  enum = { "shortest", "shortest-suffix", "full-path" },
+  default = "full-path",
+  ui = { category = "Editor", label = "Link write format", priority = 2 },
 })
 
 config.define("frontmatterFolding", {
@@ -285,7 +292,6 @@ config.define("vim", {
   additionalProperties = false
 })
 
--- Query specific configuration options
 config.define("queryCollation", {
   description = "Configure string ordering in queries",
   type = "object",
@@ -311,7 +317,6 @@ config.define("queryCollation", {
   additionalProperties = false
 })
 
--- Configuration for internal use mostly
 
 -- Don't use directly, use command.define instead
 config.define("commands", {
@@ -384,7 +389,6 @@ config.define("mqSubscriptions", {
   },
 })
 
--- Task states
 config.define("taskStates", {
   type = "object",
   default = {},
@@ -394,6 +398,19 @@ config.define("taskStates", {
       name = schema.string(),
       done = schema.nullable "boolean",
       order = schema.nullable "number",
+    },
+    required = {"name"},
+  },
+})
+
+config.define("identities", {
+  type = "object",
+  default = {},
+  additionalProperties = {
+    type = "object",
+    properties = {
+      name = schema.string(),
+      description = schema.nullable "string",
     },
     required = {"name"},
   },
@@ -425,7 +442,7 @@ config.define("actionButtons", {
     properties = {
       icon = {
         type = "string",
-        description = "Icon for the action button, from https://feathericons.com"
+        description = "Icon for the action button, from https://feathericons.com. The name 'profile' is reserved for the account menu."
       },
       description = {
         type = "string",
@@ -447,6 +464,10 @@ config.define("actionButtons", {
         type = "boolean",
         description = "Optional: when set to true, button only appears in standalone/PWA mode; when false, only in browser mode"
       },
+      accountManaged = {
+        type = "boolean",
+        description = "Optional: when true, button only appears on servers that manage accounts (multi-space)"
+      },
       dropdown = {
         type = "boolean",
         description = "Optional: set to false to keep this button outside the dropdown menu on mobile (default: true)"
@@ -456,6 +477,22 @@ config.define("actionButtons", {
     required = {"icon"},
     additionalProperties = false
   }
+})
+
+config.define("view.defaults", {
+  description = "Per-view presentation defaults, keyed by view name.",
+  type = "object",
+  additionalProperties = {
+    type = "object",
+    properties = {
+      dock = { type = "string", enum = {"modal", "lhs", "rhs", "bhs", "page-top", "page-bottom"} },
+      open = { type = "boolean" },
+      collapsed = { type = "boolean" },
+      width = { type = "number", minimum = 160, maximum = 600 },
+      height = { type = "number", minimum = 160, maximum = 600 },
+    },
+    additionalProperties = false,
+  },
 })
 ```
 
@@ -502,6 +539,12 @@ config.set("actionButtons", {
     run = function()
       editor.goHistory(1)
     end,
-  }
+  },
+  {
+    icon = "profile",
+    description = "Account",
+    accountManaged = true,
+    priority = -2,
+  },
 })
 ```

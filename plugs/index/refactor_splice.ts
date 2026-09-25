@@ -17,24 +17,35 @@
 // `[text](/OldName)`
 // `[text](<OldName with spaces>)`
 
-import { absoluteToRelativePath } from "@silverbulletmd/silverbullet/lib/resolve";
+import {
+  absoluteToRelativePath,
+  fileName,
+} from "@silverbulletmd/silverbullet/lib/resolve";
 
 export type SpliceArgs = {
   text: string;
   range: [number, number];
   oldName: string;
   newName: string;
+  newWikiName?: string;
   // Page that owns the reference being rewritten (for relative-path math).
   pageToEdit: string;
 };
 
 export function spliceReference(args: SpliceArgs): string {
   const { text, range, oldName, newName, pageToEdit } = args;
-  const [start, end] = range;
-  const slice = text.substring(start, end);
+  const newWikiName = args.newWikiName ?? newName;
+  let [start, end] = range;
+  let slice = text.substring(start, end);
+
+  // Handle transclusions `![[Page]]`
+  if (slice.startsWith("!")) {
+    start += 1;
+    slice = slice.substring(1);
+  }
 
   if (slice.startsWith("[[")) {
-    return spliceWikilink(text, start, end, oldName, newName);
+    return spliceWikilink(text, start, end, oldName, newWikiName, newName);
   }
   if (slice.startsWith("[")) {
     return spliceMarkdownLink(text, start, end, newName, pageToEdit);
@@ -47,7 +58,8 @@ function spliceWikilink(
   start: number,
   end: number,
   oldName: string,
-  newName: string,
+  newWikiName: string,
+  newFullName: string,
 ): string {
   // [[ref(|alias)?]]
   const inner = text.substring(start + 2, end - 2);
@@ -56,18 +68,24 @@ function spliceWikilink(
   const aliasPart = pipeIdx >= 0 ? inner.substring(pipeIdx) : "";
 
   // Preserve any detail suffix on the ref (@pos / #header / $anchor).
-  const detail = matchDetail(refPart);
+  // A caret link (`[[^Meta Page]]`) addresses a page by its full path and is
+  // never shortened.
+  const meta = refPart.startsWith("^");
+  const body = meta ? refPart.slice(1) : refPart;
+  const newName = meta ? newFullName : newWikiName;
+
+  const detail = matchDetail(body);
   // Replace only when the basename matches the old name. (Defensive —
   // the indexer already filters by `to == oldName`, but if the index
   // is stale and a record points at something else, we leave it.)
-  const basename = detail ? refPart.slice(0, -detail.length) : refPart;
-  // Strip a trailing `.md` if the user wrote one — wikilinks
-  // conventionally omit the extension and the legacy refactor did
-  // this too (the `link.toPage` was always without `.md`).
+  const basename = detail ? body.slice(0, -detail.length) : body;
+  // Wikilinks conventionally omit the .md extension.
   const stripped = basename.endsWith(".md") ? basename.slice(0, -3) : basename;
-  if (stripped !== oldName) return text;
+  // The link may be written bare while the index records the resolved path, so
+  // a bare name matching the old target's basename counts as a match too.
+  if (stripped !== oldName && stripped !== fileName(oldName)) return text;
 
-  const replacement = `[[${newName}${detail ?? ""}${aliasPart}]]`;
+  const replacement = `[[${meta ? "^" : ""}${newName}${detail ?? ""}${aliasPart}]]`;
   return text.substring(0, start) + replacement + text.substring(end);
 }
 

@@ -1,14 +1,12 @@
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../api.ts";
 import { useSlugDefaults } from "../space_fields.tsx";
-import type { FieldError } from "../types.ts";
+import type { Binding, FieldError, RevisionsMode } from "../types.ts";
 import {
   type AdminValues,
   defaultFolder,
-  type Hosting,
-  spacePayload,
   type SpaceValues,
-  targetUrl,
+  spacePayload,
   validateAdmin,
   validateSpace,
 } from "../wizard.ts";
@@ -18,15 +16,6 @@ import { SpaceStep } from "./wizard/SpaceStep.tsx";
 
 type Step = "admin" | "space" | "done";
 
-/**
- * The first-run setup wizard served at `/.setup/`. Two data-collecting steps
- * (admin account, then a first space) followed by a "done" step that waits for
- * the server to come up at the new space's URL.
- *
- * This component holds the wizard's state and hands each step the slice it
- * needs; the steps themselves are controlled and free of wizard logic, and the
- * validation lives in `../wizard.ts` where it can be tested without a DOM.
- */
 export function Wizard() {
   // Gates rendering until `api/status` has reported the data root, so the
   // folder field is never shown un-prepopulated.
@@ -34,26 +23,34 @@ export function Wizard() {
   const [step, setStep] = useState<Step>("admin");
 
   const [admin, setAdmin] = useState<AdminValues>({
-    username: "",
+    username: "admin",
     password: "",
     password2: "",
+    fullName: "",
+    email: "",
   });
 
   const [spaceName, setSpaceName] = useState("Notes");
-  const [hosting, setHosting] = useState<Hosting>("prefix");
+  const [revisions, setRevisions] = useState<RevisionsMode>("managed");
+  const [primaryUrl, setPrimaryUrl] = useState(location.origin);
   // The server's absolute data root, reported by `api/status`. The folder
   // field is prepopulated with an absolute path under it so the user never has
   // to know (or care) which directory the server was booted on.
   const [root, setRoot] = useState("");
-  // Prefix and folder track a slug of the name until the user edits them by
-  // hand (mirrors the admin SpaceForm).
   const { prefix, folder, onNameChange, setPrefix, setFolder } =
     useSlugDefaults((slug) => defaultFolder(root, slug));
+  const [hostBinding, setHostBinding] = useState<Binding | null>(null);
+  const binding = hostBinding ?? { prefix };
 
   const [errors, setErrors] = useState<FieldError[]>([]);
   const [busy, setBusy] = useState(false);
 
-  const space: SpaceValues = { name: spaceName, hosting, prefix, folder };
+  const space: SpaceValues = {
+    name: spaceName,
+    binding,
+    folder,
+    revisions,
+  };
 
   useEffect(() => {
     void (async () => {
@@ -94,8 +91,11 @@ export function Wizard() {
     setBusy(true);
     try {
       await api("POST", "api/complete", {
+        primaryUrl: primaryUrl.trim(),
         adminUsername: admin.username,
         adminPassword: admin.password,
+        adminFullName: admin.fullName,
+        adminEmail: admin.email,
         space: spacePayload(space),
       });
       setStep("done");
@@ -129,9 +129,18 @@ export function Wizard() {
             setSpaceName(name);
             onNameChange(name);
           }}
-          onHostingChange={setHosting}
-          onPrefixChange={setPrefix}
+          primaryUrl={primaryUrl}
+          onPrimaryUrlChange={setPrimaryUrl}
+          onBindingChange={(next) => {
+            if (next.host !== undefined) setHostBinding(next);
+            else {
+              setHostBinding(null);
+              if (!hostBinding && next.prefix !== prefix)
+                setPrefix(next.prefix);
+            }
+          }}
           onFolderChange={setFolder}
+          onRevisionsChange={setRevisions}
           errors={errors}
           busy={busy}
           onBack={() => {
@@ -142,6 +151,8 @@ export function Wizard() {
         />
       );
     case "done":
-      return <DoneStep target={targetUrl(hosting, prefix)} />;
+      return (
+        <DoneStep target={`${new URL(primaryUrl.trim()).origin}/.spaces/`} />
+      );
   }
 }

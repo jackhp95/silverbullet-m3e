@@ -1,16 +1,27 @@
+import { SPACE_SECTIONS, type SpaceSection } from "./space_settings.ts";
 export const SPACES_BASE = new URL(document.baseURI).pathname.replace(
   /\/+$/,
   "",
 );
 
+export const ADMIN_SECTIONS = {
+  server: "Server",
+  authentication: "Authentication",
+  runtimes: "Runtimes",
+} as const;
+export type AdminSection = keyof typeof ADMIN_SECTIONS;
+
 export type SpacesRoute =
   | { screen: "login"; next?: string }
   | { screen: "spaces" }
   | { screen: "space-new" }
-  | { screen: "space"; id: string }
+  | { screen: "space"; id: string; section?: SpaceSection }
+  | { screen: "space-git"; id: string }
   | { screen: "users" }
   | { screen: "user-new" }
   | { screen: "user"; username: string }
+  | { screen: "profile" }
+  | { screen: "admin"; section: AdminSection }
   | { screen: "not-found" };
 
 export function spacesUrl(path: string): string {
@@ -47,6 +58,24 @@ export function parseSpacesRoute(): SpacesRoute {
   if (segments[0] === "new" && segments.length === 1) {
     return { screen: "space-new" };
   }
+  if (
+    ["admin", "authentication"].includes(segments[0]) &&
+    segments.length === 1
+  ) {
+    const section = new URLSearchParams(location.search).get("section");
+    return {
+      screen: "admin",
+      section:
+        section && Object.hasOwn(ADMIN_SECTIONS, section)
+          ? (section as AdminSection)
+          : segments[0] === "authentication"
+            ? "authentication"
+            : "server",
+    };
+  }
+  if (segments[0] === "profile" && segments.length === 1) {
+    return { screen: "profile" };
+  }
   if (segments[0] === "users") {
     if (segments.length === 1) return { screen: "users" };
     if (segments.length === 2 && segments[1] === "new") {
@@ -55,11 +84,20 @@ export function parseSpacesRoute(): SpacesRoute {
     const username = decoded(segments[1]);
     if (segments.length === 2 && username) return { screen: "user", username };
   }
+  if (segments.length === 2 && segments[1] === "git") {
+    const id = decoded(segments[0]);
+    if (id) return { screen: "space-git", id };
+  }
   // A bare single segment is a space id. Checked last so "new", "users" and
   // "login" above win, mirroring matchit's static-over-param precedence.
   if (segments.length === 1) {
     const id = decoded(segments[0]);
-    if (id) return { screen: "space", id };
+    if (id) {
+      const section = new URLSearchParams(location.search).get("section");
+      return section && Object.hasOwn(SPACE_SECTIONS, section)
+        ? { screen: "space", id, section: section as SpaceSection }
+        : { screen: "space", id };
+    }
   }
   return { screen: "not-found" };
 }

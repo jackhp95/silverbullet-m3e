@@ -14,6 +14,16 @@ export type PageDecoration = {
   cssClasses?: string[];
   hide?: boolean;
   renderWidgets?: boolean; // Defaults to true
+  /** A Feather name ("star"), a namespaced one ("feather:star"), or literal
+   * SVG markup, shown alongside the page in the top bar, navigation, links,
+   * and completion. */
+  icon?: string;
+  tree?: PageTreeDecoration;
+};
+export type PageTreeDecoration = {
+  /** Floats the page above its lower-priority siblings (default 0). */
+  priority?: number;
+  hide?: boolean;
 };
 export type PageMeta = ObjectValue<
   {

@@ -3,8 +3,9 @@
 //! server can evaluate Space Lua and answer the objects API.
 
 mod config;
+mod metrics;
+mod pool;
 mod supervisor;
-mod transport;
 
-pub use config::{find_chrome, ChromeConfig};
-pub use transport::ChromeTransport;
+pub use config::{find_chrome, ChromeConfig, RuntimeUnavailable, SpacePage};
+pub use pool::{ChromePool, SharedChromeTransport};

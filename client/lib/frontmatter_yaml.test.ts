@@ -16,6 +16,7 @@ import type { FrontmatterBlock } from "../codemirror/frontmatter_folding.ts";
 import {
   locateFrontMatterFields,
   serializeYamlValue,
+  stripFrontMatterFences,
   tryParseFrontMatter,
 } from "./frontmatter_yaml.ts";
 
@@ -263,5 +264,27 @@ describe("tryParseFrontMatter", () => {
 
   test("empty body returns undefined", () => {
     expect(tryParseFrontMatter("---\n---")).toBe(undefined);
+  });
+});
+
+// 2026-09-22 (frontmatter raw-YAML-card task): `stripFrontMatterFences` is
+// what `FrontMatterEditableCard` (front_matter_panel.tsx) shows as the
+// editable textarea's value — extracted out of `tryParseFrontMatter`'s own
+// fence-stripping regex so both agree on exactly what counts as "the YAML"
+// versus "the fences".
+describe("stripFrontMatterFences", () => {
+  test("strips the leading and trailing --- fence lines", () => {
+    expect(stripFrontMatterFences("---\nstatus: draft\n---")).toBe(
+      "status: draft",
+    );
+  });
+
+  test("preserves multi-line inner content verbatim", () => {
+    const inner = "title: Doc\ntags:\n  - a\n  - b";
+    expect(stripFrontMatterFences(`---\n${inner}\n---`)).toBe(inner);
+  });
+
+  test("an empty block strips to an empty string", () => {
+    expect(stripFrontMatterFences("---\n---")).toBe("");
   });
 });

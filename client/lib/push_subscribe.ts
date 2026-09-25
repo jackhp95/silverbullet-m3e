@@ -28,18 +28,15 @@
  */
 
 /** Why a subscribe (or an availability check) didn't result in an active subscription. */
-export type PushUnavailableReason =
-  | "unsupported"
-  | "not-configured"
-  | "denied";
+export type PushUnavailableReason = "unsupported" | "not-configured" | "denied";
 
 export type PushSubscribeResult =
   | { ok: true }
   | {
-    ok: false;
-    reason: PushUnavailableReason | "subscribe-failed" | "post-failed";
-    detail?: string;
-  };
+      ok: false;
+      reason: PushUnavailableReason | "subscribe-failed" | "post-failed";
+      detail?: string;
+    };
 
 /** Whether this browser/context can possibly support Web Push at all. */
 export function isPushSupported(): boolean {
@@ -100,9 +97,10 @@ export async function subscribeToPush(
     return { ok: false, reason: "not-configured" };
   }
 
-  const permission = Notification.permission === "granted"
-    ? "granted"
-    : await Notification.requestPermission();
+  const permission =
+    Notification.permission === "granted"
+      ? "granted"
+      : await Notification.requestPermission();
   if (permission !== "granted") {
     return { ok: false, reason: "denied" };
   }
@@ -145,7 +143,11 @@ export async function subscribeToPush(
       body: JSON.stringify(subscription.toJSON()),
     });
     if (!resp.ok) {
-      return { ok: false, reason: "post-failed", detail: `HTTP ${resp.status}` };
+      return {
+        ok: false,
+        reason: "post-failed",
+        detail: `HTTP ${resp.status}`,
+      };
     }
   } catch (e: any) {
     return { ok: false, reason: "post-failed", detail: e?.message };

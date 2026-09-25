@@ -4,6 +4,7 @@ import {
   isMarkdownPath,
   parseToRef,
 } from "@silverbulletmd/silverbullet/lib/ref";
+import { isMobileDevice } from "./lib/mobile.ts";
 
 export default function reducer(
   state: AppViewState,
@@ -20,14 +21,13 @@ export default function reducer(
         },
       };
     case "page-loaded": {
-      const mouseDetected = globalThis.matchMedia("(pointer:fine)").matches;
       const isBrowser = globalThis.matchMedia(
         "(display-mode: browser)",
       ).matches;
       return {
         ...state,
         isLoading: false,
-        isMobile: !mouseDetected,
+        isMobile: isMobileDevice(),
         isStandalone: !isBrowser,
         current: {
           path: action.path,
@@ -49,13 +49,11 @@ export default function reducer(
       };
     }
     case "update-current-page-meta": {
-      // Update in the allPages list as well
       state.allPages = state.allPages.map((pageMeta) =>
         pageMeta.name === action.meta.name
           ? { ...action.meta, lastOpened: Date.now() }
           : pageMeta,
       );
-      // Can't update page meta if not on a page
       if (!state.current || !isMarkdownPath(state.current.path)) {
         return state;
       }
@@ -73,17 +71,27 @@ export default function reducer(
         isOnline: action.isOnline,
       };
     case "update-page-list": {
-      // Let's move over any "lastOpened" times to the "allPages" list
       const oldPageMeta = new Map(
         [...state.allPages].map((pm) => [pm.name, pm]),
       );
+      const currentPath = state.current?.path;
+      const currentNameCandidates = currentPath
+        ? new Set(
+            currentPath.endsWith(".md")
+              ? [currentPath, currentPath.slice(0, -3)]
+              : [currentPath],
+          )
+        : undefined;
       let currPageMeta: PageMeta | undefined;
       for (const pageMeta of action.allPages) {
         const oldPageMetaItem = oldPageMeta.get(pageMeta.name);
         if (oldPageMetaItem?.lastOpened) {
           pageMeta.lastOpened = oldPageMetaItem.lastOpened;
         }
-        if (parseToRef(pageMeta.name)?.path === state.current?.path) {
+        if (
+          currentNameCandidates?.has(pageMeta.name) &&
+          parseToRef(pageMeta.name)?.path === currentPath
+        ) {
           currPageMeta = pageMeta;
         }
       }
@@ -96,68 +104,20 @@ export default function reducer(
       }
       return newState;
     }
-    case "update-document-list": {
-      return {
-        ...state,
-        allDocuments: action.allDocuments,
-      };
-    }
-    case "start-navigate": {
-      return {
-        ...state,
-        showPageNavigator: true,
-        pageNavigatorMode: action.mode,
-        showCommandPalette: false,
-        showFilterBox: false,
-      };
-    }
-    case "stop-navigate":
-      return {
-        ...state,
-        showPageNavigator: false,
-      };
-
-    case "show-palette": {
-      return {
-        ...state,
-        showCommandPalette: true,
-        showPageNavigator: false,
-        showFilterBox: false,
-        showCommandPaletteContext: action.context,
-        commands: action.commands,
-      };
-    }
-    case "hide-palette":
-      return {
-        ...state,
-        showCommandPalette: false,
-        showCommandPaletteContext: undefined,
-      };
-    // Pure setters (spec §5, leaf V1).
-    case "show-search-sheet":
-      return {
-        ...state,
-        searchSheetOpen: true,
-      };
-    case "hide-search-sheet":
-      return {
-        ...state,
-        searchSheetOpen: false,
-      };
-    case "show-navigation-sheet":
-      return {
-        ...state,
-        navigationSheetOpen: true,
-      };
-    case "hide-navigation-sheet":
-      return {
-        ...state,
-        navigationSheetOpen: false,
-      };
     case "update-commands":
       return {
         ...state,
         commands: action.commands,
+      };
+    case "show-notification":
+      return {
+        ...state,
+        notifications: [...state.notifications, action.notification],
+      };
+    case "dismiss-notification":
+      return {
+        ...state,
+        notifications: state.notifications.filter((n) => n.id !== action.id),
       };
     case "show-panel":
       return {
@@ -175,7 +135,6 @@ export default function reducer(
           [action.id]: {},
         },
       };
-
     case "show-filterbox":
       return {
         ...state,
@@ -189,8 +148,6 @@ export default function reducer(
     case "hide-filterbox":
       return {
         ...state,
-        showCommandPalette: false,
-        showPageNavigator: false,
         showFilterBox: false,
         filterBoxOnSelect: () => {},
         filterBoxPlaceHolder: "",

@@ -82,8 +82,7 @@ describe("wikilinks", () => {
   });
 
   test("wikilink with `.md` suffix is normalized", () => {
-    // Conventionally wikilinks omit `.md`; the legacy refactor produced
-    // a bare name and we preserve that behavior.
+    // Wikilinks omit the .md extension.
     expect(splice("See [[Old.md]].", "[[Old.md]]", "Old", "New")).toBe(
       "See [[New]].",
     );
@@ -166,6 +165,70 @@ describe("markdown links (angle-wrapped)", () => {
   });
 });
 
+describe("transclusions (wikilink form with leading `!`)", () => {
+  test("bare transclusion", () => {
+    expect(splice("Embed ![[Old]] here.", "![[Old]]", "Old", "New")).toBe(
+      "Embed ![[New]] here.",
+    );
+  });
+
+  test("transclusion with alias", () => {
+    expect(splice("See ![[Old|alias]].", "![[Old|alias]]", "Old", "New")).toBe(
+      "See ![[New|alias]].",
+    );
+  });
+
+  test("transclusion with dimension alias", () => {
+    expect(
+      splice("See ![[Old|100x200]].", "![[Old|100x200]]", "Old", "New"),
+    ).toBe("See ![[New|100x200]].");
+  });
+
+  test("transclusion with header detail", () => {
+    expect(
+      splice("See ![[Old#Section]].", "![[Old#Section]]", "Old", "New"),
+    ).toBe("See ![[New#Section]].");
+  });
+
+  test("transclusion with position detail", () => {
+    expect(splice("See ![[Old@12]].", "![[Old@12]]", "Old", "New")).toBe(
+      "See ![[New@12]].",
+    );
+  });
+
+  test("transclusion with `.md` suffix is normalized", () => {
+    expect(splice("See ![[Old.md]].", "![[Old.md]]", "Old", "New")).toBe(
+      "See ![[New]].",
+    );
+  });
+
+  test("transclusion at start of line", () => {
+    expect(splice("![[Old]] starts.", "![[Old]]", "Old", "New")).toBe(
+      "![[New]] starts.",
+    );
+  });
+
+  test("transclusion whose target doesn't match oldName is left alone", () => {
+    expect(splice("See ![[Other]].", "![[Other]]", "Old", "New")).toBe(
+      "See ![[Other]].",
+    );
+  });
+});
+
+describe("markdown images (markdown-link form with leading `!`)", () => {
+  test("markdown image link to a page", () => {
+    expect(
+      splice("See ![alt](Old).", "![alt](Old)", "Old", "New", "Editor"),
+    ).toBe("See ![alt](New).");
+  });
+
+  test("markdown image with header detail", () => {
+    expect(
+      splice("See ![alt](Old#sec).", "![alt](Old#sec)", "Old", "New", "Editor"),
+    ).toBe("See ![alt](New#sec).");
+  });
+});
+
 describe("multiple references on one line", () => {
   test("each splice is independent (caller iterates back-to-front)", () => {
     let text = "Two [[Old]] references [[Old]] here.";
@@ -214,5 +277,123 @@ describe("non-link slice returns text unchanged", () => {
         pageToEdit: "Editor",
       }),
     ).toBe("Some text");
+  });
+});
+
+describe("write format", () => {
+  test("rewrites a bare wiki link, which the index records as resolved", () => {
+    const text = "See [[Notes]] here";
+    expect(
+      spliceReference({
+        text,
+        range: [4, 13],
+        oldName: "bla/Notes",
+        newName: "bla/Renamed",
+        newWikiName: "Renamed",
+        pageToEdit: "Editor",
+      }),
+    ).toBe("See [[Renamed]] here");
+  });
+
+  test("rewrites a qualified wiki link into shortest form", () => {
+    const text = "See [[bla/Notes]] here";
+    expect(
+      spliceReference({
+        text,
+        range: [4, 17],
+        oldName: "bla/Notes",
+        newName: "bla/Renamed",
+        newWikiName: "Renamed",
+        pageToEdit: "Editor",
+      }),
+    ).toBe("See [[Renamed]] here");
+  });
+
+  test("full-path format writes the full name", () => {
+    const text = "See [[Notes]] here";
+    expect(
+      spliceReference({
+        text,
+        range: [4, 13],
+        oldName: "bla/Notes",
+        newName: "bla/Renamed",
+        newWikiName: "bla/Renamed",
+        pageToEdit: "Editor",
+      }),
+    ).toBe("See [[bla/Renamed]] here");
+  });
+
+  test("alias and detail suffix survive a shortest-form rewrite", () => {
+    const text = "See [[bla/Notes#Setup|the notes]] here";
+    expect(
+      spliceReference({
+        text,
+        range: [4, 33],
+        oldName: "bla/Notes",
+        newName: "bla/Renamed",
+        newWikiName: "Renamed",
+        pageToEdit: "Editor",
+      }),
+    ).toBe("See [[Renamed#Setup|the notes]] here");
+  });
+
+  test("markdown links ignore the wiki write format and stay full-path", () => {
+    const text = "See [the notes](bla/Notes) here";
+    expect(
+      spliceReference({
+        text,
+        range: [4, 26],
+        oldName: "bla/Notes",
+        newName: "bla/Renamed",
+        newWikiName: "Renamed",
+        pageToEdit: "Editor",
+      }),
+    ).toBe("See [the notes](bla/Renamed) here");
+  });
+});
+
+describe("caret (meta) links", () => {
+  test("a caret link is kept up to date on rename", () => {
+    const text = "See [[^Library/Std/Config]] here";
+    expect(
+      spliceReference({
+        text,
+        range: [4, 27],
+        oldName: "Library/Std/Config",
+        newName: "Library/Std/Settings",
+        newWikiName: "Settings",
+        pageToEdit: "Editor",
+      }),
+    ).toBe("See [[^Library/Std/Settings]] here");
+  });
+
+  test("a caret link is never shortened, even under shortest format", () => {
+    // `newWikiName` is the shortened form; a caret link must ignore it, or
+    // `^Library/Std/APIs/Tag` would collapse onto the concept page `Tag`.
+    const text = "Ref [[^Library/Std/APIs/Tag]] here";
+    const result = spliceReference({
+      text,
+      range: [4, 29],
+      oldName: "Library/Std/APIs/Tag",
+      newName: "Library/Std/APIs/Tag",
+      newWikiName: "Tag",
+      pageToEdit: "Editor",
+    });
+    expect(result).toBe("Ref [[^Library/Std/APIs/Tag]] here");
+    expect(result).not.toContain("[[^Tag]]");
+  });
+
+  test("a caret link keeps its alias and anchor", () => {
+    const text = "See [[^Library/Std/Config#Options|the options]] here";
+    expect(
+      spliceReference({
+        text,
+        range: [4, 47],
+        oldName: "Library/Std/Config",
+        newName: "Library/Std/Settings",
+        newWikiName: "Settings",
+        pageToEdit: "Editor",
+      }),
+    ).toBe("See [[^Library/Std/Settings#Options|the options]] here");
   });
 });

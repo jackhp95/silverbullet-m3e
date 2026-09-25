@@ -1,9 +1,18 @@
 import {
-  config,
-  editor,
-  markdown,
-  space,
-} from "@silverbulletmd/silverbullet/syscalls";
+  getNameFromPath,
+  type Path,
+  parseToRef,
+} from "@silverbulletmd/silverbullet/lib/ref";
+import {
+  lookupIndex,
+  resolvePath,
+} from "@silverbulletmd/silverbullet/lib/resolve_path";
+import {
+  folderName,
+  isLocalURL,
+  resolveMarkdownLink,
+} from "@silverbulletmd/silverbullet/lib/resolve";
+import { extractHashtag } from "@silverbulletmd/silverbullet/lib/tags";
 import {
   addParentPointers,
   collectNodesOfType,
@@ -11,15 +20,17 @@ import {
   findParentMatching,
   nodeAtPos,
   type ParseTree,
+  renderToText,
 } from "@silverbulletmd/silverbullet/lib/tree";
 import {
-  isLocalURL,
-  resolveMarkdownLink,
-} from "@silverbulletmd/silverbullet/lib/resolve";
-import { parseToRef } from "@silverbulletmd/silverbullet/lib/ref";
-import { tagPrefix } from "../index/constants.ts";
+  config,
+  editor,
+  markdown,
+  space,
+} from "@silverbulletmd/silverbullet/syscalls";
 import type { ClickEvent } from "@silverbulletmd/silverbullet/type/client";
-import { extractHashtag } from "@silverbulletmd/silverbullet/lib/tags";
+import { tagPrefix } from "../index/constants.ts";
+import { identityId } from "../index/identity.ts";
 
 async function actionClickOrActionEnter(
   mdTree: ParseTree | null,
@@ -36,6 +47,7 @@ async function actionClickOrActionEnter(
       "Autolink",
       "NakedURL",
       "Hashtag",
+      "AtMention",
       "FootnoteRef",
     ].includes(t.type!);
   if (!navigationNodeFinder(mdTree)) {
@@ -60,6 +72,38 @@ async function actionClickOrActionEnter(
 
       if (ref.path === "" && ref.details?.type !== "anchor") {
         ref.path = currentPath;
+      } else if (ref.path !== "") {
+        // A bare link names a page, not a path: resolve it the same way the
+        // renderer does, or following it would create an empty page at the
+        // root instead of opening the one the link points at. An unresolved
+        // path is left alone so "click to create" still works.
+        const resolution = resolvePath(
+          ref.path,
+          currentPath as Path,
+          lookupIndex(await space.lookupPaths([ref.path])),
+        );
+        if (resolution.ambiguous && resolution.candidates) {
+          // Following an ambiguous link means saying which page was meant.
+          // The link text itself is left alone: following a link is reading,
+          // and reading should not edit the document. Every navigation route
+          // lands here — click, Navigate: To This Page, Cmd-Enter — so they
+          // all get the same picker.
+          const selected = await editor.filterBox(
+            "Which page?",
+            resolution.candidates.map((path) => ({
+              name: getNameFromPath(path),
+              description: folderName(path) || "space root",
+              path,
+            })),
+            `“${link}” matches ${resolution.candidates.length} pages. Pick the one to open.`,
+          );
+          if (!selected) {
+            return;
+          }
+          ref.path = (selected as unknown as { path: Path }).path;
+        } else if (resolution.exists) {
+          ref.path = resolution.path;
+        }
       }
 
       return editor.navigate(ref, false, inNewWindow);
@@ -111,6 +155,22 @@ async function actionClickOrActionEnter(
         false,
         inNewWindow,
       );
+      break;
+    }
+    case "AtMention": {
+      // A mention inside a signature (`-- @name`) is an authorship byline,
+      // not a recipient: clicking it has no destination for now.
+      if (mdTree.parent?.type === "AtMentionSignature") {
+        break;
+      }
+      // A recipient is a name, not a place: the mention has nowhere to
+      // navigate to, so it opens the Mention Inbox filtered on that
+      // recipient without pulling focus out of the editor.
+      const nickname = renderToText(mdTree).slice(1);
+      await editor.openNavigator("inbox", {
+        dropdown: identityId(nickname),
+        focus: false,
+      });
       break;
     }
     case "FootnoteRef": {

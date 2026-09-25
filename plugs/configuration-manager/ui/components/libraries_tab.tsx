@@ -29,6 +29,12 @@ import {
 // belong at each DOM-side consumer, not the kit files themselves.
 import "@m3e/web/button";
 import "@m3e/web/form-field";
+import "@m3e/web/chips";
+// `Alert` renders `m3e-snackbar` (plug-api/ui/alert.tsx, Task D).
+import "@m3e/web/snackbar";
+// `Progress` renders `m3e-linear-progress-indicator` — see
+// plug-api/ui/progress.tsx's doc comment.
+import "@m3e/web/progress-indicator";
 
 function openPage(name: string) {
   void (async () => {
@@ -122,8 +128,6 @@ function SectionBanners({
   );
 }
 
-// ---------- Confirm button ----------
-
 function ConfirmIconButton({
   icon,
   title,
@@ -159,8 +163,6 @@ function ConfirmIconButton({
     </Button>
   );
 }
-
-// ---------- Installed ----------
 
 function InstalledRow({
   lib,
@@ -383,8 +385,6 @@ function UpdateAllButton() {
   );
 }
 
-// ---------- Available ----------
-
 function MarkdownDescription({ text }: { text: string }) {
   const [html, setHtml] = useState("");
   useEffect(() => {
@@ -539,8 +539,6 @@ function RepoGroup({
   );
 }
 
-// ---------- Repositories ----------
-
 function RepoRow({ repo }: { repo: RepositoryInfo }) {
   const libs = useLibraries();
   const key = `repo:${repo.name}`;
@@ -687,8 +685,6 @@ function RepositoriesSection() {
     </div>
   );
 }
-
-// ---------- Tab root ----------
 
 export function LibrariesTab() {
   const { cfg } = useCfg();

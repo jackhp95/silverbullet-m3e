@@ -1,9 +1,10 @@
 import { Button, Input } from "@silverbulletmd/silverbullet/ui";
-// `Button`/`Input` render `m3e-button`/`m3e-form-field` — see
-// plug-api/ui/button.tsx's doc comment on why these side-effect imports
-// belong at each DOM-side consumer, not the kit files themselves.
-import "@m3e/web/button";
-import "@m3e/web/form-field";
+// `Button`/`Input` render `m3e-button`/`m3e-form-field` — registered once at
+// this wizard's browser entry point (client/spaces_ui/setup.tsx), not here;
+// see that file's comment. (This step previously self-imported
+// `@m3e/web/button`/`@m3e/web/form-field` directly, staged ahead of the
+// button.tsx/input.tsx kit swap itself — now redundant with setup.tsx's
+// entry-level import and removed to match the rest of the app's convention.)
 import { FieldErrors } from "../../space_fields.tsx";
 import type { FieldError } from "../../types.ts";
 import type { AdminValues } from "../../wizard.ts";
@@ -36,22 +37,32 @@ export function AdminStep({
       <h1>Welcome to SilverBullet!</h1>
       <p class="sb-help-text">Step 1 of 2</p>
       <p>
-        This server has not been configured yet. Yet, not to worry, it only
-        takes two quick steps: first create an administrator account, then
-        configure your first space. You can add more spaces and users later (if
-        you were so to desire) in the spaces UI.
+        This server has not been configured yet. DO NOT PANIC! It only takes two
+        quick steps: first creating an administrator account, then configuring
+        your first space. You can add more spaces and users later (if you were
+        so to desire).
       </p>
       <FieldErrors errors={errors} />
       <label for="setup-username">Username</label>
       <Input
         id="setup-username"
+        autocapitalize="off"
+        autocorrect="off"
+        spellcheck={false}
+        autocomplete="username"
         value={values.username}
         onInput={(e) => onChange({ username: e.currentTarget.value })}
       />
+      <p class="sb-help-text">
+        It is wise, but not required, to create an admin account dedicated
+        purely for admin purposes. You can add additional regular user accounts
+        (with fewer permissions) later.
+      </p>
       <label for="setup-password">Password</label>
       <Input
         id="setup-password"
         type="password"
+        autocomplete="new-password"
         value={values.password}
         onInput={(e) => onChange({ password: e.currentTarget.value })}
       />
@@ -59,8 +70,31 @@ export function AdminStep({
       <Input
         id="setup-password2"
         type="password"
+        autocomplete="new-password"
         value={values.password2}
         onInput={(e) => onChange({ password2: e.currentTarget.value })}
+      />
+      <label for="setup-full-name">Full name (optional)</label>
+      <Input
+        id="setup-full-name"
+        autocomplete="name"
+        value={values.fullName}
+        onInput={(e) => onChange({ fullName: e.currentTarget.value })}
+      />
+      <p class="sb-help-text">
+        Full name and email are used to attribute changes in revision history
+        only.
+      </p>
+      <label for="setup-email">Email (optional)</label>
+      <Input
+        id="setup-email"
+        type="email"
+        autocapitalize="off"
+        autocorrect="off"
+        spellcheck={false}
+        autocomplete="email"
+        value={values.email}
+        onInput={(e) => onChange({ email: e.currentTarget.value })}
       />
       <div class="row">
         <Button type="submit" variant="primary" disabled={busy}>

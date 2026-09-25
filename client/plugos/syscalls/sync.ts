@@ -1,8 +1,13 @@
-import type { SysCallMapping } from "../system.ts";
 import type { Client } from "../../client.ts";
+import type { SysCallMapping } from "../system.ts";
 
 export function syncSyscalls(client: Client): SysCallMapping {
   const syncTimeoutMs = 30000;
+  // Deferring indexing only pays off while the sync engine is actually
+  // delivering files. Once it has gone this long without reporting progress
+  // there is nothing left to yield to, and continuing to defer would stall
+  // the initial index forever.
+  const syncStallMs = 5000;
 
   function waitForServiceWorkerActivation(path?: string): Promise<any> {
     return new Promise<any>((resolve, reject) => {
@@ -70,14 +75,47 @@ export function syncSyscalls(client: Client): SysCallMapping {
         { type: "boolean", description: "Whether initial sync is complete." },
       ],
     },
+    "sync.areFilesReadyToIndex": {
+      callback: (_ctx, paths: string[]): boolean[] => {
+        const allReady =
+          !!client.bootConfig.disableServiceWorker ||
+          client.fullSyncCompleted ||
+          client.fullIndexCompleted ||
+          (client.serverPingMs !== undefined && client.serverPingMs < 25) ||
+          Date.now() - client.lastSyncProgressAt > syncStallMs;
+        return paths.map((path) => allReady || client.syncedPaths.has(path));
+      },
+      description:
+        "For each file, whether indexing it now would read it locally or cheaply (true), or race the initial sync and expensively re-download it (false).",
+      parameters: [
+        {
+          name: "paths",
+          type: "string[]",
+          description: "Space-relative file paths.",
+        },
+      ],
+      returns: [
+        {
+          type: "boolean[]",
+          description: "Per-path readiness, in input order.",
+        },
+      ],
+    },
     "sync.performFileSync": {
-      callback: async (_ctx, path: string): Promise<void> => {
+      callback: async (
+        _ctx,
+        path: string,
+        remoteLastModified?: number,
+        remoteRevisionHash?: string,
+      ): Promise<void> => {
         await client.postServiceWorkerMessage({
           type: "perform-file-sync",
           path,
+          remoteLastModified,
+          remoteRevisionHash,
         });
         // postServiceWorkerMessage returns silently if no SW, so only wait if SW is active
-        const registration = await navigator.serviceWorker.getRegistration();
+        const registration = await navigator.serviceWorker?.getRegistration();
         if (registration?.active) {
           return waitForServiceWorkerActivation(path);
         }
@@ -90,13 +128,27 @@ export function syncSyscalls(client: Client): SysCallMapping {
           type: "string",
           description: "Space-relative file path.",
         },
+        {
+          name: "remoteLastModified",
+          type: "number",
+          optional: true,
+          description:
+            "lastModified of the remote change event, used for echo suppression.",
+        },
+        {
+          name: "remoteRevisionHash",
+          type: "string",
+          optional: true,
+          description:
+            "Content revision the remote change event reported, which tells a same-millisecond change from an echo.",
+        },
       ],
       examples: [{ code: 'sync.performFileSync("notes/important.md")' }],
     },
     "sync.performSpaceSync": {
       callback: async (): Promise<number> => {
         await client.postServiceWorkerMessage({ type: "perform-space-sync" });
-        const registration = await navigator.serviceWorker.getRegistration();
+        const registration = await navigator.serviceWorker?.getRegistration();
         if (registration?.active) {
           return waitForServiceWorkerActivation();
         }

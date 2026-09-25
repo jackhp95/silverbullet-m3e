@@ -1,6 +1,7 @@
-import type { Command } from "./command.ts";
+import type { Path } from "@silverbulletmd/silverbullet/lib/ref";
 import type {
   FilterOption,
+  Notification,
   PanelMode,
 } from "@silverbulletmd/silverbullet/type/client";
 
@@ -8,8 +9,10 @@ import type {
   DocumentMeta,
   PageMeta,
 } from "@silverbulletmd/silverbullet/type/index";
-import type { Path } from "@silverbulletmd/silverbullet/lib/ref";
 import type { SyncStatus } from "../spaces/sync.ts";
+import type { Command } from "./command.ts";
+
+export type PanelSlot = "lhs" | "rhs" | "bhs" | "modal";
 
 export type PanelConfig = {
   mode?: PanelMode;
@@ -24,29 +27,19 @@ export type AppViewState = {
   };
 
   allPages: PageMeta[];
-  allDocuments: DocumentMeta[];
 
   isLoading: boolean;
   isMobile: boolean;
   isStandalone: boolean;
-  showPageNavigator: boolean;
-  showCommandPalette: boolean;
-  showCommandPaletteContext?: string;
-  // Search / navigation sheet visibility (docs/plans/2026-09-17-vertical-toolbar-search-nav-redesign-spec.md,
-  // §5 V1). Plain independent booleans, each defaulting closed —
-  // `show-search-sheet`/`hide-search-sheet`/`show-navigation-sheet`/
-  // `hide-navigation-sheet` (reducer.ts) are plain setters.
-  searchSheetOpen: boolean;
-  navigationSheetOpen: boolean;
   unsavedChanges: boolean;
   isOnline: boolean;
 
-  // Progress tracker
-  progressPercentage?: number; // Used to show progress circle
-  progressType?: string; // Used for styling
+  progressPercentage?: number;
+  progressType?: string;
 
   panels: { [key: string]: PanelConfig };
   commands: Map<string, Command>;
+  notifications: Notification[];
 
   uiOptions: {
     vimMode: boolean;
@@ -56,10 +49,6 @@ export type AppViewState = {
     customStyles?: string;
   };
 
-  // Page navigator mode
-  pageNavigatorMode: "page" | "meta" | "document" | "all";
-
-  // Filter box
   showFilterBox: boolean;
   filterBoxLabel: string;
   filterBoxPlaceHolder: string;
@@ -67,13 +56,11 @@ export type AppViewState = {
   filterBoxHelpText: string;
   filterBoxOnSelect: (option: FilterOption | undefined) => void;
 
-  // Prompt
   showPrompt: boolean;
   promptMessage?: string;
   promptDefaultValue?: string;
   promptCallback?: (value: string | undefined) => void;
 
-  // Confirm
   showConfirm: boolean;
   confirmMessage?: string;
   confirmDestructive?: boolean;
@@ -82,11 +69,6 @@ export type AppViewState = {
 
 export const initialViewState: AppViewState = {
   isLoading: false,
-  showPageNavigator: false,
-  showCommandPalette: false,
-  searchSheetOpen: false,
-  navigationSheetOpen: false,
-  pageNavigatorMode: "page",
   unsavedChanges: false,
   isOnline: true,
   uiOptions: {
@@ -104,9 +86,9 @@ export const initialViewState: AppViewState = {
     modal: {},
   },
   allPages: [],
-  allDocuments: [],
   commands: new Map(),
 
+  notifications: [],
   showFilterBox: false,
   filterBoxHelpText: "",
   filterBoxLabel: "",
@@ -128,19 +110,12 @@ export type Action =
   | { type: "online-status-change"; isOnline: boolean }
   | { type: "update-current-page-meta"; meta: PageMeta }
   | { type: "update-page-list"; allPages: PageMeta[] }
-  | { type: "update-document-list"; allDocuments: DocumentMeta[] }
-  | { type: "start-navigate"; mode: "page" | "meta" | "document" | "all" }
-  | { type: "stop-navigate" }
   | {
       type: "update-commands";
       commands: Map<string, Command>;
     }
-  | { type: "show-palette"; context?: string; commands: Map<string, Command> }
-  | { type: "hide-palette" }
-  | { type: "show-search-sheet" }
-  | { type: "hide-search-sheet" }
-  | { type: "show-navigation-sheet" }
-  | { type: "hide-navigation-sheet" }
+  | { type: "show-notification"; notification: Notification }
+  | { type: "dismiss-notification"; id: number }
   | {
       type: "show-panel";
       id: "rhs" | "lhs" | "bhs" | "modal";
@@ -185,7 +160,6 @@ export type BootConfig = {
   indexPage: string;
   readOnly: boolean;
   logPush?: boolean;
-  // Sync configuration
   syncDocuments?: boolean;
   syncIgnore?: string;
   // These are all configured via ?query parameters, e.g. ?disableSpaceLua=1
@@ -198,25 +172,15 @@ export type BootConfig = {
   enableClientEncryption: boolean;
   accountManaged?: boolean;
   disableServiceWorker?: boolean;
+  syncProtocolVersion?: number;
+  revisions?: "managed" | "unmanaged" | "disabled";
+  /** Every other space root on this origin, e.g. ["/private", "/work"]. */
+  spacePrefixes?: string[];
 
-  // Web Push (spec §5.1). Neither is server-provided — both are stamped in
-  // client-side by `augmentBootConfig` (client/boot.ts) from build-time
-  // placeholders patched by `build/build_client.ts`'s `patchPushConfig()`,
-  // sourced from the `VAPID_PUBLIC_KEY` / `PUSH_SIDECAR_URL` env vars at
-  // `npm run build` time. Empty string until set — the push toggle
-  // (client/editor_ui.tsx via client/lib/push_subscribe.ts) treats that as
-  // "not configured" rather than guessing a key.
-  /** Base64url-encoded VAPID application server public key. */
+  // Web Push config (spec §5.1), populated at build time by
+  // `build/build_client.ts`'s `patchPushConfig()` — see `augmentBootConfig`
+  // in `client/boot.ts`. Empty string means "not configured".
   vapidPublicKey?: string;
-  /**
-   * Base URL of the push sidecar (no trailing slash needed). Should
-   * normally be a relative same-origin proxy path, e.g.
-   * "/.proxy/localhost:8791" (see `server/src/handlers/proxy.rs`), since the
-   * sidecar has no CORS headers and an absolute cross-origin URL triggers a
-   * preflight it 404s. An absolute "http(s)://..." URL is also supported,
-   * for a sidecar with its own CORS handling — see
-   * `client/lib/push_subscribe.ts`.
-   */
   pushSidecarUrl?: string;
 };
 
@@ -225,17 +189,38 @@ export type BootConfig = {
  */
 export type ServiceWorkerTargetMessage =
   | {
+      type:
+        | "logout-sync"
+        | "logout-cancel"
+        | "logout-clear"
+        | "logout-complete"
+        | "logout-revoked"
+        | "logout-preserve"
+        | "logout-force";
+      id: string;
+      localLockIncomplete?: boolean;
+    }
+  | {
       type: "skip-waiting";
     }
   | { type: "config"; config: BootConfig }
   | { type: "flush-cache" }
   | { type: "shutdown" }
   | { type: "wipe-data" }
-  | { type: "perform-file-sync"; path: string }
+  | {
+      type: "perform-file-sync";
+      path: string;
+      remoteLastModified?: number;
+      remoteRevisionHash?: string;
+    }
   | { type: "perform-space-sync" }
+  | { type: "declare-divergent-base"; path: string; baseText: string }
+  | { type: "realtime-status"; connected: boolean }
   | { type: "force-connection-status"; enabled: boolean }
   | { type: "get-encryption-key" }
-  | { type: "set-encryption-key"; key: string };
+  | { type: "set-encryption-key"; key: string }
+  | { type: "list-safety" }
+  | { type: "get-safety"; hash: string };
 /**
  * Events received from the service worker -> client
  */
@@ -249,6 +234,10 @@ export type ServiceWorkerSourceMessage =
       path: string;
     }
   | {
+      type: "suppressed-deletion";
+      path: string;
+    }
+  | {
       type: "space-sync-complete";
       operations: number;
     }
@@ -256,6 +245,10 @@ export type ServiceWorkerSourceMessage =
       type: "file-sync-complete";
       path: string;
       operations: number;
+    }
+  | {
+      type: "file-synced";
+      path: string;
     }
   | {
       type: "sync-error";
@@ -287,4 +280,32 @@ export type ServiceWorkerSourceMessage =
   | {
       type: "server-version";
       serverVersion: string;
+    }
+  | {
+      type: "safety-list";
+      entries: { hash: string; size: number; ts: number; binary: boolean }[];
+    }
+  | {
+      type: "safety-content";
+      hash: string;
+      data: Uint8Array | null;
     };
+
+export function syncMessageNotification(
+  msg: ServiceWorkerSourceMessage,
+): { style: "error" | "info"; text: string } | null {
+  switch (msg.type) {
+    case "sync-conflict":
+      return {
+        style: "error",
+        text: `Sync conflict in ${msg.path} — open the page to resolve`,
+      };
+    case "suppressed-deletion":
+      return {
+        style: "info",
+        text: `Deletion of ${msg.path} was suppressed — it was edited elsewhere`,
+      };
+    default:
+      return null;
+  }
+}

@@ -25,7 +25,18 @@ class CheckboxWidget extends WidgetType {
 
   toDOM(): HTMLElement {
     const wrap = document.createElement("span");
-    wrap.classList.add("sb-checkbox");
+    // Layout moved to Tailwind utilities here — see editor.scss's audit
+    // note. Only this widget ever wraps a checkbox in `.sb-checkbox`
+    // (markdown_render.ts's generic renderer emits a bare, unwrapped
+    // `<input type="checkbox">`), so this class is safe to fully migrate.
+    wrap.classList.add(
+      "sb-checkbox",
+      "inline-block",
+      "text-center",
+      "w-[3ch]",
+      "indent-0",
+      "leading-none",
+    );
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = this.checked;
@@ -35,9 +46,7 @@ class CheckboxWidget extends WidgetType {
     });
     checkbox.addEventListener("mouseup", (e) => {
       e.stopPropagation();
-      // Resolve the current document position at click time which
-      // prevents stale position corruption when the document has been
-      // edited since the decoration was created
+      // Resolve at click time: edits may have moved the decoration.
       let pos = this.fallbackPos;
       const view = this.getView();
       if (view && this.dom) {
@@ -50,7 +59,6 @@ class CheckboxWidget extends WidgetType {
       }
       this.clickCallback(pos);
     });
-    // Touch handling for mobile
     let touchCount = 0;
     checkbox.addEventListener("touchmove", () => {
       touchCount++;
@@ -95,7 +103,9 @@ class TaskDropdownWidget extends WidgetType {
 
   toDOM(): HTMLElement {
     const span = document.createElement("span");
-    span.className = "sb-task-dropdown";
+    // Layout moved to Tailwind utilities — see editor.scss's audit note.
+    span.className =
+      "sb-task-dropdown cursor-pointer opacity-40 select-none hover:opacity-100";
     span.textContent = "\u25BE"; // Black Down-Pointing Small Triangle
     span.addEventListener("mousedown", (e) => {
       e.preventDefault();
@@ -140,7 +150,6 @@ export function taskListPlugin({
         if (type.name !== "Task") return;
         // true/false if this is a checkbox, undefined when it's a custom-status task
         let checkboxStatus: boolean | undefined;
-        // Track TaskState end position for strikethrough start
         let taskStateEnd = -1;
 
         node.toTree().iterate({
@@ -148,7 +157,6 @@ export function taskListPlugin({
         });
 
         if (checkboxStatus === true) {
-          // Skip whitespace after TaskState
           let strikeFrom = taskStateEnd !== -1 ? taskStateEnd : from;
           while (
             strikeFrom < to &&
@@ -160,7 +168,14 @@ export function taskListPlugin({
             widgets.push(
               Decoration.mark({
                 tagName: "span",
-                class: "cm-task-checked",
+                // text-decoration moved to a Tailwind utility — see
+                // editor.scss's audit note. The companion
+                // `.sb-line-task:has(.cm-task-checked) .sb-wiki-link` rule
+                // stays in editor.scss: it reaches into a *different*
+                // widget's element (wiki_link_processor.ts's independently
+                // rendered `.sb-wiki-link`) via a structural `:has()`
+                // relationship this decoration has no way to express.
+                class: "cm-task-checked line-through!",
               }).range(strikeFrom, to),
             );
           }
@@ -180,13 +195,11 @@ export function taskListPlugin({
             if (doneStates?.has(stateText)) {
               checkboxStatus = true;
             }
-            // Mark only the inner state text, not the brackets
             widgets.push(
               Decoration.mark({
                 attributes: { "data-task-state": stateText },
               }).range(from + nfrom + 1, from + nto - 1),
             );
-            // Always show dropdown
             const absTo = from + nto;
             widgets.push(
               Decoration.widget({

@@ -1,33 +1,19 @@
-import { Fragment } from "preact";
-import { Button, Input, UrlPrefixInput } from "@silverbulletmd/silverbullet/ui";
-// `Button`/`Input` render `m3e-button`/`m3e-form-field` — see
-// plug-api/ui/button.tsx's doc comment on why these side-effect imports
-// belong at each DOM-side consumer, not the kit files themselves.
-import "@m3e/web/button";
-import "@m3e/web/form-field";
+import { Button, Input, Select } from "@silverbulletmd/silverbullet/ui";
 import { FolderPicker } from "../../FolderPicker.tsx";
 import { FieldErrors } from "../../space_fields.tsx";
-import type { FieldError } from "../../types.ts";
-import {
-  defaultFolder,
-  type Hosting,
-  parentDir,
-  type SpaceValues,
-} from "../../wizard.ts";
+import type { Binding, FieldError, RevisionsMode } from "../../types.ts";
+import { defaultFolder, parentDir, type SpaceValues } from "../../wizard.ts";
+import { BindingFields } from "../BindingFields.tsx";
 
-/**
- * Step 2 of the setup wizard: the first space. Controlled like `AdminStep`,
- * with one wrinkle — `onNameInput` is separate from the other setters because
- * typing a name also reseeds the prefix and folder defaults, which the wizard
- * tracks (see `useSlugDefaults`).
- */
 export function SpaceStep({
   values,
   root,
   onNameInput,
-  onHostingChange,
-  onPrefixChange,
+  primaryUrl,
+  onPrimaryUrlChange,
+  onBindingChange,
   onFolderChange,
+  onRevisionsChange,
   errors,
   busy,
   onBack,
@@ -37,9 +23,11 @@ export function SpaceStep({
   /** The server's absolute data root, used for the folder placeholder. */
   root: string;
   onNameInput: (name: string) => void;
-  onHostingChange: (hosting: Hosting) => void;
-  onPrefixChange: (prefix: string) => void;
+  primaryUrl: string;
+  onPrimaryUrlChange: (value: string) => void;
+  onBindingChange: (binding: Binding) => void;
   onFolderChange: (folder: string) => void;
+  onRevisionsChange: (revisions: RevisionsMode) => void;
   errors: FieldError[];
   busy: boolean;
   onBack: () => void;
@@ -55,46 +43,29 @@ export function SpaceStep({
       <h1>Create your first space</h1>
       <p class="sb-help-text">Step 2 of 2</p>
       <FieldErrors errors={errors} />
-      <label for="setup-space-name">Name</label>
+      <label for="setup-primary-url">Server URL</label>
+      <Input
+        id="setup-primary-url"
+        type="url"
+        required
+        value={primaryUrl}
+        onInput={(e) => onPrimaryUrlChange(e.currentTarget.value)}
+      />
+      <p class="sb-help-text">
+        Confirm the public origin for server management and sign-in.
+      </p>
+      <label for="setup-space-name">Name of your first space</label>
       <Input
         id="setup-space-name"
         value={values.name}
         onInput={(e) => onNameInput(e.currentTarget.value)}
       />
-      <label>Hosting</label>
-      <label>
-        <input
-          type="radio"
-          name="hosting"
-          checked={values.hosting === "root"}
-          onChange={() => onHostingChange("root")}
-        />{" "}
-        Host at the root of this server (/)
-        <span class="sb-help-text">
-          Only recommended if you intend to create only a <em>single space</em>{" "}
-          or using individual (sub)domains for additional spaces.
-        </span>
-      </label>
-      <label>
-        <input
-          type="radio"
-          name="hosting"
-          checked={values.hosting === "prefix"}
-          onChange={() => onHostingChange("prefix")}
-        />{" "}
-        Host under a URL prefix
-      </label>
-      {values.hosting === "prefix" && (
-        <Fragment>
-          <label for="setup-prefix">Prefix</label>
-          <UrlPrefixInput
-            id="setup-prefix"
-            origin={location.origin}
-            value={values.prefix}
-            onInput={onPrefixChange}
-          />
-        </Fragment>
-      )}
+      <BindingFields
+        binding={values.binding}
+        primaryUrl={primaryUrl}
+        spaces={[]}
+        onInput={onBindingChange}
+      />
       <label for="setup-folder">Folder</label>
       <FolderPicker
         id="setup-folder"
@@ -104,6 +75,24 @@ export function SpaceStep({
         placeholder={defaultFolder(root, values.name)}
         browseStart={parentDir(values.folder) || "/"}
       />
+      <label for="setup-revisions">Revisions</label>
+      <Select
+        id="setup-revisions"
+        value={values.revisions}
+        onChange={(e) =>
+          onRevisionsChange(e.currentTarget.value as RevisionsMode)
+        }
+      >
+        <option value="disabled">
+          Disabled: revision support switched off
+        </option>
+        <option value="managed">
+          Managed: SilverBullet periodically commits automatically
+        </option>
+        <option value="unmanaged">
+          Unmanaged: show revisions only, no auto commit
+        </option>
+      </Select>
       <div class="row">
         <Button onClick={onBack}>Back</Button>
         <Button type="submit" variant="primary" disabled={busy}>

@@ -4,14 +4,17 @@
 pub const VERSION: &str = env!("SB_VERSION");
 
 pub mod api;
+pub mod browser_credentials;
 pub mod cli;
 pub mod commands;
 pub mod config;
 pub mod conn;
+pub mod device_auth;
+pub mod fs_api;
+pub mod fs_cli;
+pub mod fs_edit;
+mod fs_listing;
 pub mod output;
 pub mod run;
 
-// Credential crypto lives in server-common so the desktop App and this CLI
-// share one implementation of the on-disk format; re-exported here so
-// `crate::crypto` keeps working.
 pub use silverbullet_server_common::crypto;

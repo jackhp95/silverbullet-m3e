@@ -5,7 +5,6 @@ references:
 - client/service_worker.ts
 - client/boot.ts
 ---
-
 SilverBullet is built as a [Progressive Web App](https://web.dev/progressive-web-apps/) (PWA) — a web application that works fully offline.
 
 # What the PWA gives you
@@ -25,4 +24,4 @@ SilverBullet's [[Sync]] engine keeps a full copy of your space in the browser's 
 
 A service worker caches the application code itself, so even the SilverBullet UI loads without a network connection.
 
-See also: [[Sync]], [[Architecture]]
+See also: [[Sync]], [[Collaboration]] (what happens to your offline edits when you reconnect), [[Architecture]]

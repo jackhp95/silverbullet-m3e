@@ -12,7 +12,7 @@ These files can be whitelisted by adjusting your Authelia configuration to somet
 ```yaml
 access_control:
   default_policy: deny
-  
+
   rules:
     - domain: silverbullet.yourdomain.com
       resources:

@@ -25,6 +25,7 @@ use crate::router::run_blocking;
 pub struct SetupState {
     pub root: PathBuf,
     pub client_bundle: Box<dyn SpacePrimitives>,
+    pub version: String,
     /// Seeded into a first space's index page (mirrors admin/single mode).
     pub index_template: String,
     pub on_complete: Box<dyn Fn() + Send + Sync>,
@@ -87,11 +88,8 @@ async fn handle_complete(
     State(state): State<Arc<SetupState>>,
     Json(req): Json<SetupRequest>,
 ) -> Response {
-    // Hold the lock across the entire handler so concurrent completes are
-    // fully serialized: the second one to acquire it re-runs `run_setup`
-    // against a filesystem the first has already finished writing to, and
-    // gets a clean "already configured" 400 instead of racing the same
-    // argon2-widened check-then-write window.
+    // Serialize setup through the final write so concurrent requests cannot
+    // both pass the unconfigured check while Argon2 is running.
     let _guard = state.complete_lock.lock().await;
 
     let root = state.root.clone();
@@ -140,7 +138,22 @@ async fn handle_fallback() -> Response {
 }
 
 pub fn build_setup_router(state: Arc<SetupState>) -> Router {
+    let instance_id = uuid::Uuid::new_v4().to_string();
+    let version = state.version.clone();
+    let handle_instance = move || {
+        let body = json!({ "instance": instance_id, "version": version }).to_string();
+        async move {
+            (
+                [
+                    (header::CONTENT_TYPE, "application/json"),
+                    (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+                ],
+                body,
+            )
+        }
+    };
     Router::new()
+        .route("/.instance", get(handle_instance))
         .route("/.setup/", get(handle_shell))
         .route("/.setup/assets/{file}", get(handle_asset))
         .route("/.setup/api/status", get(handle_status))
@@ -154,7 +167,9 @@ pub fn build_setup_router(state: Arc<SetupState>) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::multi::config::MultiConfig;
     use crate::multi::setup::is_configured;
+    use crate::multi::users::UserStore;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use silverbullet_server_common::space::MemorySpacePrimitives;
@@ -176,6 +191,7 @@ mod tests {
         Arc::new(SetupState {
             root: dir.path().to_path_buf(),
             client_bundle: Box::new(bundle),
+            version: "test".into(),
             index_template: "# Hello\n".into(),
             on_complete: Box::new(move || flag.store(true, Ordering::SeqCst)),
             complete_lock: tokio::sync::Mutex::new(()),
@@ -236,6 +252,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn instance_endpoint_is_available_during_setup_with_cors() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = build_setup_router(state(&dir, true, Arc::new(AtomicBool::new(false))));
+
+        let resp = send(&r, get("/.instance")).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+        let value = body_json(resp).await;
+        uuid::Uuid::parse_str(value["instance"].as_str().unwrap()).unwrap();
+        assert_eq!(value["version"], "test");
+
+        let other_host = Request::builder()
+            .uri("/.instance")
+            .header(header::HOST, "127.0.0.1:3000")
+            .body(Body::empty())
+            .unwrap();
+        let other_value = body_json(send(&r, other_host).await).await;
+        assert_eq!(other_value["instance"], value["instance"]);
+    }
+
+    #[tokio::test]
     async fn complete_provisions_and_fires_on_complete() {
         let dir = tempfile::tempdir().unwrap();
         let flag = Arc::new(AtomicBool::new(false));
@@ -246,7 +283,8 @@ mod tests {
             post_json(
                 "/.setup/api/complete",
                 r#"{"adminUsername":"admin","adminPassword":"adminpw123",
-                    "space":{"name":"Notes","prefix":"/","folder":""}}"#,
+                    "primaryUrl":"https://manage.example.com",
+                    "space":{"name":"Notes","host":"notes.example.com","prefix":"/notes","folder":"","revisions":"unmanaged"}}"#,
             ),
         )
         .await;
@@ -255,7 +293,52 @@ mod tests {
 
         assert!(is_configured(dir.path()), "users.json should now exist");
         assert!(dir.path().join("spaces.json").exists());
+        assert!(dir.path().join("server.json").exists());
+        let spaces = MultiConfig::load(&dir.path().join("spaces.json")).unwrap();
+        assert_eq!(
+            spaces.spaces.values().next().unwrap().revisions,
+            silverbullet_server_common::RevisionsMode::Unmanaged
+        );
         assert!(flag.load(Ordering::SeqCst), "on_complete must have fired");
+    }
+
+    #[tokio::test]
+    async fn omitted_revisions_defaults_the_first_space_to_managed() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = build_setup_router(state(&dir, true, Arc::new(AtomicBool::new(false))));
+
+        let resp = send(
+            &r,
+            post_json(
+                "/.setup/api/complete",
+                r#"{"adminUsername":"admin","adminPassword":"adminpw123",
+                    "space":{"name":"Notes","prefix":"/notes","folder":""}}"#,
+            ),
+        )
+        .await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let spaces = MultiConfig::load(&dir.path().join("spaces.json")).unwrap();
+        assert_eq!(
+            spaces.spaces.values().next().unwrap().revisions,
+            silverbullet_server_common::RevisionsMode::Managed
+        );
+    }
+
+    #[tokio::test]
+    async fn setup_stores_the_admin_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = build_setup_router(state(&dir, true, Arc::new(AtomicBool::new(false))));
+        let body = r#"{"adminUsername":"admin","adminPassword":"adminpw123",
+                       "adminFullName":"Ada Lovelace","adminEmail":"ada@example.org"}"#;
+
+        let resp = send(&r, post_json("/.setup/api/complete", body)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let store = UserStore::open(dir.path()).unwrap().unwrap();
+        let profile = store.profile("admin").unwrap();
+        assert_eq!(profile.full_name.as_deref(), Some("Ada Lovelace"));
+        assert_eq!(profile.email.as_deref(), Some("ada@example.org"));
     }
 
     #[tokio::test]
@@ -284,11 +367,8 @@ mod tests {
 
     #[tokio::test]
     async fn concurrent_completes_are_serialized_exactly_one_wins() {
-        // Guards the TOCTOU fix: without `complete_lock` serializing the
-        // whole handler, two concurrent completes can both pass
-        // `run_setup`'s `is_configured` check (argon2 hashing widens the
-        // window) and both provision. With the lock, the loser re-checks
-        // against a fully-written `users.json` and gets the intended 400.
+        // Concurrent setup requests must serialize through the final write,
+        // including the slow Argon2 hash between the check and provisioning.
         let dir = tempfile::tempdir().unwrap();
         let flag = Arc::new(AtomicBool::new(false));
         let r = build_setup_router(state(&dir, true, flag.clone()));
@@ -342,7 +422,6 @@ mod tests {
         assert!(sugg.iter().any(|s| s == "alps"), "{sugg:?}");
         assert!(!sugg.iter().any(|s| s == "beta"), "{sugg:?}");
 
-        // An existing directory reports "exists".
         let v = body_json(send(&r, get("/.setup/api/fs/dirs?path=alpha")).await).await;
         assert_eq!(v["status"], "exists");
     }

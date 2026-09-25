@@ -14,14 +14,19 @@ import {
   parseToRef,
 } from "@silverbulletmd/silverbullet/lib/ref";
 import { Fragment, RawHtml, renderHtml, type Tag } from "./html_render.ts";
+import { sanitizeTag } from "./sanitize_html.ts";
 import { CustomSyntaxRenderedHtmlType } from "./inline.ts";
 import * as TagConstants from "../../plugs/index/constants.ts";
 import { extractHashtag } from "@silverbulletmd/silverbullet/lib/tags";
 import { justifiedTableRender } from "./justified_tables.ts";
 import type { PageMeta } from "@silverbulletmd/silverbullet/type/index";
 import { createMediaElement } from "./inline.ts";
-import { parseTransclusion } from "@silverbulletmd/silverbullet/lib/transclusion";
+import {
+  parseTransclusion,
+  type Transclusion,
+} from "@silverbulletmd/silverbullet/lib/transclusion";
 import { parseHtmlTag } from "../codemirror/html_element.ts";
+import { resolveIconMarkup } from "../lib/icon.ts";
 
 export type MarkdownRenderOptions = {
   failOnUnknown?: true;
@@ -31,6 +36,9 @@ export type MarkdownRenderOptions = {
   // When defined, use to inline images as data: urls
   translateUrls?: (url: string, type: "link" | "image") => string;
   resolveTagHref?: (tagName: string) => string;
+  // Resolve a wiki-link transclusion's target the way wiki links resolve
+  // (see buildResolveTransclusion)
+  resolveTransclusion?: (t: Transclusion) => void;
   expand?: true;
 };
 
@@ -70,6 +78,7 @@ const blockTypes = new Set([
   "HTMLBlock",
   "LuaDirective",
   "CommentBlock",
+  "CommentMarkerBlock",
   "FrontMatter",
 ]);
 
@@ -121,7 +130,6 @@ function preprocess(t: ParseTree) {
   addParentPointers(t);
   traverseTree(t, (node) => {
     if (!node.type) {
-      // Remove redundant newlines in table
       if (node.text?.startsWith("\n")) {
         const prevNodeIdx = node.parent!.children!.indexOf(node) - 1;
         const prevNodeType = node.parent!.children![prevNodeIdx]?.type;
@@ -175,8 +183,10 @@ function render(t: ParseTree, options: MarkdownRenderOptions = {}): Tag | null {
     case "FrontMatter":
       return null;
     case "CommentBlock":
-      // Remove, for now
+    case "CommentMarkerBlock":
       return null;
+    case "ConflictMarker":
+      return renderToText(t);
     case "ATXHeading1":
       return {
         name: "h1",
@@ -221,10 +231,8 @@ function render(t: ParseTree, options: MarkdownRenderOptions = {}): Tag | null {
         ),
       };
     }
-    // Code blocks
     case "FencedCode":
     case "CodeBlock": {
-      // Clear out top-level indent blocks
       const lang = findNodeOfType(t, "CodeInfo");
       t.children = t.children!.filter((c) => c.type);
       return {
@@ -249,7 +257,6 @@ function render(t: ParseTree, options: MarkdownRenderOptions = {}): Tag | null {
         name: "br",
         body: "",
       };
-    // Basic styling
     case "Emphasis":
       return {
         name: "em",
@@ -259,7 +266,7 @@ function render(t: ParseTree, options: MarkdownRenderOptions = {}): Tag | null {
       return {
         name: "span",
         attrs: {
-          class: "highlight",
+          class: "sb-highlight",
         },
         body: cleanTags(mapRender(t.children!)),
       };
@@ -338,6 +345,7 @@ function render(t: ParseTree, options: MarkdownRenderOptions = {}): Tag | null {
       if (!transclusion) {
         return text;
       }
+      options.resolveTransclusion?.(transclusion);
 
       try {
         const element = createMediaElement(transclusion);
@@ -365,7 +373,6 @@ function render(t: ParseTree, options: MarkdownRenderOptions = {}): Tag | null {
       }
     }
 
-    // Custom stuff
     case "WikiLink": {
       const link = findNodeOfType(t, "WikiLinkPage")!.children![0].text!;
       let linkText =
@@ -443,6 +450,25 @@ function render(t: ParseTree, options: MarkdownRenderOptions = {}): Tag | null {
         ],
       };
     }
+    case "AtMentionSignature": {
+      const literal = renderToText(t);
+      return {
+        name: "span",
+        attrs: { class: "sb-at-mention-signature" },
+        body: literal,
+      };
+    }
+    case "AtMention": {
+      const literal = renderToText(t);
+      return {
+        name: "span",
+        attrs: { class: "sb-at-mention" },
+        body: [
+          { name: "span", attrs: { class: "sb-at-mention-mark" }, body: "@" },
+          literal.slice(1),
+        ],
+      };
+    }
     case "Task": {
       let externalTaskRef = "";
       collectNodesOfType(t, "WikiLinkPage").forEach((wikilink) => {
@@ -459,6 +485,7 @@ function render(t: ParseTree, options: MarkdownRenderOptions = {}): Tag | null {
         }
       });
 
+      const hasHtml = t.children!.some((c) => c.type === "HTMLTag");
       return {
         name: "span",
         attrs: {
@@ -467,7 +494,11 @@ function render(t: ParseTree, options: MarkdownRenderOptions = {}): Tag | null {
             ? { "data-external-task-ref": externalTaskRef }
             : {}),
         },
-        body: cleanTags(mapRender(t.children!)),
+        body: cleanTags(
+          hasHtml
+            ? groupInlineHtml(t.children!, options, posPreservingRender)
+            : mapRender(t.children!),
+        ),
       };
     }
     case "TaskState": {
@@ -498,7 +529,6 @@ function render(t: ParseTree, options: MarkdownRenderOptions = {}): Tag | null {
       };
     }
 
-    // Tables
     case "Table":
       return {
         name: "table",
@@ -679,8 +709,17 @@ function render(t: ParseTree, options: MarkdownRenderOptions = {}): Tag | null {
     // Structured HTMLBlock from the custom parser: flat sequence of
     // HTMLOpenTag / HTMLCloseTag / HTMLSelfClosingTag + inline content.
     // We rebuild nesting via a stack, similar to groupInlineHtml.
-    case "HTMLBlock":
-      return renderHtmlBlock(t.children ?? [], options);
+    case "HTMLBlock": {
+      const rawChildren = t.children ?? [];
+      if (
+        rawChildren.length === 1 &&
+        rawChildren[0].type === undefined &&
+        /^\s*<script(?:\s|>|$)/i.test(rawChildren[0].text ?? "")
+      ) {
+        return { name: Fragment, body: [] };
+      }
+      return renderHtmlBlock(rawChildren, options);
+    }
 
     // Tag markers inside HTMLBlock — should not appear outside of it,
     // but handle gracefully.
@@ -694,7 +733,6 @@ function render(t: ParseTree, options: MarkdownRenderOptions = {}): Tag | null {
     case "HTMLTag":
       return renderToText(t);
 
-    // Text
     case undefined:
       return t.text!;
     default:
@@ -703,7 +741,6 @@ function render(t: ParseTree, options: MarkdownRenderOptions = {}): Tag | null {
         console.error("Not handling", JSON.stringify(t, null, 2));
         throw new Error(`Unknown markdown node type ${t.type}`);
       } else {
-        // Falling back to rendering verbatim
         removeParentPointers(t);
         console.warn("Not handling", JSON.stringify(t, null, 2));
         return renderToText(t);
@@ -726,14 +763,12 @@ function renderHtmlBlock(
   children: ParseTree[],
   options: MarkdownRenderOptions,
 ): Tag {
-  // Stack entry: tag info + accumulated child tags
   const stack: {
     name: string;
     attrs: Record<string, string> | undefined;
     body: Tag[];
   }[] = [];
 
-  // Root container collects top-level elements
   const root: Tag[] = [];
 
   function currentBody(): Tag[] {
@@ -755,7 +790,6 @@ function renderHtmlBlock(
             body: [],
           });
         } else {
-          // Unparseable open tag — render as text
           currentBody().push(text);
         }
         break;
@@ -769,20 +803,26 @@ function renderHtmlBlock(
             body: top.body,
           });
         }
-        // If stack is empty, silently drop unmatched close tag
         break;
       }
       case "HTMLSelfClosingTag": {
         const text = renderToText(child);
-        // Emit as raw HTML to preserve the self-closing form (e.g. <br />)
-        currentBody().push({
-          name: RawHtml,
-          body: text,
-        });
+        const parsed = parseHtmlTag(text);
+        if (parsed) {
+          currentBody().push({
+            name: parsed.tagName,
+            attrs:
+              Object.keys(parsed.parsedAttrs).length > 0
+                ? parsed.parsedAttrs
+                : undefined,
+            body: [],
+          });
+        } else {
+          currentBody().push(text);
+        }
         break;
       }
       default: {
-        // Inline content — render via the normal markdown renderer
         const rendered = posPreservingRender(child, options);
         if (rendered !== null) {
           currentBody().push(rendered);
@@ -792,7 +832,6 @@ function renderHtmlBlock(
     }
   }
 
-  // Flush any unclosed tags (shouldn't happen with well-formed HTML)
   while (stack.length > 0) {
     const top = stack.pop()!;
     currentBody().push({
@@ -828,15 +867,22 @@ function groupInlineHtml(
         const parsed = parseHtmlTag(text);
         if (parsed?.isSelfClosing) {
           // Void elements (<br/>, <hr/>, <img/>...) have no closer — emit
-          // as raw HTML to preserve the self-closing form. Must run before
-          // the pair-search below, which would otherwise fail to find a
-          // closer and fall through to text-escaping.
-          result.push({ name: RawHtml, body: text });
+          // as a structured tag (rather than raw HTML) so its attributes
+          // are visible to the sanitizer. Must run before the pair-search
+          // below, which would otherwise fail to find a closer and fall
+          // through to text-escaping.
+          result.push({
+            name: parsed.tagName,
+            attrs:
+              Object.keys(parsed.parsedAttrs).length > 0
+                ? parsed.parsedAttrs
+                : undefined,
+            body: [],
+          });
           i++;
           continue;
         }
         if (parsed && !parsed.isClosing) {
-          // Find matching closing tag
           let depth = 1;
           let j = i + 1;
           for (; j < children.length; j++) {
@@ -876,7 +922,6 @@ function groupInlineHtml(
           }
         }
       }
-      // Unmatched tag — render as literal text
       result.push(renderFn(child, options));
       i++;
       continue;
@@ -935,7 +980,18 @@ export function renderMarkdownToHtml(
               ref.details?.type === "linecolumn"
             )
           ) {
-            t.body = [(pageMeta.pageDecoration?.prefix ?? "") + t.body];
+            const icon = resolveIconMarkup(pageMeta.pageDecoration?.icon);
+            t.body = [
+              ...(icon
+                ? [
+                    {
+                      name: RawHtml,
+                      body: `<span class="sb-page-decoration-icon" aria-hidden="true">${icon}</span>`,
+                    },
+                  ]
+                : []),
+              (pageMeta.pageDecoration?.prefix ?? "") + t.body,
+            ];
             if (pageMeta.pageDecoration?.cssClasses) {
               t.attrs!.class +=
                 " sb-decorated-object " +
@@ -951,5 +1007,5 @@ export function renderMarkdownToHtml(
       }
     });
   }
-  return renderHtml(htmlTree);
+  return renderHtml(htmlTree ? sanitizeTag(htmlTree) : htmlTree);
 }

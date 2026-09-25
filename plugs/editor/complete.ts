@@ -1,15 +1,22 @@
+import {
+  linkWriteFormat,
+  writtenLinkText,
+} from "@silverbulletmd/silverbullet/lib/link_write";
+import { type Path, parseToRef } from "@silverbulletmd/silverbullet/lib/ref";
 import { folderName } from "@silverbulletmd/silverbullet/lib/resolve";
+import { collisionIndex } from "@silverbulletmd/silverbullet/lib/resolve_path";
 import {
   editor,
   index,
   language,
   lua,
+  space,
 } from "@silverbulletmd/silverbullet/syscalls";
+import type { CompleteEvent } from "@silverbulletmd/silverbullet/type/client";
 import type {
   DocumentMeta,
   PageMeta,
 } from "@silverbulletmd/silverbullet/type/index";
-import type { CompleteEvent } from "@silverbulletmd/silverbullet/type/client";
 
 // Map a page's last-modified time to a small, monotone-decreasing boost
 function recencyToBoost(lastModified: string): number {
@@ -41,8 +48,7 @@ export async function pageComplete(completeEvent: CompleteEvent) {
   };
   // Try to match [[wikilink]]
   let isWikilink = true;
-  // This negative lookbehind is to prevent matching query[[. This requires negative lookbehind, which generally supported now (it seems), in versions of iOS Safari 13.1 and later
-  // https://caniuse.com/js-regexp-lookbehind
+  // Negative lookbehind excludes query[[.
   let match = /(?<!query)\[\[([^\]@$#:{}]*)$/.exec(completeEvent.linePrefix);
   if (!match) {
     // Try to match [markdown link]()
@@ -103,11 +109,41 @@ export async function pageComplete(completeEvent: CompleteEvent) {
 
   const folder = folderName(completeEvent.pageName);
 
+  // Only the colliding basenames cross the sandbox boundary — everything else
+  // is unique by the bare-iff-unique invariant and writes bare. Asking for
+  // the whole listing instead costs tens of milliseconds per keystroke in a
+  // large space.
+  const [writeFormat, colliding] = await Promise.all([
+    linkWriteFormat(),
+    space.collidingBasenames(),
+  ]);
+  const linkIndex = collisionIndex(colliding);
+  // `allPages` holds documents too, whose names already carry an extension —
+  // `parseToRef` appends `.md` only where it belongs.
+  const pathOf = (name: string): Path | undefined =>
+    parseToRef(name)?.path || undefined;
+  const written = (name: string, aspiring: boolean): string => {
+    // Caret links address infrastructure pages by their full path; shortening
+    // `^Library/Std/APIs/Tag` to `^Tag` would point at the concept page.
+    // An aspiring page is not a file, so the collision index cannot vouch for
+    // its name; its link is inserted exactly as written elsewhere.
+    if (name.startsWith("^") || aspiring) {
+      return name;
+    }
+    const path = pathOf(name);
+    return path ? writtenLinkText(path, writeFormat, linkIndex) : name;
+  };
+
   return {
     from: completeEvent.pos - prefix.length,
     options: allPages.flatMap((pageMeta) => {
       const completions: any[] = [];
+      const applyName = written(
+        pageMeta.name,
+        (pageMeta as PageMeta)._isAspiring === true,
+      );
       const namePrefix = (pageMeta as PageMeta).pageDecoration?.prefix || "";
+      const icon = (pageMeta as PageMeta).pageDecoration?.icon;
       const cssClass = ((pageMeta as PageMeta).pageDecoration?.cssClasses || [])
         .join(" ")
         .replaceAll(/[^a-zA-Z0-9-_ ]/g, "");
@@ -126,12 +162,13 @@ export async function pageComplete(completeEvent: CompleteEvent) {
             boost: recencyBoost,
             apply:
               pageMeta.tag === "template"
-                ? pageMeta.name
-                : `${pageMeta.name}|${linkAlias}`,
+                ? applyName
+                : `${applyName}|${linkAlias}`,
             detail: pageMeta.linkName
               ? `linkName for: ${pageMeta.name}`
               : `displayName for: ${pageMeta.name}`,
             type: "page",
+            icon,
             cssClass,
           });
         }
@@ -144,10 +181,11 @@ export async function pageComplete(completeEvent: CompleteEvent) {
               boost: recencyBoost,
               apply:
                 pageMeta.tag === "template"
-                  ? pageMeta.name
-                  : `${pageMeta.name}|${alias}`,
+                  ? applyName
+                  : `${applyName}|${alias}`,
               detail: `alias to: ${pageMeta.name}`,
               type: "page",
+              icon,
               cssClass,
             });
           }
@@ -157,10 +195,12 @@ export async function pageComplete(completeEvent: CompleteEvent) {
           label: pageMeta.name,
           displayLabel: decoratedName,
           boost: recencyBoost,
+          apply: applyName === pageMeta.name ? undefined : applyName,
           detail: pageMeta.tags?.includes("non-existing")
             ? "Linked but not created"
             : undefined,
           type: "page",
+          icon,
           cssClass,
         });
       } else {
@@ -181,6 +221,7 @@ export async function pageComplete(completeEvent: CompleteEvent) {
           boost: boost,
           apply: labelText.includes(" ") ? `<${labelText}>` : labelText,
           type: "page",
+          icon,
           cssClass,
         });
       }

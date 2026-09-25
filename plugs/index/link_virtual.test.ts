@@ -1,13 +1,9 @@
-// Regression coverage for the virtual `link` collection.
-//
-// `link` records are no longer indexed directly; they're projected
-// from `relation` records via `relationToLink` whenever something
-// queries the `link` tag.
+// The virtual link collection projects relation records through relationToLink.
 
+import type { PageMeta } from "@silverbulletmd/silverbullet/type/index";
 import { expect, test } from "vitest";
 import { parseMarkdown } from "../../client/markdown_parser/parser.ts";
 import { createMockSystem } from "../../plug-api/system_mock.ts";
-import type { PageMeta } from "@silverbulletmd/silverbullet/type/index";
 import { extractFrontMatter } from "./frontmatter.ts";
 import { type LinkObject, relationToLink } from "./link.ts";
 import { indexRelations } from "./relation.ts";
@@ -143,9 +139,8 @@ spouse: "[[Jack]]"
   const fm = extractFrontMatter(tree);
   const relations = await indexRelations(meta("People"), fm, tree, page);
 
-  // Inline attributes and `#tag` data blocks now carry the attribute key
-  // as their `kind` (e.g. `attr`, `spouse`), which projects into the
-  // legacy `link` index. Co-mentions still have no `link` representation.
+  // Inline attributes and data blocks use the attribute key as kind and project
+  // into the link collection. Co-mentions have no link representation.
   const kinds = new Set(
     relations.filter((o: any) => o.tag === "relation").map((o: any) => o.kind),
   );
@@ -155,8 +150,7 @@ spouse: "[[Jack]]"
 
   const virtual = virtualLinks(relations);
   expect(virtual.every((l) => l.type === "page")).toBe(true);
-  // Both the inline attribute and the data block contribute a Jack link
-  // now, alongside the two prose mentions.
+  // The inline attribute and data block each contribute a link alongside the prose mentions.
   expect(new Set(virtual.map((l) => l.toPage))).toEqual(
     new Set(["Jack", "Linda"]),
   );
@@ -182,4 +176,95 @@ test("aspiring-page set: broken wikilinks emit `aspiring-page` records", async (
   const fm = extractFrontMatter(tree);
   const objects = await indexRelations(meta(), fm, tree, fixturePage);
   expect(aspiringNames(objects)).toEqual(["broken"]);
+});
+
+function ambiguous(objects: any[]): any[] {
+  return objects.filter((o) => o.tag === "ambiguous-link");
+}
+
+function relationTargets(objects: any[]): string[] {
+  return objects
+    .filter((o) => o.tag === "relation" && o.toTag === "page")
+    .map((o: any) => o.to)
+    .sort();
+}
+
+test("a bare link to a page in a subfolder resolves instead of aspiring", async () => {
+  const { space } = createMockSystem();
+  await space.writePage("bla/Notes", "");
+  const tree = parseMarkdown("Linking to [[Notes]]");
+  const objects = await indexRelations(
+    meta("Home"),
+    {},
+    tree,
+    "Linking to [[Notes]]",
+  );
+  expect(aspiringNames(objects)).toEqual([]);
+  expect(relationTargets(objects)).toContain("bla/Notes");
+});
+
+test("the index stores the resolved target, not the written one", async () => {
+  const { space } = createMockSystem();
+  await space.writePage("deep/nested/Target", "");
+  const text = "See [[Target]]";
+  const tree = parseMarkdown(text);
+  const objects = await indexRelations(meta("Home"), {}, tree, text);
+  expect(relationTargets(objects)).toContain("deep/nested/Target");
+});
+
+test("a colliding basename emits an `ambiguous-link` naming its candidates", async () => {
+  const { space } = createMockSystem();
+  await space.writePage("bla/Notes", "");
+  await space.writePage("bla2/Notes", "");
+  const text = "Linking to [[Notes]]";
+  const tree = parseMarkdown(text);
+  const objects = await indexRelations(meta("bla/Home"), {}, tree, text);
+
+  const flagged = ambiguous(objects);
+  expect(flagged).toHaveLength(1);
+  expect(flagged[0].name).toBe("Notes");
+  expect(flagged[0].resolvesTo).toBe("bla/Notes");
+  expect(flagged[0].candidates).toEqual(["bla/Notes", "bla2/Notes"]);
+  // It still resolves, so it is not an aspiring page.
+  expect(aspiringNames(objects)).toEqual([]);
+});
+
+test("a unique basename is not flagged as ambiguous", async () => {
+  const { space } = createMockSystem();
+  await space.writePage("bla/Notes", "");
+  const text = "Linking to [[Notes]]";
+  const tree = parseMarkdown(text);
+  const objects = await indexRelations(meta("Home"), {}, tree, text);
+  expect(ambiguous(objects)).toEqual([]);
+});
+
+test("a genuinely missing bare link is still an aspiring page", async () => {
+  createMockSystem();
+  const text = "Linking to [[NoSuchPage]]";
+  const tree = parseMarkdown(text);
+  const objects = await indexRelations(meta("Home"), {}, tree, text);
+  expect(aspiringNames(objects)).toEqual(["NoSuchPage"]);
+});
+
+test("markdown links do not get basename resolution", async () => {
+  const { space } = createMockSystem();
+  await space.writePage("bla/Notes", "");
+  const text = "See [the notes](Notes) here";
+  const tree = parseMarkdown(text);
+  const objects = await indexRelations(meta("Home"), {}, tree, text);
+  // A wiki link would resolve to `bla/Notes`; a markdown link is
+  // folder-relative and must stay pointing at a root-level `Notes`.
+  expect(relationTargets(objects)).not.toContain("bla/Notes");
+  expect(aspiringNames(objects)).toEqual(["Notes"]);
+  expect(ambiguous(objects)).toEqual([]);
+});
+
+test("markdown links to an existing page still resolve exactly", async () => {
+  const { space } = createMockSystem();
+  await space.writePage("bla/Notes", "");
+  const text = "See [the notes](bla/Notes) here";
+  const tree = parseMarkdown(text);
+  const objects = await indexRelations(meta("Home"), {}, tree, text);
+  expect(relationTargets(objects)).toContain("bla/Notes");
+  expect(aspiringNames(objects)).toEqual([]);
 });

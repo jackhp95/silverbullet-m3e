@@ -1,10 +1,30 @@
-import { parseToRef } from "@silverbulletmd/silverbullet/lib/ref";
+import { parseToRef, type Path } from "@silverbulletmd/silverbullet/lib/ref";
+import {
+  resolveTransclusionUrl,
+  type Transclusion,
+} from "@silverbulletmd/silverbullet/lib/transclusion";
 import type { Client } from "../client.ts";
 import type { EventPayLoad } from "./lua_widget.ts";
 import {
   isLocalURL,
   resolveMarkdownLink,
 } from "@silverbulletmd/silverbullet/lib/resolve";
+
+/**
+ * Gives widget renderers the same wiki-link resolution the editor's own link
+ * renderer uses, so an `![[embed]]` inside a rendered widget finds its file
+ * the way a `[[link]]` would.
+ */
+export function buildResolveTransclusion(
+  client: Client,
+): (t: Transclusion, fromPage?: string) => void {
+  return (t, fromPage) =>
+    resolveTransclusionUrl(
+      t,
+      (fromPage ? `${fromPage}.md` : client.currentPath()) as Path,
+      client.clientSystem.allKnownFiles,
+    );
+}
 
 export function buildTranslateUrls(client: Client): (url: string) => string {
   return (url: string) => {
@@ -72,27 +92,24 @@ export function attachWidgetEventHandlers(
     div.dataset.handlersAttached = "true";
     div.addEventListener("mousedown", (e) => {
       if (e.altKey && widgetText) {
-        // Move cursor there
         moveCursorToWidgetStart(client, div, widgetText);
         e.preventDefault();
       }
-      // CodeMirror overrides mousedown on parent elements to implement its own selection highlighting.
-      // That's nice, but not for markdown widgets, so let's not propagate the event to CodeMirror here.
+      // Prevent CodeMirror's parent handler from moving the selection.
       e.stopPropagation();
     });
 
     div.addEventListener("mouseup", (e) => {
-      // Same as above
       e.stopPropagation();
     });
   }
 
   // Override wiki links with local navigate (faster). Tag pills render as
-  // `m3e-assist-chip[data-ref]` (see markdown_render.ts's Hashtag case),
-  // not a real `<a>`, so both selectors are needed here.
+  // `m3e-assist-chip[data-ref]` (see markdown_render.ts's Hashtag case and
+  // codemirror/hashtag.ts), not a real `<a>`, so both selectors are needed
+  // here.
   div.querySelectorAll("a[data-ref], m3e-assist-chip[data-ref]").forEach((el_) => {
     const el = el_ as HTMLElement;
-    // Override default click behavior with a local navigate (faster).
     // Ctrl/meta-click navigates in a new window: we can't rely on the
     // browser's native "open in new tab" for the anchor's href, because
     // inside the desktop app's webview that just navigates in place.
@@ -122,20 +139,17 @@ export function attachWidgetEventHandlers(
     }
   });
 
-  // Implement task toggling
   div.querySelectorAll("span[data-external-task-ref]").forEach((el: any) => {
     const taskRef = el.dataset.externalTaskRef;
     const input = el.querySelector("input[type=checkbox]");
     if (input) {
       input.addEventListener("click", (e: any) => {
-        // Avoid triggering the click on the parent
         e.stopPropagation();
       });
       input.addEventListener("change", (e: any) => {
         e.stopPropagation();
         const oldState = e.target.dataset.state;
         const newState = oldState === " " ? "x" : " ";
-        // Update state in DOM as well for future toggles
         e.target.dataset.state = newState;
         console.log("Toggling task", taskRef);
         client.clientSystem
@@ -149,7 +163,6 @@ export function attachWidgetEventHandlers(
       });
     }
 
-    // Extended task states (e.g. [PLANNED], [TODO])
     const taskStateSpan = el.querySelector(
       "span.sb-task-state[data-task-state]",
     );
@@ -187,7 +200,6 @@ export function attachWidgetEventHandlers(
     }
   });
 
-  // Disable non-referenced task checkboxes
   div.querySelectorAll("input[type=checkbox]").forEach((cb) => {
     if (!cb.closest("span[data-external-task-ref]")) {
       cb.setAttribute("disabled", "disabled");

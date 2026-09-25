@@ -18,13 +18,11 @@ use silverbullet_server_common::SpacePrimitives;
 use crate::auth::cookie::set_cookie_value;
 use crate::auth::{
     cookie_value, is_secure_request, request_host, scoped_auth_cookie_name, Authenticator,
-    CookieOptions, LockoutTimer, LoginManager,
+    CookieOptions, LoginManager,
 };
-use crate::multi::access::{
-    AnyUserAuth, USERS_LOCKOUT_LIMIT, USERS_LOCKOUT_TIME_SECS, USERS_REMEMBER_ME_HOURS,
-};
+use crate::multi::access::{AnyUserAuth, SessionPolicy};
 use crate::multi::manager::MultiManager;
-use crate::multi::users::UserStore;
+use crate::multi::users::{Profile, UserStore};
 use crate::router::run_blocking;
 
 pub const SPACES_PREFIX: &str = "/.spaces";
@@ -42,20 +40,12 @@ impl SpaceIndexState {
         manager: Arc<MultiManager>,
         users: Arc<UserStore>,
         authenticator: Arc<Authenticator>,
+        session: SessionPolicy,
         client_bundle: Box<dyn SpacePrimitives>,
     ) -> Self {
-        // Server-wide, not per-account: `LockoutTimer` counts failures across
-        // every login attempt against this surface regardless of username
-        // (see `is_locked`/`record_failure`, called below with no username).
-        // Before the admin UI merged into `/.spaces`, `/.admin` minted its own
-        // `LockoutTimer`, so failed logins against ordinary accounts could not
-        // lock administrators out of their separate door. Now that both share
-        // this one timer, an attacker spraying failed logins against any
-        // account can also delay administrator login. This is inherent to
-        // having a single surface, and was reviewed and accepted as the
-        // tradeoff for unifying them — not an oversight. Changing it means
-        // per-account lockout, which is a deliberate design change, not a fix.
-        let lockout = LockoutTimer::from_config(USERS_LOCKOUT_TIME_SECS, USERS_LOCKOUT_LIMIT);
+        // Lockout counts failures across all accounts, including administrators;
+        // failed attempts against any account can delay every login.
+        let lockout = session.lockout();
         let version_store = users.clone();
         let login = Arc::new(
             LoginManager::new(
@@ -63,7 +53,7 @@ impl SpaceIndexState {
                 Arc::new(AnyUserAuth {
                     store: users.clone(),
                 }),
-                USERS_REMEMBER_ME_HOURS,
+                session.remember_me_hours,
                 lockout,
                 String::new(),
             )
@@ -89,8 +79,8 @@ impl SpaceIndexState {
 struct LoginBody {
     username: String,
     password: String,
-    /// Opt into the longer `USERS_REMEMBER_ME_HOURS` session. Absent in older
-    /// clients, so it defaults to a short session rather than a sticky one.
+    /// Opt into the longer `SessionPolicy::remember_me_hours` session. Absent
+    /// in older clients, so it defaults to a short session, not a sticky one.
     #[serde(default)]
     remember_me: bool,
 }
@@ -133,7 +123,17 @@ async fn handle_login(
     response
 }
 
-async fn handle_logout(headers: HeaderMap) -> Response {
+async fn handle_logout(State(state): State<Arc<SpaceIndexState>>, headers: HeaderMap) -> Response {
+    if !crate::auth::browser_sessions::logout_allowed(&headers) {
+        return (StatusCode::FORBIDDEN, "Cross-origin logout refused").into_response();
+    }
+    let name = scoped_auth_cookie_name(&request_host(&headers), "");
+    if let Some(token) = cookie_value(&headers, &name) {
+        if let Err(error) = state.login.revoke_browser_session(&token) {
+            tracing::error!("could not revoke browser session: {error}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Could not sign out").into_response();
+        }
+    }
     let options = CookieOptions {
         path: "/".to_string(),
         max_age_secs: Some(0),
@@ -152,7 +152,7 @@ async fn handle_logout(headers: HeaderMap) -> Response {
 fn current_username(state: &SpaceIndexState, headers: &HeaderMap) -> Option<String> {
     let name = scoped_auth_cookie_name(&request_host(headers), "");
     let token = cookie_value(headers, &name)?;
-    let claims = state.authenticator.verify_jwt(&token).ok()?;
+    let claims = state.authenticator.verify_browser_jwt(&token).ok()?;
     state
         .users
         .session_is_current(&claims.username, claims.credential_version.as_deref())
@@ -168,6 +168,62 @@ async fn handle_session(State(state): State<Arc<SpaceIndexState>>, headers: Head
     };
     let admin = state.users.is_admin(&username);
     Json(json!({ "username": username, "admin": admin })).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProfileBody {
+    #[serde(default)]
+    full_name: String,
+    #[serde(default)]
+    email: String,
+}
+
+async fn handle_get_profile(
+    State(state): State<Arc<SpaceIndexState>>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(username) = current_username(&state, &headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let profile = state.users.profile(&username).unwrap_or_default();
+    Json(json!({
+        "username": username,
+        "admin": state.users.is_admin(&username),
+        "fullName": profile.full_name,
+        "email": profile.email,
+    }))
+    .into_response()
+}
+
+/// The username comes from the session cookie only, never from the request
+/// body — this is what stops a caller from naming another account.
+async fn handle_put_profile(
+    State(state): State<Arc<SpaceIndexState>>,
+    headers: HeaderMap,
+    Json(body): Json<ProfileBody>,
+) -> Response {
+    let Some(username) = current_username(&state, &headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let profile = match Profile::parse(&body.full_name, &body.email) {
+        Ok(profile) => profile,
+        Err(e) => return profile_error(e),
+    };
+    let users = state.users.clone();
+    match run_blocking(move || Ok(users.set_profile(&username, profile))).await {
+        Ok(Ok(())) => Json(json!({ "status": "ok" })).into_response(),
+        Ok(Err(e)) => profile_error(e),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "task failed").into_response(),
+    }
+}
+
+fn profile_error(message: String) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({ "errors": [{ "field": "", "message": message }] })),
+    )
+        .into_response()
 }
 
 async fn handle_list(State(state): State<Arc<SpaceIndexState>>, headers: HeaderMap) -> Response {
@@ -231,87 +287,115 @@ pub fn build_spaces_router(state: Arc<SpaceIndexState>, admin_api: Router) -> Ro
         // Single-segment catch-all for a space id. Static segments above win
         // in matchit, so `/new`, `/users` and `/login` are unaffected.
         .route("/{id}", get(handle_shell))
+        .route("/{id}/git", get(handle_shell))
         .route("/assets/{file}", get(handle_asset))
         .route("/api/session", get(handle_session))
+        .route(
+            "/api/profile",
+            get(handle_get_profile).put(handle_put_profile),
+        )
         .route("/api/spaces", get(handle_list))
         .route("/api/login", post(handle_login))
         .route("/api/logout", get(handle_logout))
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
         .with_state(state)
-        // Nested after with_state: both sides are Router<()> here.
         .nest("/api/admin", admin_api)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::multi::config::{Binding, SpaceConfig};
+    use crate::multi::config::{Binding, SpaceAccess, SpaceConfig};
     use crate::multi::instance::{AssetFactories, InstanceAuth, InstanceDeps};
+    use crate::multi::users::Profile;
     use axum::body::Body;
     use axum::http::Request;
     use silverbullet_server_common::space::MemorySpacePrimitives;
     use tower::ServiceExt;
 
-    fn config(name: &str, prefix: &str, public: bool, members: &[&str]) -> SpaceConfig {
+    fn config(name: &str, prefix: &str, access: SpaceAccess, members: &[&str]) -> SpaceConfig {
         SpaceConfig {
             name: name.into(),
             folder: String::new(),
             binding: Binding::Prefix {
                 prefix: prefix.into(),
             },
-            public,
+            access: Some(access),
+            legacy_public: None,
             members: members
                 .iter()
                 .map(|name| (name.to_string(), Default::default()))
                 .collect(),
             read_only: false,
             shell: Default::default(),
-            runtime_api: false,
             index_page: "index".into(),
             description: String::new(),
             theme_color: String::new(),
             head_html: String::new(),
             space_ignore: String::new(),
             log_push: false,
+            revisions: Default::default(),
+            git_sync: None,
+            revisions_commit: None,
             extra: Default::default(),
         }
     }
 
     fn setup() -> (tempfile::TempDir, Router) {
+        setup_with(SessionPolicy::default())
+    }
+
+    fn setup_with(session: SessionPolicy) -> (tempfile::TempDir, Router) {
         let dir = tempfile::tempdir().unwrap();
         let users = UserStore::create_empty(dir.path()).unwrap();
-        users.create_user("admin", "adminpw", true).unwrap();
-        users.create_user("alice", "alicepw", false).unwrap();
-        users.create_user("bob", "bobpw", false).unwrap();
-        let authenticator = Arc::new(Authenticator::from_secret_bytes(vec![7; 32], "v1".into()));
+        users
+            .create_user("admin", "adminpw", true, Profile::default())
+            .unwrap();
+        users
+            .create_user("alice", "alicepw", false, Profile::default())
+            .unwrap();
+        users
+            .create_user("bob", "bobpw", false, Profile::default())
+            .unwrap();
+        let authenticator = Arc::new(
+            Authenticator::from_secret_bytes(vec![7; 32], "v1".into()).with_browser_sessions(
+                Arc::new(crate::auth::BrowserSessions::load(dir.path()).unwrap()),
+            ),
+        );
         let deps = InstanceDeps {
             root: dir.path().to_path_buf(),
             assets: AssetFactories {
                 client_bundle: Box::new(|| Box::new(MemorySpacePrimitives::new())),
                 base_fs: Box::new(|| Box::new(MemorySpacePrimitives::new())),
             },
-            runtime: Box::new(|_| None),
+            runtime_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            runtime: Arc::new(|_| None),
             metrics: None,
             auth: InstanceAuth::Accounts {
                 users: users.clone(),
                 authenticator: authenticator.clone(),
+                session,
             },
             version: "test".into(),
             main_port: 3000,
             disable_service_worker: true,
             shell_disabled: false,
             index_template: "# Test\n".into(),
+            shutdown: None,
         };
         let manager =
             MultiManager::boot(dir.path().to_path_buf(), deps, users.usernames()).unwrap();
         manager
-            .create(config("Public", "/public", true, &[]), true)
+            .create(config("Public", "/public", SpaceAccess::Write, &[]), true)
             .unwrap();
         manager
-            .create(config("Alice", "/alice", false, &["alice"]), true)
+            .create(
+                config("Alice", "/alice", SpaceAccess::None, &["alice"]),
+                true,
+            )
             .unwrap();
         manager
-            .create(config("Bob", "/bob", false, &["bob"]), true)
+            .create(config("Bob", "/bob", SpaceAccess::None, &["bob"]), true)
             .unwrap();
         let bundle = MemorySpacePrimitives::new();
         bundle
@@ -324,11 +408,13 @@ mod tests {
             manager.clone(),
             users.clone(),
             authenticator.clone(),
+            crate::runtime::RuntimeAvailability::Available,
         ));
         let state = Arc::new(SpaceIndexState::new(
             manager,
             users,
             authenticator,
+            session,
             Box::new(bundle),
         ));
         (
@@ -381,9 +467,8 @@ mod tests {
         serde_json::from_slice(&bytes).unwrap()
     }
 
-    /// `GET /api/spaces` is the `VisibleSpace` list itself — a bare JSON array,
-    /// with no envelope. The `admin` flag it used to carry now lives on
-    /// `GET /api/session`.
+    /// GET /api/spaces returns a bare VisibleSpace array; session details
+    /// are available separately from GET /api/session.
     fn space_names(body: &serde_json::Value) -> Vec<String> {
         body.as_array()
             .expect("the space list should be an array")
@@ -439,13 +524,10 @@ mod tests {
         );
         for space in spaces {
             let obj = space.as_object().unwrap();
-            // The allowlist: exactly these keys, nothing else. An allowlist,
-            // not a denylist of named-sensitive fields — a denylist would
-            // silently pass if a new field (e.g. `description`) were added
-            // to `VisibleSpace` without being one of the ones named here.
+            // An allowlist catches newly exposed fields that a denylist would miss.
             let mut keys: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
             keys.sort();
-            assert_eq!(keys, vec!["binding", "id", "name", "state"]);
+            assert_eq!(keys, vec!["access", "binding", "id", "name"]);
         }
     }
 
@@ -505,6 +587,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn profile_get_and_put_operate_on_the_caller() {
+        let (dir, router) = setup();
+        let cookie = login(&router, "alice", "alicepw").await;
+
+        let resp = send(
+            &router,
+            Request::builder()
+                .method("PUT")
+                .uri("/api/profile")
+                .header("host", "localhost")
+                .header("Cookie", &cookie)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"fullName":"Alice Smith","email":"alice@example.org"}"#,
+                ))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let resp = send(
+            &router,
+            Request::builder()
+                .uri("/api/profile")
+                .header("host", "localhost")
+                .header("Cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let body = json_body(resp).await;
+        assert_eq!(body["username"], "alice");
+        assert_eq!(body["fullName"], "Alice Smith");
+        assert_eq!(body["email"], "alice@example.org");
+
+        let users = UserStore::open(dir.path()).unwrap().unwrap();
+        assert_eq!(users.profile("bob").unwrap(), Profile::default());
+    }
+
+    #[tokio::test]
+    async fn profile_requires_a_session() {
+        let (_dir, router) = setup();
+        let resp = send(
+            &router,
+            Request::builder()
+                .uri("/api/profile")
+                .header("host", "localhost")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn logout_clears_the_session_cookie() {
         let (_dir, router) = setup();
         let cookie = login(&router, "alice", "alicepw").await;
@@ -543,6 +680,94 @@ mod tests {
         let raw = response.headers()[header::SET_COOKIE].to_str().unwrap();
         assert!(raw.contains("Path=/;"), "{raw}");
         assert!(raw.contains("HttpOnly"), "{raw}");
+    }
+
+    /// The surface's remember-me window comes from the `SessionPolicy` it was
+    /// built with, not a compiled-in constant: an unchecked "remember me" gets
+    /// the fixed one-week session, checking it gets the configured window.
+    #[tokio::test]
+    async fn remember_me_window_follows_the_session_policy() {
+        let (_dir, router) = setup_with(SessionPolicy {
+            remember_me_hours: 2,
+            ..SessionPolicy::default()
+        });
+        let max_age = |remember: bool| {
+            let router = router.clone();
+            async move {
+                let response = send(
+                    &router,
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/login")
+                        .header("host", "localhost")
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            json!({
+                                "username": "admin",
+                                "password": "adminpw",
+                                "rememberMe": remember
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await;
+                let raw = response.headers()[header::SET_COOKIE]
+                    .to_str()
+                    .unwrap()
+                    .to_string();
+                raw.split(';')
+                    .map(str::trim)
+                    .find_map(|part| part.strip_prefix("Max-Age="))
+                    .unwrap_or_default()
+                    .to_string()
+            }
+        };
+        assert_eq!(max_age(true).await, "7200");
+        assert_eq!(
+            max_age(false).await,
+            crate::auth::login::SESSION_EXPIRY_SECS.to_string(),
+            "an ordinary session is unaffected by the remember-me window"
+        );
+    }
+
+    /// Same for the lockout thresholds: a limit of one locks the surface after
+    /// a single failure, so even correct credentials are turned away.
+    #[tokio::test]
+    async fn lockout_thresholds_follow_the_session_policy() {
+        let (_dir, router) = setup_with(SessionPolicy {
+            lockout_limit: 1,
+            lockout_time_secs: 3600,
+            ..SessionPolicy::default()
+        });
+        let attempt = |password: &'static str| {
+            let router = router.clone();
+            async move {
+                json_body(
+                    send(
+                        &router,
+                        Request::builder()
+                            .method("POST")
+                            .uri("/api/login")
+                            .header("host", "localhost")
+                            .header("content-type", "application/json")
+                            .body(Body::from(
+                                json!({ "username": "admin", "password": password }).to_string(),
+                            ))
+                            .unwrap(),
+                    )
+                    .await,
+                )
+                .await["error"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string()
+            }
+        };
+        assert!(attempt("wrong").await.contains("Invalid username"));
+        assert!(attempt("adminpw")
+            .await
+            .contains("Too many failed attempts"));
     }
 
     #[tokio::test]
@@ -710,6 +935,7 @@ mod tests {
             "/users/alice",
             "/login",
             "/some-space-id",
+            "/some-space-id/git",
         ] {
             let response = send(
                 &router,
@@ -775,7 +1001,6 @@ mod tests {
         .await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()[header::CONTENT_TYPE], "text/css");
-        // Traversal out of `.client/` is refused.
         assert_eq!(
             send(
                 &router,
@@ -788,5 +1013,57 @@ mod tests {
             .status(),
             StatusCode::BAD_REQUEST
         );
+    }
+    #[tokio::test]
+    async fn browser_sessions_logout_revokes_spaces_and_admin_surfaces() {
+        let (_dir, router) = setup();
+        let first = login(&router, "admin", "adminpw").await;
+        let other = login(&router, "admin", "adminpw").await;
+        let response = send(
+            &router,
+            Request::builder()
+                .uri("/api/logout")
+                .header("host", "localhost")
+                .header("cookie", &first)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            list(&router, Some(&first)).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(list(&router, Some(&other)).await.status(), StatusCode::OK);
+        let response = send(
+            &router,
+            Request::builder()
+                .uri("/api/admin/users")
+                .header("host", "localhost")
+                .header("cookie", &first)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn browser_sessions_cross_origin_logout_does_not_revoke() {
+        let (_dir, router) = setup();
+        let cookie = login(&router, "admin", "adminpw").await;
+        let response = send(
+            &router,
+            Request::builder()
+                .uri("/api/logout")
+                .header("host", "localhost")
+                .header("cookie", &cookie)
+                .header("sec-fetch-site", "cross-site")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(list(&router, Some(&cookie)).await.status(), StatusCode::OK);
     }
 }

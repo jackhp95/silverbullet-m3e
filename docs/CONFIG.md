@@ -1,3 +1,5 @@
+#meta
+
 This is where you configure SilverBullet to your liking. See [[^Library/Std/Config]] for a full list of configuration options. 
 
 # Site configuration
@@ -65,7 +67,7 @@ tag.define {
 tag.define {
   name = "person",
   transform = function(o)
-    o.pageDecoration = { prefix = "🧑 " }
+    o.pageDecoration = { icon = "user" }
     return o
   end
 }
@@ -131,7 +133,7 @@ tag.define {
   name = "component",
   tagPage = "Architecture",
   transform = function(o)
-    o.pageDecoration = { prefix = "📦 " }
+    o.pageDecoration = { icon = "box" }
     return o
   end
 }
@@ -159,4 +161,17 @@ tag.define {
     return o
   end
 }
+```
+
+```space-lua
+-- managed-by: configuration-manager
+config.set("linkWriteFormat", "full-path")
+```
+
+# View defaults
+```space-lua
+config.set("view.defaults", {
+  -- The curated Navigate tree (see [[^Library/Website]]) is this site's navigation
+  ["docs.navigate"] = { open = true, width = 260 },
+})
 ```

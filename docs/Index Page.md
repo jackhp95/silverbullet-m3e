@@ -3,7 +3,7 @@ The index page is the [[Page|page]] that opens by default when either clicking t
 The default index page’s name is `index`, but this is configurable via [[Install/Configuration]]’s `SB_INDEX_PAGE` variable.
 
 # How to set a dynamic index page
-Some people want to set their index page to be e.g. their daily note, and the daily note changes every... day. 
+Some people want to set their index page to be e.g. their daily note, and the daily note changes every... day.
 
 Doing this can be achieved with some [[Space Lua]] magic (in the code below we’ve set this to the `lua` language in order not to actually activate this functionality, in your own copy be sure to use `space-lua` instead):
 

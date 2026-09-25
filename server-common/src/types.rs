@@ -30,6 +30,36 @@ pub struct BootConfig {
     pub account_managed: bool,
     pub shell_backend: String,
     pub disable_service_worker: bool,
+    /// Highest sync wire protocol version this server understands. A running
+    /// v2 server always advertises 2; the serde default of 1 exists only for
+    /// deserializing configs produced by older servers.
+    #[serde(default = "default_sync_protocol_version")]
+    pub sync_protocol_version: u32,
+    #[serde(default)]
+    pub revisions: RevisionsMode,
+}
+
+fn default_sync_protocol_version() -> u32 {
+    1
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RevisionsMode {
+    Managed,
+    Unmanaged,
+    #[default]
+    Disabled,
+}
+
+impl RevisionsMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RevisionsMode::Managed => "managed",
+            RevisionsMode::Unmanaged => "unmanaged",
+            RevisionsMode::Disabled => "disabled",
+        }
+    }
 }
 
 /// Errors returned by SpacePrimitives operations.
@@ -47,6 +77,10 @@ pub enum SpaceError {
     ReadOnly(String),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("Precondition failed")]
+    PreconditionFailed,
+    #[error("Reconcile ineligible")]
+    ReconcileIneligible,
 }
 
 /// The core storage abstraction for a space's files.

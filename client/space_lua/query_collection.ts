@@ -33,6 +33,7 @@ import type { DataStore } from "../data/datastore.ts";
 import type { KvPrimitives } from "../data/kv_primitives.ts";
 
 import type { QueryCollationConfig } from "../../plug-api/types/config.ts";
+import { compareCollated } from "../../plug-api/lib/collation.ts";
 
 import type { KvKey } from "../../plug-api/types/datastore.ts";
 
@@ -77,7 +78,6 @@ function buildGroupItemEnv(
       itemEnv.setLocal("group", groupVal);
     }
 
-    // Unpack named fields from multi-key LuaTable keys
     if (keyVal instanceof LuaTable) {
       for (const k of luaKeys(keyVal)) {
         if (typeof k !== "string") continue;
@@ -85,12 +85,8 @@ function buildGroupItemEnv(
       }
     }
 
-    // Bind all `group by` aliases/names to their key values.  For
-    // single key bind the name to the scalar `keyVal`.  For multi-key
-    // bind each name to the field from the key table.
     if (groupByNames && groupByNames.length > 0) {
       if (!(keyVal instanceof LuaTable)) {
-        // Bind all names to scalar
         for (const gbn of groupByNames) {
           itemEnv.setLocal(gbn, keyVal);
         }
@@ -109,8 +105,6 @@ function buildGroupItemEnv(
 }
 
 /**
- * Build an environment for evaluating per-item expressions in queries.
- *
  * When `objectVariable` is NOT set: item fields are unpacked as locals
  * and shadow any globals. The item is also bound to `_`.
  *
@@ -128,7 +122,6 @@ function buildItemEnvLocal(
   if (objectVariable) {
     itemEnv.setLocal(objectVariable, item);
   } else {
-    // Unpack item fields as locals so unqualified access works
     itemEnv.setLocal("_", item);
     if (item instanceof LuaTable) {
       for (const key of luaKeys(item)) {
@@ -157,26 +150,15 @@ export type LuaGroupByEntry = {
   alias?: string;
 };
 
-/**
- * Represents a query for a collection
- */
 export type LuaCollectionQuery = {
   objectVariable?: string;
-  // The filter expression evaluated with Lua
   where?: LuaExpression;
-  // The order by expression evaluated with Lua
   orderBy?: LuaOrderBy[];
-  // The select expression evaluated with Lua
   select?: LuaExpression;
-  // The limit of the query
   limit?: number;
-  // The offset of the query
   offset?: number;
-  // Whether to return only distinct values
   distinct?: boolean;
-  // The group by entries evaluated with Lua
   groupBy?: LuaGroupByEntry[];
-  // The having expression evaluated with Lua
   having?: LuaExpression;
 };
 
@@ -189,9 +171,6 @@ export interface LuaQueryCollection {
   ): Promise<any[]>;
 }
 
-/**
- * Implements a query collection for a regular JavaScript array
- */
 export class ArrayQueryCollection<T> implements LuaQueryCollection {
   constructor(private readonly array: T[]) {}
   query(
@@ -204,7 +183,6 @@ export class ArrayQueryCollection<T> implements LuaQueryCollection {
   }
 }
 
-// Wrap any object, array, or LuaQueryCollection as a queryable collection
 export function toCollection(obj: any): LuaQueryCollection {
   if (
     obj instanceof ArrayQueryCollection ||
@@ -515,7 +493,6 @@ function resolveUsing(
   return new LuaFunction(using, env);
 }
 
-// Compare values using a custom comparator with SWO violation detection
 async function usingCompare(
   luaCmp: LuaValue,
   aVal: any,
@@ -621,7 +598,6 @@ async function sortKeyCompare(
     const aVal = aKeys[idx];
     const bVal = bKeys[idx];
 
-    // Handle nulls positioning
     const aIsNull = aVal === null || aVal === undefined || isSqlNull(aVal);
     const bIsNull = bVal === null || bVal === undefined || isSqlNull(bVal);
     if (aIsNull || bIsNull) {
@@ -646,25 +622,16 @@ async function sortKeyCompare(
         idx,
       );
       if (cmp !== 0) return cmp;
-    } else if (
-      collation?.enabled &&
-      typeof aVal === "string" &&
-      typeof bVal === "string"
-    ) {
-      const order = collator.compare(aVal, bVal);
+    } else {
+      const order = compareCollated(aVal, bVal, collation, collator);
       if (order !== 0) {
         return desc ? -order : order;
       }
-    } else if (aVal < bVal) {
-      return desc ? 1 : -1;
-    } else if (aVal > bVal) {
-      return desc ? -1 : 1;
     }
   }
   return 0;
 }
 
-// Build a select-result table from a non-aggregate select expression
 async function evalSelectExpression(
   selectExpr: LuaExpression,
   itemEnv: LuaEnv,
@@ -711,14 +678,11 @@ export async function applyQuery(
 
   const grouped = !!query.groupBy;
 
-  // Collect group-by key names for unpacking into the post-group environment.
   let groupByNames: string[] | undefined;
 
   if (query.groupBy) {
-    // Extract expressions and names from `group by` entries
     const groupByEntries = query.groupBy;
 
-    // Derive canonical name (explicit alias first, or from expression)
     groupByNames = groupByEntries
       .map((entry) => {
         if (entry.alias) return entry.alias;
@@ -740,7 +704,6 @@ export async function applyQuery(
         const entry = groupByEntries[ei];
         const v = await evalExpression(entry.expr, itemEnv, sf);
         keyParts.push(v);
-        // Use alias if provided, or from expression
         const name =
           entry.alias ??
           (entry.expr.type === "Variable" ? entry.expr.name : undefined) ??
@@ -769,11 +732,9 @@ export async function applyQuery(
           keyVal = keyParts[0];
         } else {
           const kt = new LuaTable();
-          // Always populate array indices from keyParts
           for (let i = 0; i < keyParts.length; i++) {
             kt.rawSetArrayIndex(i + 1, keyParts[i]);
           }
-          // Additionally set named fields for Variable/PropertyAccess exprs
           for (const name in keyRecord) {
             void kt.rawSet(name, keyRecord[name]);
           }
@@ -847,7 +808,6 @@ export async function applyQuery(
 
   let selectResults: any[] | undefined;
 
-  // Pre-compute select for grouped + ordered queries
   if (grouped && query.select && query.orderBy) {
     const selectExpr = query.select;
     selectResults = [];
@@ -879,7 +839,6 @@ export async function applyQuery(
       violated.push(false);
     }
 
-    // Decorate: pre-compute all sort keys once (Schwartzian transform)
     const sortKeys = await precomputeSortKeys(
       results,
       query.orderBy,
@@ -892,10 +851,8 @@ export async function applyQuery(
       config,
     );
 
-    // Tag each result with its original index for stable sorting
     const tagged = results.map((val, idx) => ({ val, idx }));
 
-    // Sort: compare cached keys only, no Lua eval in comparator
     await asyncMergeSort(tagged, (a, b) =>
       sortKeyCompare(
         a,
@@ -911,7 +868,6 @@ export async function applyQuery(
       ),
     );
 
-    // Check for SWO violations in comparators
     for (let i = 0; i < violated.length; i++) {
       if (violated[i]) {
         throw new LuaRuntimeError(

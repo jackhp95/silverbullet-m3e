@@ -7,7 +7,6 @@ import {
   type Ref,
 } from "@silverbulletmd/silverbullet/lib/ref";
 import type { Client } from "./client.ts";
-import { PAGE_SCROLL_CONTAINER_ID } from "./editor_ui.tsx";
 
 // The path of a location state should not be empty, rather it should be
 // normalized to the indexpage beforhand
@@ -30,6 +29,7 @@ export class PathPageNavigator {
   // dispatching its synthetic popstate; genuine browser back/forward fires
   // popstate without touching it, so it stays true and restores by default.
   private restoreOnPopstate = true;
+  private skipNextPopstate = false;
 
   constructor(private client: Client) {
     this.indexRef = this.client.getIndexRef();
@@ -42,7 +42,6 @@ export class PathPageNavigator {
    * push a new state)
    */
   async navigate(ref: Ref, replaceState = false, restore = false) {
-    // We are already navigating, let's wait
     if (this.navigationPromise) {
       await this.navigationPromise.promise;
     }
@@ -92,8 +91,6 @@ export class PathPageNavigator {
     const error = await this.navigationPromise.promise;
 
     if (error !== null) {
-      // The navigation failed, let's revert everything we've done (This could
-      // e.g. be a document editor which doesn't exist)
       if (error !== "Opened externally") {
         this.client.ui.flashNotification(
           `Failed to navigate: ${error}`,
@@ -102,10 +99,11 @@ export class PathPageNavigator {
       }
 
       if (!replaceState) {
+        this.navigationPromise = Promise.withResolvers();
+        this.skipNextPopstate = true;
         history.go(-1);
+        await this.navigationPromise.promise;
       } else {
-        // This can e.g. happen on the first navigate. We obviously can't fall back to the same path, so fallback to the indexpage
-
         const newRef: Ref =
           currentState.path === ref.path
             ? this.indexRef
@@ -116,15 +114,6 @@ export class PathPageNavigator {
           "",
           `${document.baseURI}${this.pathToURI(newRef.path)}`,
         );
-
-        globalThis.dispatchEvent(
-          new PopStateEvent("popstate", {
-            state: newRef,
-          }),
-        );
-
-        // This is should never fail, because we already navigated here before.
-        await this.navigationPromise.promise;
       }
     }
 
@@ -159,17 +148,19 @@ export class PathPageNavigator {
     const editorView = this.client.editorView;
     const mainSelection = editorView.state.selection.main;
     return {
-      // CodeMirror's own `.cm-scroller` no longer owns scroll once L6
-      // configures it for auto-height ("page scrolls") mode —
-      // `#sb-page-scroll` (L5) is the real scrolling ancestor now.
-      scrollTop:
-        document.getElementById(PAGE_SCROLL_CONTAINER_ID)?.scrollTop ?? 0,
+      scrollTop: editorView.scrollDOM.scrollTop,
       selection: { head: mainSelection.head, anchor: mainSelection.anchor },
     };
   }
 
   subscribe(pageLoadCallback: (locationState: LocationState) => Promise<void>) {
     globalThis.addEventListener("popstate", async (event: PopStateEvent) => {
+      if (this.skipNextPopstate) {
+        this.skipNextPopstate = false;
+        this.navigationPromise?.resolve(null);
+        return;
+      }
+
       // Consume the restore intent for this navigation; default back to true so
       // the next genuine browser back/forward restores.
       const restore = this.restoreOnPopstate;
@@ -201,13 +192,30 @@ export class PathPageNavigator {
         }
       }
 
-      // For some (propably smart) reason the reject() function on a
-      // Promise.withResolvers, also throws. This is hugely annoying here, so
-      // let's resolve for both cases
-      await pageLoadCallback(state).then(
-        () => this.navigationPromise?.resolve(null),
-        (e) => this.navigationPromise?.resolve(e.message),
-      );
+      try {
+        await pageLoadCallback(state);
+        this.navigationPromise?.resolve(null);
+      } catch (e: any) {
+        const error = e?.message ?? String(e);
+        if (this.navigationPromise) {
+          this.navigationPromise.resolve(error);
+          return;
+        }
+        if (error !== "Opened externally") {
+          this.client.ui.flashNotification(
+            `Failed to navigate: ${error}`,
+            "error",
+          );
+        }
+        const previousRef: Ref = {
+          path: leavingPath || this.indexRef.path,
+        };
+        globalThis.history.replaceState(
+          previousRef,
+          "",
+          `${document.baseURI}${this.pathToURI(previousRef.path)}`,
+        );
+      }
     });
   }
 }

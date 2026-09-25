@@ -16,8 +16,10 @@
 }
 
 #sb-top.sb-sync-error {
+  --top-background-color: var(--top-sync-error-background-color);
+
   color: var(--top-sync-error-color);
-  background-color: var(--top-sync-error-background-color);
+  background-color: var(--top-background-color);
 }
 
 .sb-saved {
@@ -44,6 +46,16 @@
   .sb-panel {
     background-color: var(--panel-background-color);
   }
+
+  // --panel-border-color is white in the light theme and cannot separate a dock
+  // from the editor.
+  .sb-nav-root-lhs {
+    border-right: 1px solid var(--ui-surface-border-color);
+  }
+
+  .sb-nav-root-rhs {
+    border-left: 1px solid var(--ui-surface-border-color);
+  }
 }
 
 .sb-bhs {
@@ -51,9 +63,25 @@
   background-color: var(--bhs-background-color);
 }
 
-// m3e-snackbar (client/editor_ui.tsx's flashNotification) replaced the old
-// portal-rendered `.sb-notifications`/`.sb-notification-*` toast — it ships
-// its own Material container styling, so those rules are gone, not moved.
+.sb-notifications {
+  font-family: var(--editor-font);
+}
+
+.sb-notifications>div {
+  border: var(--notifications-border-color) 1px solid;
+}
+
+.sb-notification-info {
+  background-color: var(--notification-info-background-color);
+}
+
+.sb-notification-error {
+  background-color: var(--notification-error-background-color);
+}
+
+.sb-notification-warning {
+  background-color: var(--notification-warning-background-color);
+}
 
 .sb-actions button {
   width: 28px;
@@ -67,181 +95,56 @@
   cursor: pointer;
 }
 
-.sb-actions button.sb-enabled {
-  background-color: var(--top-border-color);
-  border-radius: 5px;
-}
-
 .sb-actions button:hover {
   color: var(--action-button-hover-color);
 }
 
-// Only color the expander button, when the hamburger menu is open
 .sb-actions:not(.open) button.expander:hover {
   color: var(--action-button-color);
 }
 
-/* Modal boxes */
-.sb-modal-box {
-  color: var(--modal-color);
-  background-color: var(--modal-background-color);
-  border: var(--modal-border-color) 1px solid;
-  box-shadow: rgba(0, 0, 0, 0.35) 0px 20px 20px;
+.sb-header {
+  border-bottom: 1px var(--modal-border-color) solid;
 
-  .sb-header {
-    border-bottom: 1px var(--modal-border-color) solid;
-
-    label {
-      color: var(--modal-header-label-color);
-    }
-
-    .sb-input {
-      font-family: var(--ui-font);
-    }
+  label {
+    color: var(--modal-header-label-color);
   }
-
-  .sb-help-text {
-    background-color: var(--modal-help-background-color);
-    border-bottom: 1px var(--modal-border-color) solid;
-    color: var(--modal-help-color);
-  }
-
-  .sb-result-list {
-    .sb-hint:not(.sb-hint-inactive) {
-      color: var(--modal-hint-color);
-      background-color: var(--modal-hint-background-color);
-    }
-
-    .sb-hint.sb-hint-inactive {
-      color: var(--modal-hint-inactive-color);
-      background-color: var(--modal-hint-inactive-background-color);
-    }
-
-    // m3e-list-item paints its own slotted supporting-text/label colors from
-    // the --m3e-list-item-* cssprops below (node_modules/@m3e/web/dist/
-    // list.js: `::slotted([slot="supporting-text"]) { color: var(
-    // --m3e-list-item-supporting-text-color, onSurfaceVariant) }`, and
-    // `.content { color: var(--m3e-list-item-label-text-color, onSurface) }`
-    // for the default-slot name/headline) — not from a plain `color:` set on
-    // the slotted light-DOM node. Route this app's own modal-* tokens
-    // through those cssprops instead of an ad-hoc override; set at the list
-    // level, it inherits down to every m3e-list-item the same way a plain
-    // `color` would.
-    --m3e-list-item-supporting-text-color: var(--modal-description-color);
-
-    .sb-selected-option {
-      --m3e-list-item-container-color: var(
-        --modal-selected-option-background-color
-      );
-      --m3e-list-item-label-text-color: var(--modal-selected-option-color);
-      --m3e-list-item-supporting-text-color: var(
-        --modal-selected-option-description-color
-      );
-    }
-  }
-}
-
-// Two stacked fills were fighting inside the search sheet, and the previous
-// pass fixed the wrong one.
-//
-// 1. `m3e-search-bar` (slotted inside `m3e-search-view`) paints its `.base`
-//    div from `var(--m3e-search-bar-container-color, surfaceContainerHigh)`
-//    (decompiled node_modules/@m3e/web/dist/search.js). Default = a heavy
-//    gray pill against the sheet.
-// 2. The slotted `Input` is a kit `.sb-input`, which components.scss gives
-//    its OWN `background-color: var(--text-field-background-color)` —
-//    live-measured as `rgb(85,85,85)` in dark mode, i.e. a LIGHTER gray
-//    rectangle floating inside the bar's pill. `bare` does not strip it.
-//
-// The previous pass set (1) to `transparent` and left (2) alone, which is
-// exactly backwards: it deleted the bar's boundary (Jack: "you made the
-// search bar invisible") while leaving the offending inner gray box (Jack:
-// "jump to page, docu area is still gray" — that string is Open mode's
-// placeholder, i.e. the input, not the navigation sheet).
-//
-// Correct split: the INPUT goes fully transparent so it reads as text on
-// the bar rather than a nested box, and the BAR keeps a real — but subtle —
-// container color so it still has a visible boundary/affordance. The bar's
-// fill is derived from `--root-color` (the theme's foreground) rather than
-// hardcoded, so it lifts off the sheet by the same small amount in both
-// light and dark themes instead of only working in one.
-#sb-search-sheet {
-  --m3e-search-bar-container-color: color-mix(
-    in srgb,
-    var(--root-color) 9%,
-    transparent
-  );
 
   .sb-input {
-    background-color: transparent;
+    font-family: var(--ui-font);
   }
 }
 
-// search_sheet.tsx's mode picker — an `m3e-list` popup whose active row is
-// driven by us rather than by a selection-capable component (see that file's
-// mode-model comment). It marks the active row with the SAME
-// `.sb-selected-option` class and the SAME --modal-* tokens as every other
-// list in this app, so "selected" looks identical everywhere and no fourth
-// palette appears. Split out from the rule below only because the picker is a
-// top-layer popover and therefore not a descendant of `.sb-search-sheet-list`.
-.sb-search-sheet-mode-list {
-  .sb-selected-option {
-    --m3e-list-item-container-color: var(
-      --modal-selected-option-background-color
-    );
-    --m3e-list-item-label-text-color: var(--modal-selected-option-color);
-    --m3e-list-item-leading-color: var(--modal-selected-option-color);
-    --m3e-list-item-trailing-color: var(--modal-selected-option-color);
-  }
+.sb-help-text {
+  background-color: var(--modal-help-background-color);
+  border-bottom: 1px var(--modal-border-color) solid;
+  color: var(--modal-help-color);
 }
 
-// search_sheet.tsx's result/history list — not a .sb-modal-box (it's a
-// bottom sheet, not a <dialog>), so it needs its own selector root, but
-// reuses the exact same --modal-* tokens as the .sb-modal-box block above
-// rather than a second palette.
-.sb-search-sheet-list {
-  .sb-hint {
+.sb-result-list {
+  .sb-hint:not(.sb-hint-inactive) {
     color: var(--modal-hint-color);
     background-color: var(--modal-hint-background-color);
   }
 
-  --m3e-list-item-supporting-text-color: var(--modal-description-color);
+  .sb-hint.sb-hint-inactive {
+    color: var(--modal-hint-inactive-color);
+    background-color: var(--modal-hint-inactive-background-color);
+  }
+
+  .sb-description {
+    color: var(--modal-description-color);
+  }
 
   .sb-selected-option {
-    --m3e-list-item-container-color: var(
-      --modal-selected-option-background-color
-    );
-    --m3e-list-item-label-text-color: var(--modal-selected-option-color);
-    --m3e-list-item-supporting-text-color: var(
-      --modal-selected-option-description-color
-    );
+    background-color: var(--modal-selected-option-background-color);
+    color: var(--modal-selected-option-color);
+
+    .sb-description {
+      color: var(--modal-selected-option-description-color);
+    }
   }
 }
-
-// Nav "Search" destination panel's result/history list (leaf N7,
-// client/components/nav_views/search.tsx) — relocated out of
-// .sb-search-sheet-result-list's `.sb-nav-panel` host, same --modal-*
-// tokens as the block above, no third palette.
-.sb-nav-search-result-list {
-  .sb-hint {
-    color: var(--modal-hint-color);
-    background-color: var(--modal-hint-background-color);
-  }
-
-  --m3e-list-item-supporting-text-color: var(--modal-description-color);
-
-  .sb-selected-option {
-    --m3e-list-item-container-color: var(
-      --modal-selected-option-background-color
-    );
-    --m3e-list-item-label-text-color: var(--modal-selected-option-color);
-    --m3e-list-item-supporting-text-color: var(
-      --modal-selected-option-description-color
-    );
-  }
-}
-
-/* Editor */
 
 #sb-editor {
   .cm-content {
@@ -261,32 +164,24 @@
       .cm-textfield {
         background-color: var(--editor-panels-bottom-input-background-color);
       }
+
       .cm-button {
         background-image: var(--editor-panels-bottom-button-background-image);
+
         &:active {
-          background-image: var(
-            --editor-panels-bottom-button-active-background-image
-          );
+          background-image: var(--editor-panels-bottom-button-active-background-image);
         }
       }
     }
   }
 
-  // Slash-command / editor autocomplete tooltip (CM6 `.cm-tooltip-autocomplete`,
-  // wired in `codemirror/editor_state.ts`'s `autocompletion()`). No clean hook
-  // to swap CM's own <ul>/<li> for real m3e-menu/m3e-list-item elements —
-  // `@codemirror/autocomplete`'s `completionTooltip` only exposes classname
-  // hooks (`optionClass`/`tooltipClass`/`addToOptions`), not a DOM/tag swap —
-  // so this is a token-driven CSS reskin, not an element swap. CM appends the
-  // tooltip inside `.cm-editor` (no `parent` set on `tooltips()`), which lives
-  // inside `editor_ui.tsx`'s `<m3e-theme>` wrapper, so `--md-sys-color-*`
-  // inherits here like any other reskinned surface.
+  // @codemirror/autocomplete's completionTooltip only exposes classname
+  // hooks, not a DOM/tag swap, so this is a token-driven CSS reskin rather
+  // than a real m3e-menu/m3e-list-item swap.
   .cm-editor .cm-tooltip-autocomplete {
-    // Named local custom props (not inlined into background-color/color
-    // directly) so a `getComputedStyle` read can compare them against
-    // `--md-sys-color-*` as literal-vs-literal (e2e-verifiable, same
-    // pattern as `--m3e-outlined-chip-outline-color` above) instead of
-    // fighting rgb()-vs-hex formatting on the resolved CSS property.
+    // Named as local custom props so a getComputedStyle read can compare
+    // literal-vs-literal against --md-sys-color-* (e2e-verifiable) instead
+    // of fighting rgb()-vs-hex formatting on the resolved property.
     --sb-autocomplete-surface-color: var(--md-sys-color-surface-container);
     --sb-autocomplete-on-surface-color: var(--md-sys-color-on-surface);
     background-color: var(--sb-autocomplete-surface-color);
@@ -315,11 +210,9 @@
       color: inherit;
     }
 
-    // `!important`: CM's own baseTheme ships
-    // `&light .cm-tooltip-autocomplete ul li[aria-selected] { background: #17c }`
-    // via an injected StyleModule with higher selector specificity
-    // (`.cm-editor.cm-light …`) than anything reachable from here — the only
-    // reliable way to fully own the selection color is to out-rank it.
+    // `!important`: CM's own baseTheme injects a higher-specificity
+    // StyleModule rule for the selected item; this is the only way to
+    // out-rank it.
     --sb-autocomplete-selected-color: var(--md-sys-color-secondary-container);
     --sb-autocomplete-on-selected-color: var(
       --md-sys-color-on-secondary-container
@@ -342,7 +235,6 @@
   .sb-line-h4,
   .sb-line-h5,
   .sb-line-h6 {
-    // background-color: rgba(0, 30, 77, 0.5);
     color: var(--editor-heading-color);
   }
 
@@ -356,21 +248,30 @@
   }
 }
 
-// Tag pills (m3e-assist-chip, see codemirror/hashtag.ts,
-// frontmatter_folding.ts, markdown_renderer/markdown_render.ts). The chip
-// itself supplies the pill shape/border/click affordance — this only picks
-// the color, so provenance-style tags read as visually distinct pills.
-// Falls back to this fork's pre-existing hashtag color tokens for any tag
-// not in the palette below.
+// Editing-mode decoration (codemirror/hashtag.ts); read-mode preview uses
+// the m3e-assist-chip rules below instead. Both paths are live, so both
+// rule sets stay.
+.sb-hashtag,
+.hashtag {
+  color: var(--editor-hashtag-color);
+  background-color: var(--editor-hashtag-background-color);
+  border: 1px solid var(--editor-hashtag-border-color);
+  cursor: pointer;
+}
+
+// Read-mode preview's tag pills. The chip itself supplies shape/border/
+// click affordance; this only picks the color.
 m3e-assist-chip[data-tag-name] {
   --m3e-outlined-chip-outline-color: var(--editor-hashtag-border-color);
-  --m3e-chip-label-text-color: var(--editor-hashtag-color);
+  // --editor-hashtag-color is a fixed light value (main's old filled dark
+  // pill assumed a constant dark bg); on this outlined, unfilled chip it's
+  // unreadable in light theme. --root-color is main's own theme-aware body
+  // text color and stays readable against the page bg in both themes.
+  --m3e-chip-label-text-color: var(--root-color);
   vertical-align: middle;
 }
 
-// Provenance-style tags (task/issue/approach/…) mapped onto the M3 system
-// color roles editor_ui.tsx's `m3e-theme` already generates at runtime, so
-// this needs no new colors of its own — just picking which role per tag.
+// Provenance-style tags mapped onto M3 system color roles by name.
 m3e-assist-chip[data-tag-name="task"],
 m3e-assist-chip[data-tag-name="event"] {
   --m3e-outlined-chip-outline-color: var(--md-sys-color-primary);
@@ -395,8 +296,24 @@ m3e-assist-chip[data-tag-name="idea"] {
   --m3e-chip-label-text-color: var(--md-sys-color-tertiary);
 }
 
-// Anchor styling — mark and text colored independently so themes can
-// diverge them later. Default: both get the link color.
+.sb-at-mention {
+  color: var(--editor-at-mention-color);
+  background-color: var(--editor-at-mention-background-color);
+  border: 1px solid var(--editor-at-mention-border-color);
+  cursor: pointer;
+}
+
+.sb-at-mention-mark {
+  opacity: 0.6;
+}
+
+.sb-at-mention-signature,
+.sb-at-mention-signature-mark {
+  color: var(--editor-at-mention-signature-color);
+  opacity: 0.6;
+}
+
+// Color anchor markers and names independently for themes.
 .sb-named-anchor {
   color: var(--editor-link-color);
 }
@@ -413,7 +330,6 @@ m3e-assist-chip[data-tag-name="idea"] {
   color: var(--editor-naked-url-color);
 }
 
-/* Color list items when the cursor is on it */
 .sb-li-cursor .sb-meta {
   color: var(--editor-line-meta-color);
 }
@@ -433,6 +349,13 @@ tbody tr:nth-of-type(even) {
   border-left: 1px solid var(--editor-blockquote-border-color);
 }
 
+.sb-comment-block {
+  border-left-color: var(--editor-comment-border-color);
+  border-right-color: var(--editor-comment-border-color);
+  border-top-color: var(--editor-comment-border-color);
+  border-bottom-color: var(--editor-comment-border-color);
+}
+
 .sb-line-code {
   background-color: var(--editor-code-background-color);
 }
@@ -449,14 +372,13 @@ tbody tr:nth-of-type(even) {
   color: var(--editor-code-color);
 }
 
+// font-weight comes from a Tailwind class on the tag map, not here.
 .sb-directive-mark {
   color: var(--editor-directive-mark-color);
-  font-weight: bold;
 }
 
 .sb-directive {
   color: var(--editor-directive-color);
-  font-weight: bold;
 }
 
 .sb-highlight {
@@ -496,10 +418,35 @@ tbody tr:nth-of-type(even) {
   color: var(--editor-meta-color);
 }
 
-// HTML comments (inline `Comment` + block `CommentBlock`, e.g. baked-section
-// `<!--#lua … -->` markers) render in a subtle gray, like code comments. The
-// fenced-code-scoped rule above keeps comments inside code blocks code-sized.
+// HTML comments render in a subtle gray, like code comments.
 .sb-comment {
+  color: var(--editor-code-comment-color);
+}
+
+// The `<!--` / `-->` delimiters of a comment whose body is parsed as markdown:
+// the body styles itself, so only the markers get the comment colour.
+// An opaque surface, so the button reads as a control rather than dissolving
+// into the region's own tint.
+.sb-comment-resolve {
+  color: var(--subtle-color);
+  background-color: var(--root-background-color);
+  border-color: var(--subtle-color);
+}
+
+.sb-comment-resolve:hover {
+  background-color: var(--editor-widget-background-color);
+  color: var(--editor-text-color);
+}
+
+.sb-comment-label {
+  color: var(--editor-code-comment-color);
+}
+
+.sb-comment-marker {
+  color: var(--editor-code-comment-color);
+}
+
+.sb-conflict-marker {
   color: var(--editor-code-comment-color);
 }
 
@@ -513,25 +460,19 @@ tbody tr:nth-of-type(even) {
   background-color: var(--editor-code-inserted-bg, rgba(187, 247, 208, 0.25));
 }
 
-// Admonitions
-
 .sb-admonition {
   border-left-color: var(--admonition-color);
 }
 
 .sb-admonition-title {
-  background-color: color-mix(
-    in srgb,
-    var(--admonition-color),
-    transparent 90%
-  );
+  background-color: color-mix(in srgb,
+      var(--admonition-color),
+      transparent 90%);
 }
 
 .sb-admonition-type::before {
   background-color: var(--admonition-color);
 }
-
-// Frontmatter
 
 .sb-frontmatter {
   background-color: var(--editor-frontmatter-background-color);
@@ -540,24 +481,6 @@ tbody tr:nth-of-type(even) {
 
 .sb-frontmatter-marker {
   color: var(--editor-frontmatter-marker-color);
-}
-
-.sb-emphasis {
-  font-style: italic;
-}
-
-.sb-strong {
-  font-weight: 900;
-}
-
-.sb-sub {
-  vertical-align: sub;
-  font-size: smaller;
-}
-
-.sb-sup {
-  vertical-align: super;
-  font-size: smaller;
 }
 
 .sb-line-code-outside .sb-code-info {
@@ -588,12 +511,17 @@ a,
 }
 
 a.sb-wiki-link-missing,
-.sb-wiki-link-missing > .sb-wiki-link {
+.sb-wiki-link-missing>.sb-wiki-link {
   color: var(--editor-wiki-link-page-missing-color);
 }
 
 a.sb-wiki-link-invalid,
-.sb-wiki-link-invalid > .sb-wiki-link {
+.sb-wiki-link-invalid>.sb-wiki-link {
+  color: var(--editor-wiki-link-page-invalid-color);
+}
+
+a.sb-wiki-link-ambiguous,
+.sb-wiki-link-ambiguous>.sb-wiki-link {
   color: var(--editor-wiki-link-page-invalid-color);
 }
 
@@ -609,17 +537,12 @@ a.sb-wiki-link-invalid,
   font-size: 80%;
 }
 
+// #f3eeee is an un-themed background — a pre-existing dark-mode bug, left
+// as-is here (out of scope).
 .sb-footnote-ref {
   color: var(--meta-subtle-color);
-  border: 1px solid var(--meta-subtle-color);
-  border-radius: 3px;
-  padding: 0 2px;
-  font-size: 0.75em;
+  border-color: var(--meta-subtle-color);
   background-color: #f3eeee;
-  display: inline-flex;
-  align-items: center;
-  vertical-align: middle;
-  cursor: pointer;
 }
 
 .sb-footnote-ref-unresolved {
@@ -633,5 +556,5 @@ a.sb-wiki-link-invalid,
 }
 
 .sb-line-comment {
-  background-color: var(--editor-code-comment-color); // rgba(255, 255, 0, 0.5);
+  background-color: var(--editor-code-comment-color);
 }

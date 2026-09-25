@@ -6,17 +6,13 @@ import type { Edge, ForceSettings, ObjectNode } from "../../src/model.ts";
 import { STRUCTURAL_KINDS } from "../../src/model.ts";
 import { colorForTag } from "../colors.ts";
 
-// All four force parameters are now driven by sliders in the sidebar;
-// see ForceSettings in src/model.ts for the defaults.
 const CLICK_DELAY_MS = 220;
 // Upper bound for the auto-fit camera scale. Prevents zoomToFit from
 // magnifying a single isolated node to fill the entire canvas.
 const MAX_AUTO_ZOOM = 4;
 
-// Tick budgets before the simulation cools and we auto-fit the camera (via
-// onEngineStop → recenter). Fitting on a fixed timer fit mid-layout and left
-// nodes half off-screen; fitting on settle is reliable. A from-scratch first
-// layout needs more settling than an incremental expansion.
+// Fit after simulation settles to avoid framing an incomplete layout.
+// A from-scratch layout needs more settling than an incremental expansion.
 const FIRST_FIT_COOLDOWN_TICKS = 140;
 const REFIT_COOLDOWN_TICKS = 60;
 
@@ -71,6 +67,7 @@ const ForceGraph = ForceGraphImpl as unknown as () => (
 ) => ForceGraphInstance;
 
 type Theme = {
+  font: string;
   bg: string;
   nodeDim: string;
   label: string;
@@ -100,6 +97,7 @@ function readTheme(): Theme {
     cs.getPropertyValue(n).trim() || fallback;
   return {
     bg: v("--gv-bg", "#ffffff"),
+    font: cs.fontFamily,
     nodeDim: v("--gv-node-dim", "#9e4705"),
     label: v("--gv-label", "#333"),
     labelDim: v("--gv-label-dim", "#676767"),
@@ -714,7 +712,7 @@ export class GraphCanvas extends Component<Props, State> {
     if (showLabel) {
       const fontPx = isSelected ? 13 : 11;
       const fontSize = fontPx / scale;
-      ctx.font = `${isSelected ? "600 " : ""}${fontSize}px sans-serif`;
+      ctx.font = `${isSelected ? "600 " : ""}${fontSize}px ${t.font}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       const name = displayName(node.title);
@@ -828,7 +826,7 @@ export class GraphCanvas extends Component<Props, State> {
       ctx.translate(mx, my);
       ctx.rotate(angle);
       const fontSize = 10 / scale;
-      ctx.font = `${fontSize}px sans-serif`;
+      ctx.font = `${fontSize}px ${t.font}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
       ctx.lineWidth = 3 / scale;

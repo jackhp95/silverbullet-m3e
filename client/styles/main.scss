@@ -6,46 +6,17 @@
 @use "top";
 @use "xray";
 @use "components";
+// Navigator overrides rely on source order after components; its partials
+// follow for the same reason.
+@use "navigator";
+@use "revision_preview";
+@use "dock_menu";
+@use "page_widget";
+@use "view_content";
 
-@font-face {
-  font-family: "iA-Mono";
-  src: url("iAWriterMonoS-Regular.woff2");
-  font-weight: normal;
-  font-style: normal;
-}
-
-@font-face {
-  font-family: "iA-Mono";
-  src: url("iAWriterMonoS-Bold.woff2");
-  font-weight: bold;
-  font-style: normal;
-}
-
-@font-face {
-  font-family: "iA-Mono";
-  src: url("iAWriterMonoS-Italic.woff2");
-  font-weight: normal;
-  font-style: italic;
-}
-
-@font-face {
-  font-family: "iA-Mono";
-  src: url("iAWriterMonoS-BoldItalic.woff2");
-  font-weight: bold;
-  font-style: italic;
-}
-
-// m3e-icon (Material Symbols) renders text-as-ligature against a font named
-// exactly "Material Symbols Outlined" — it does not ship or inject that font
-// itself (confirmed against node_modules/@m3e/web/dist/icon.js: the only
-// loading guidance in its own source is a Google Fonts CDN <link>). Without
-// this, m3e-icon silently falls back to rendering the icon `name` as literal
-// text. Self-hosted here (client/fonts/, same convention as the iA-Mono
-// faces above) rather than a runtime fonts.googleapis.com dependency, since
-// this is a self-hosted, offline-first client. Static (non-variable) face —
-// sufficient for the fixed, non-animated icon usage in this fork; if a
-// future use needs the fill/weight/grade/optical-size axes to morph live,
-// swap in the variable-font file from the same Google Fonts CSS API source.
+// m3e-icon renders icons as ligatures against a font named exactly
+// "Material Symbols Outlined"; it doesn't ship that font itself. Without
+// this @font-face, icon names render as literal text instead.
 @font-face {
   font-family: "Material Symbols Outlined";
   src: url("MaterialSymbolsOutlined.woff2") format("woff2");
@@ -54,22 +25,7 @@
   font-display: block;
 }
 
-// Monaspace Neon — GitHub's open-source (SIL OFL 1.1) monospace superfamily
-// (github.com/githubnext/monaspace), the flagship/default sub-family of the
-// superfamily (a neo-grotesque monospace, the one usually meant by "the
-// Monaspace font" — corrected 2026-09-16 from an earlier round that shipped
-// the slab-serif "Xenon" sub-family by mistake) — the editable-state face
-// for --editor-font (theme.scss). Self-hosted here (client/fonts/, same
-// convention as the iA-Mono faces above) rather than a CDN dependency, for
-// the same offline-first reason cited above for Material Symbols. These are
-// the static (non-variable) per-weight/style files from the project's own
-// "Static Web Fonts" release asset (monaspace-webfont-static-v1.400.zip,
-// release tag v1.400, Static Web Fonts/Monaspace Neon/ inside the zip) —
-// the width/weight axes this fork needs are fixed by the CSS below, not
-// user-adjustable, so the single combined variable-font file buys nothing
-// here and four static files keep each request small. License:
-// client/fonts/LICENSE-Monaspace.txt (SIL OFL 1.1, copied verbatim from
-// githubnext/monaspace's own root LICENSE file).
+// License: client/fonts/LICENSE-Monaspace.txt (SIL OFL 1.1).
 @font-face {
   font-family: "Monaspace Neon";
   src: url("MonaspaceNeon-Regular.woff2") format("woff2");
@@ -98,23 +54,7 @@
   font-style: italic;
 }
 
-// Roboto — Google's open-source (Apache License 2.0) typeface, Material's
-// own default — the read-only-state face for --editor-font/--chrome-font
-// (theme.scss). Self-hosted here for the same offline-first reason cited
-// above for Material Symbols; this is a different font than m3e's own
-// internal Roboto-Flex (used inside its Shadow DOM and out of scope for this
-// app-level override — see theme.scss's --chrome-font comment). Static
-// (non-variable) woff2s fetched directly from Google Fonts' own CSS2 API
-// (fonts.googleapis.com/css2?family=Roboto:wght@400;700), requested with a
-// pre-variable-font-era user agent string so the API serves single-weight
-// static files rather than one variable-font file — matching the
-// one-file-per-weight/style convention of the iA-Mono/Monaspace faces above.
-// Only the latin subset, normal + bold (2 of the 4 faces iA-Mono/Monaspace
-// ship): this face is read-only chrome/body text, not an editing surface, so
-// italic emphasis isn't load-bearing here — 2 weights is this repo's own
-// documented acceptable minimum. License: client/fonts/LICENSE-Roboto.txt
-// (Apache License 2.0, copied verbatim from google/roboto's own root LICENSE
-// file).
+// License: client/fonts/LICENSE-Roboto.txt (Apache License 2.0).
 @font-face {
   font-family: "Roboto";
   src: url("Roboto-Regular.woff2") format("woff2");
@@ -136,20 +76,10 @@ body {
   padding: 0;
   width: 100%;
   overflow: hidden;
-  // Baseline for anything the app doesn't explicitly style — most notably
-  // m3e-snackbar, which M3eSnackbar.open() appends directly to
-  // `document.body` (confirmed in node_modules/@m3e/web/dist/snackbar.js:
-  // `document.body.append(snackbar)`), i.e. as a SIBLING of #sb-root, not a
-  // descendant — so it never inherited #sb-root's `font-family: var(--ui-
-  // font)` (colors.scss) and fell all the way back to the browser's true
-  // UA-default (serif on most engines when nothing at all is set). Root
-  // cause, not a per-component patch — this is deliberately the SAME pattern
-  // Jack asked for: fix it once at the true document root so any future
-  // top-layer/body-appended m3e surface (menus, dialogs, tooltips) inherits
-  // sane theming by default instead of needing its own opt-in. Uses
-  // --chrome-font (not the static --ui-font #sb-root itself keeps) since a
-  // reload/status snackbar is exactly the kind of transient, content-state-
-  // adjacent chrome the editable/read-only cue is meant to reach.
+  // m3e-snackbar appends itself directly to document.body — a sibling of
+  // #sb-root, not a descendant — so it never inherits #sb-root's own
+  // font-family. Fixed at the true document root so any body-appended m3e
+  // surface (menus, dialogs, tooltips) inherits sane theming by default.
   font-family: var(--chrome-font);
   background-color: var(--top-background-color);
 }
@@ -166,26 +96,9 @@ body {
   flex: 1;
 }
 
-.sb-bottom-iframe {
-  width: 100%;
-  margin-top: 10px;
-  border: 1px solid var(--editor-widget-background-color);
-  border-radius: 5px;
-}
-
-.sb-top-iframe {
-  width: 100%;
-  margin-top: 10px;
-  border: 1px solid var(--editor-widget-background-color);
-  border-radius: 5px;
-}
-
-// `#sb-main` is now an `m3e-drawer-container` (Phase B side-panel chrome) —
-// it manages the start/main/end row layout in its own Shadow DOM, so this
-// only needs to size it as a flex item of `#sb-root`'s column layout (the
-// classic flex-grow + height:0 trick that lets it fill remaining vertical
-// space regardless of its own intrinsic content height).
 #sb-main {
+  display: flex;
+  flex-direction: row;
   flex-grow: 1;
   height: 0;
 
@@ -194,47 +107,14 @@ body {
   }
 }
 
-// #sb-page-scroll (L5, `PAGE_SCROLL_CONTAINER_ID`) is the light-DOM scroll
-// container `#sb-editor`'s consumers (navigator.ts/content_manager.ts/
-// client.ts, L7) read `.scrollTop` from instead of CodeMirror's own
-// `.cm-scroller` (auto-height per L6, no longer scrolls at all). These two
-// declarations were pulled forward from L9 (docs/plans/2026-09-22-appbar-
-// large-frontmatter-scroll-snap.md) ahead of that leaf landing, deliberately
-// MINIMAL — no scroll-snap-type/-webkit-overflow-scrolling/scrollbar-gutter,
-// which are L9's own scope (snap behavior and cosmetics, not scroll-tracking
-// correctness; those now live in top.scss's own `#sb-page-scroll` rule,
-// landed alongside this one). Without `height`/`overflow` here, this div has
-// no box of its own to scroll — `m3e-drawer-container`'s shadow `.content`
-// region (already `height:100%; overflow:auto`, §1.1) silently takes over as
-// the real scrolling element whenever `#sb-page-scroll`'s content overflows
-// it, which makes L7's `PAGE_SCROLL_CONTAINER_ID`-based `scrollTop`
-// reads/writes permanently no-op (always 0) — verified live at :3333 during
-// L7's mandatory verification pass: per-page scroll memory (R8) silently
-// failed without this.
-#sb-page-scroll {
-  height: 100%;
-  overflow-y: auto;
-}
-
-// Chrome wrapper for slotted lhs/rhs drawer content (the `start`/`end` slots
-// of `#sb-main`) — a close affordance (m3e-drawer-toggle) stacked above the
-// plug-owned Panel (panel.tsx), which is untouched.
-.sb-panel-drawer {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.sb-panel-drawer-close {
-  align-self: flex-end;
-  margin: 4px;
-}
-
 #sb-editor {
-  // No longer a flex item of anything, and no longer needs to fill a box
-  // (§2/L6 auto-height "page scrolls" mode) — its height is intrinsic to
-  // its content, same as its new #sb-page-scroll siblings (top.scss).
+  flex: 2;
+  height: 100%;
+
   width: 100%;
+
+  container-type: inline-size;
+  container-name: sb-editor-col;
 
   iframe {
     width: 100%;
@@ -259,8 +139,41 @@ body {
   }
 }
 
+// showPanel("modal")'s future <m3e-dialog> host; inert until editor_ui.tsx
+// renders <m3e-dialog> instead of .sb-modal/.sb-modal-backdrop.
+m3e-dialog .sb-panel {
+  height: 100%;
+
+  iframe {
+    background-color: initial;
+  }
+}
+
+// Keep 600px in step with `MOBILE_MEDIA_QUERY` in `client/lib/mobile.ts`.
+@media only screen and (max-width: 600px) {
+  #sb-main {
+    position: relative;
+  }
+
+  // Drawers overlay the editor, so there is no sidebar seam.
+  #sb-main .sb-nav-root-lhs,
+  #sb-main .sb-nav-root-rhs {
+    position: absolute;
+    inset: 0;
+    // Above the editor, below #sb-top (z-index 20) — the top bar stays on top.
+    z-index: 15;
+    border: 0;
+    flex: 1 1 100% !important;
+  }
+
+  // Drawers reserve no title space because they overlay the editor.
+  #sb-top .sb-nav-spacer {
+    display: none;
+  }
+}
+
 // Full-screen dim behind a "modal" panel, matching the <dialog> backdrop used
-// by command-palette / prompt / confirm modals (.sb-modal-box).
+// by the filter-box / prompt / confirm modals (.sb-modal-box).
 .sb-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -271,10 +184,17 @@ body {
 .sb-modal {
   position: absolute;
   border: var(--modal-border-color) 1px solid;
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
-  // Match the .sb-modal-box drop shadow so plug modals look consistent.
-  box-shadow: rgba(0, 0, 0, 0.35) 0px 20px 20px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+
+  // Not `visibility: hidden`: the panel focuses its own filter input as it
+  // activates, and an element in a visibility-hidden subtree can't take
+  // focus at all.
+  &.sb-modal-paint-pending {
+    opacity: 0;
+    pointer-events: none;
+  }
 
   .sb-panel {
     height: 100%;
@@ -284,51 +204,65 @@ body {
     }
   }
 
+  &.sb-modal-centered {
+    left: 0;
+    right: 0;
+    width: 700px;
+    max-width: 90%;
+    margin-inline: auto;
+    box-sizing: border-box;
+    // Height comes from the panel's own content, so the box shrinks with it;
+    // `bottom` is deliberately unset, and the inline `max-height` beside it
+    // is only the viewport backstop.
+    bottom: auto;
+    height: auto;
+  }
+
   @media only screen and (max-width: 600px) {
     // On narrow screens override the inline `inset` that plugs pass to
     // showPanel("modal", N) so the modal sits closer to the edges. It keeps
     // its rounded corners since (unlike .sb-modal-box) it isn't edge-to-edge.
     inset: 8px !important;
+
+    &.sb-modal-centered {
+      top: 8px !important;
+      bottom: auto !important;
+      left: 8px !important;
+      right: 8px !important;
+      width: auto;
+      max-width: none;
+      max-height: calc(100% - 16px) !important;
+    }
   }
 }
 
+// Content-adjacent chrome (the page-title prefix): carries --chrome-font's
+// editable/read-only cue rather than the static UI font.
 .sb-page-prefix {
   display: flex;
   align-items: baseline;
   flex: 0 0 auto;
   text-align: left;
   padding-top: 3px;
-  // Content-adjacent (renders the current page's own decoration icon), so it
-  // honors the editable/read-only cue via --chrome-font — see theme.scss.
   font-family: var(--chrome-font);
   white-space: pre-wrap;
+  height: 36px;
+  line-height: 36px;
+  overflow: hidden;
 }
 
-.sb-panel {
-  iframe {
-    background-color: var(--root-background-color);
-    border: 0;
-    width: 100%;
-    height: 100%;
-    padding: 0;
-    margin: 0;
+.sb-page-decoration-icon {
+  display: inline-flex;
+  flex: none;
+  margin-right: 0.25em;
+  vertical-align: -0.125em;
+
+  svg {
+    width: 1em;
+    height: 1em;
   }
 }
 
-.sb-preview {
-  position: relative;
-}
-
-.sb-markdown-toolbar {
-  position: absolute;
-  opacity: 0;
-  transition: opacity 0.2s;
-  width: 100%;
-  display: flex;
-  justify-content: flex-end;
-  box-sizing: border-box;
-}
-
-.sb-markdown-toolbar:hover {
-  opacity: 1;
+.sb-panel iframe {
+  background-color: var(--root-background-color);
 }

@@ -143,9 +143,33 @@ if config.get("journal.enabled", true) then
       end
     end,
   }
+  -- Dated paths form a year/month/day tree.
+  navigator.define {
+    name = "std.journal",
+    title = "Journal",
+    dock = "modal",
+    presentation = {
+      mode = "tree",
+      -- Expand initially so dates are visible instead of only the root folder.
+      expandAll = true,
+      row = {
+        icon = function(obj)
+          if obj.isFolder then return "folder" end
+          return "calendar"
+        end,
+      },
+    },
+    source = function() return journal.entries() end,
+    onSelect = function(obj) editor.navigate(obj.ref or obj.name) end,
+  }
+
   command.update {
     name = "Journal: Picker",
     run = function()
+      if editor.openNavigator("std.journal") then
+        -- The panel focuses its own filter input.
+        return false
+      end
       local entries = journal.entries()
       if #entries == 0 then
         editor.flashNotification("No journal entries yet")

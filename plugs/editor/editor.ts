@@ -1,23 +1,17 @@
 import {
   clientStore,
   codeWidget,
-  config,
   editor,
-  index,
   system,
 } from "@silverbulletmd/silverbullet/syscalls";
-import type { FilterOption } from "@silverbulletmd/silverbullet/type/client";
 
 // Run on "editor:init"
 export async function setEditorMode() {
   // TODO: Remove at some point: temporary upgrade code
   const allSyscalls = await system.listSyscalls();
-  // console.log("All syscalls", allSyscalls);
   const queryLuaObjects = allSyscalls.find(
     (sc) => sc.name === "index.queryLuaObjects",
   );
-
-  // console.log(readPageWithMetaCall);
 
   if (!queryLuaObjects) {
     await editor.alert(
@@ -49,25 +43,10 @@ export async function setEditorMode() {
 }
 
 export async function openTagNavigator() {
-  // Query all tags with a matching parent
-  const allTags: FilterOption[] = (
-    await index.queryLuaObjects<string>("tag", {
-      select: { type: "Variable", name: "name", ctx: {} as any },
-      distinct: true,
-    })
-  ).map((name) => ({ name }));
-
-  const selectedTag = await editor.filterBox(
-    "Open",
-    allTags,
-    "Press <tt>enter</tt> to go to the tag page of the selected tag.",
-    "Tag",
-  );
-  if (!selectedTag) {
-    return;
-  }
-  const tagPage = await config.get(["tags", selectedTag.name, "tagPage"], null);
-  await editor.navigate(tagPage ?? `tag:${selectedTag.name}`);
+  await editor.openNavigator("std.tags");
+  // The panel focuses its own filter input; false keeps the client from
+  // pulling focus straight back to the editor.
+  return false;
 }
 
 export async function toggleDarkMode() {
@@ -101,7 +80,7 @@ export async function moveToPosCommand() {
     return;
   }
   const pos = +posString;
-  await editor.moveCursor(pos, true); // showing the movement for better UX
+  await editor.moveCursor(pos, true);
 }
 
 export async function copyRefCommand() {
@@ -128,7 +107,7 @@ export async function moveToLineCommand() {
     void editor.flashNotification("Must provide a line number.", "error");
     return;
   }
-  // Match sequence of digits at the start, optionally another sequence
+  // Two capture groups: line number, then optional column number
   const numberRegex = /^(\d+)(?:[^\d]+(\d+))?/;
   const match = lineString.match(numberRegex);
   if (!match) {
@@ -143,7 +122,7 @@ export async function moveToLineCommand() {
   if (match[2]) {
     column = parseInt(match[2], 10);
   }
-  await editor.moveCursorToLine(line, column, true); // showing the movement for better UX
+  await editor.moveCursorToLine(line, column, true);
 }
 
 export async function customFlashMessage(_def: any, message: string) {

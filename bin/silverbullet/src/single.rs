@@ -14,7 +14,9 @@ use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
 use silverbullet_server::metrics::Metrics;
-use silverbullet_server::multi::config::{Binding, MultiConfig, ShellSettings, SpaceConfig};
+use silverbullet_server::multi::config::{
+    Binding, MultiConfig, ShellSettings, SpaceAccess, SpaceConfig,
+};
 use silverbullet_server::multi::dispatch::build_main_router;
 use silverbullet_server::multi::instance::{
     seed_index, AssetFactories, InstanceAuth, InstanceDeps,
@@ -43,22 +45,23 @@ fn synthesize(config: &Config, shell_env: ShellConfig) -> SpaceConfig {
         name: config.space_name.clone(),
         folder: ".".to_string(),
         binding: Binding::Prefix { prefix },
-        public: false,
+        access: Some(SpaceAccess::None),
+        legacy_public: None,
         members: Default::default(),
         read_only: config.read_only,
         shell: ShellSettings {
             enabled: !config.read_only && shell_env.enabled,
             whitelist: shell_env.whitelist,
         },
-        // The Chrome runtime factory still decides availability via
-        // `ChromeConfig::from_env` (SB_RUNTIME_API), exactly as before.
-        runtime_api: true,
         index_page: config.index_page.clone(),
         description: config.space_description.clone(),
         theme_color: config.theme_color.clone(),
         head_html: config.additional_head_html.clone(),
         space_ignore: config.gitignore.clone(),
         log_push: config.log_push,
+        revisions: config.revisions,
+        git_sync: None,
+        revisions_commit: None,
         extra: Default::default(),
     }
 }
@@ -83,24 +86,16 @@ fn single_spaces_info_router() -> axum::Router {
     })
 }
 
-pub async fn run_single(config: Config) -> Result<(), String> {
+pub(crate) async fn run_single(
+    config: Config,
+    shutdown: crate::server::Shutdown,
+) -> Result<(), String> {
     let root = PathBuf::from(&config.space_folder);
-    // Note: this is a deliberate behavior change from the old single-space
-    // binary, not parity — the old binary errored on a missing space folder
-    // (`DiskSpacePrimitives::new` failed and `build_state` propagated that as
-    // a startup error). Auto-creating it here is owner-accepted: `run_single`
-    // is only reached via `--single` or a legacy `SB_*` env var, both of which
-    // take precedence over folder inspection in `boot::detect` — so
-    // `--single ./new-dir` and Docker-style `SB_USER=... /space` on a fresh
-    // mount still get instant single-space mode with the folder created for
-    // them, even though a missing folder with no flag/env now goes to setup.
     std::fs::create_dir_all(&root)
         .map_err(|e| format!("could not create space folder {}: {e}", root.display()))?;
 
     let space = synthesize_config(&config);
 
-    // Seed an index page into a brand-new empty space. The space folder is the
-    // server root (folder ".").
     seed_index(
         &root,
         &space.index_page,
@@ -108,7 +103,6 @@ pub async fn run_single(config: Config) -> Result<(), String> {
         &config.gitignore,
     );
 
-    // `SB_USER` set => inherit the admin (env) credentials; absent => open.
     let auth = silverbullet_server::auth::AuthConfig::from_env().map_err(|e| e.0)?;
 
     let metrics = config.metrics_port.map(|_| Arc::new(Metrics::new()));
@@ -119,7 +113,8 @@ pub async fn run_single(config: Config) -> Result<(), String> {
             client_bundle: Box::new(|| Box::new(EmbeddedSpace::<ClientAssets>::new())),
             base_fs: Box::new(|| Box::new(EmbeddedSpace::<BaseFsAssets>::new())),
         },
-        runtime: Box::new(crate::multi::build_space_runtime),
+        runtime_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        runtime: crate::multi::space_runtime_factory(&root, true).0,
         metrics: metrics.clone(),
         auth: InstanceAuth::Single(auth),
         version: crate::embed::current_version(),
@@ -130,13 +125,13 @@ pub async fn run_single(config: Config) -> Result<(), String> {
         // means the two modes can't disagree about what the variable means.
         shell_disabled: config.shell_disabled,
         index_template: crate::DEFAULT_INDEX_MD.to_string(),
+        shutdown: Some(shutdown.rx.clone()),
     };
 
     let mut spaces = HashMap::new();
     spaces.insert(SINGLE_SPACE_ID.to_string(), space);
     let manager = MultiManager::boot_in_memory(root, MultiConfig { spaces }, deps)?;
 
-    // Optional Prometheus metrics on a separate port (aggregated in `metrics`).
     if let (Some(mport), Some(metrics)) = (config.metrics_port, metrics.clone()) {
         let maddr = format!("{}:{}", config.bind_host, mport);
         let listener = tokio::net::TcpListener::bind(&maddr)
@@ -185,9 +180,9 @@ pub async fn run_single(config: Config) -> Result<(), String> {
     }
 
     if let Some(socket) = &config.unix_socket {
-        crate::server::serve_unix(socket, router).await
+        crate::server::serve_unix(socket, router, shutdown).await
     } else {
-        crate::server::serve_tcp(&config.bind_host, config.port, router).await
+        crate::server::serve_tcp(&config.bind_host, config.port, router, shutdown).await
     }
 }
 
@@ -216,6 +211,7 @@ mod tests {
             space_description: "Powerful and programmable note taking app".into(),
             host_url_prefix: String::new(),
             http_logging: false,
+            revisions: silverbullet_server_common::RevisionsMode::Unmanaged,
         }
     }
 
@@ -245,7 +241,6 @@ mod tests {
     fn read_only_propagates_and_disables_shell() {
         let mut c = config_fixture();
         c.read_only = true;
-        // Even if the env parser reported shell enabled, read-only wins.
         let s = synthesize(&c, shell_on());
         assert!(s.read_only);
         assert!(!s.shell.enabled);
@@ -278,6 +273,5 @@ mod tests {
         assert_eq!(s.theme_color, "#123456");
         assert!(s.log_push);
         assert_eq!(s.folder, ".");
-        assert!(s.runtime_api);
     }
 }

@@ -1,8 +1,74 @@
 An attempt at documenting the changes/new features introduced in each release.
 
 ## Edge
-Whenever a commit is pushed to the `main` branch, within ~5 minutes, it will be released as a docker image with the `:v2` tag, and a binary in the [edge release](https://github.com/silverbulletmd/silverbullet/releases/tag/edge). If you want to live on the bleeding edge of SilverBullet goodness (or regression) this is where to do it.
+* Significant **visual refresh**:
+  * Doubling down on the monospace fonts. This is a more “techy” tool and it seems fitting..
+  * More consistent UX across and control the increasingly large UI surface (mostly the [[Space Manager]] UI).
+  * There are probably still issues, this will need some time
+* Significant **multi-space server upgrade and revamp**:
+  * Profile menu giving access to profile editing, list of all spaces, login, logout
+  * Hostname and path-prefix bindings can now be composed, so one custom hostname can serve multiple non-overlapping spaces such as `/work` and `/wiki`, with shared setup, creation, and settings controls.
+  * Read/Write/Runtime API permissions per user
+  * SSO user creation asks for email before suggesting a username.
+  * Public space support (no auth)
+  * Admin tab:
+    * [[Single Sign-On]] (Google Workspace Auth, Pocket ID, other OIDC provider support) support
+    * Configurable Server name (used in headers)
+    * Runtime management showing space/user, CPU, memory, and profile disk usage, with Stop and Reset controls.
+  * **Breaking**: _shell commands are now off unless a space explicitly enables them_.
+* Significant steps towards a more [[Collaboration|Collaborative Future]]:
+  * **Near real-time sync**: changes made to pages are now synced (and will appear in other clients) within ~2-3s.
+  * **Near real-time content updates**: if multiple clients/process edit the same page, SilverBullet will do its best to reconcile those changes with local ones. In cases of unresolvable conflicts a new _conflict widget_ will show helping you to resolve the conflict.
+  * **At-mentions and Identities** ([[At-Mention]], [[Identity]]): mention people, teams, or anything else with `@name`. Each name resolves to an [[Identity]] — an account, something registered with `identity.define`, or simply a name you've mentioned — addressed by the `@<name:lower>` id, so `@Ada` and `@ada` converge on the same identity. `identity.own()` returns the identity the current user is. An identity is addressed as a [[Recipient]] (→ Mention Inbox) or credited as an author (see [[Authorship]]). (Note: upgrading triggers a full space reindex, since mention identifiers moved to the `@name` form.)
+    * **[[Authorship]]**: a trailing `-- @name` (also `— @name`/`– @name`) signs a block instead of addressing it, crediting who wrote it without putting them in anyone's Mention Inbox. `authors:` frontmatter does the page-level equivalent of `recipients:`. Sign the current block with the `Mention: Sign` command or the `/sign` slash command.
+  * **HTML comments are now parsed as markdown** ([[Markdown/Comment]]): the body of a `<!-- ... -->` block is now parsed and rendered as ordinary markdown. This enables a communication channel (likely using [[Recipient|recipients]]) to communicate between team members.
+  * [[Revisions]]: In three modes: **Managed** (SilverBullet commits your changes for you), **Unmanaged** (an existing git repository’s history is read, but SilverBullet never commits to it) or **Disabled**.
+  * Accounts now carry a full name and email, used to attribute revision commits and shown as the presence label for concurrent edits.
+  * Every user gets a **Profile** page ([[Authentication#Accounts]]) to set their own full name and email.
+  * The editor learns who the space's people are from a new `/.accounts` endpoint, which replaces `/.profile`: it reports every account with access to the space, with the current user marked, and never an email address.
+  * The `revisions.authorEmailDomain` config option is gone: synthesized commit author emails now always use the `silverbullet.local` domain. (The old implementation depended on the [[Runtime API]] and silently fell back to the default anyway when that was unavailable.)
+* **Completely revamped [[Navigator]] and dockable panel UX (includes a file tree!):** one configurable navigation UI that presents any object collection as a fuzzy-filterable list **or tree**, either as a modal or as a sidebar. A lot of views have been rebuilt on this. Oh yeah: ${widgets.commandButton("Navigate: Tree")} 🤯
+  * **Unified docking:** every navigator view now has a single, consistent notion of where it lives: `"modal"`, `"lhs"`/`"rhs"` sidebar, `"bhs"` resizable bottom panel, or `"page-top"`/`"page-bottom"` (rendered as an in-document widget). You can move all of them, and those docking positions and panel sizes persist between reloads.
+  * The Table of Contents, Linked Mentions, Linked Tasks are now movable, dockable widgets rather than fixed page decorations.
+  * **Markdown-content views:** `view.define` defines a view that renders a markdown document instead of a list of rows, through the very same pipeline.
+* **New [[Page Decorations|page decorations]]:** `icon` gives a page its own (Feather) icon in the navigator, auto complete, page links, and the top bar, `tree.priority` floats a page above its siblings in the otherwise alphabetical space tree, and `tree.hide` keeps a page out of the tree alone. `hide` now also hides a page from the tree, not just from the page picker and completions.
+* Docker images:
+  * Default images (`:latest`, `:edge` now default to have the runtime API enabled, and are larger due to including a Chromium build, use the new `:latest-slim` and `:edge-slim` images for the version without Chromium)
+* **[[Link|Wiki links]] now resolve by page name, not just by full path (think: Obsidian compatibility).** A `[[Note]]` link resolves to `some/folder/Note` when that name is unique in the space, matching how Obsidian resolves links, so an Obsidian-authored space works in SilverBullet without rewriting every link. See [[ADR/011 Link Resolution by Name]] for reasoning. The `linkWriteFormat` option decides how SilverBullet writes the links it generates (auto complete, rename backlink rewriting), it defaults to `full-path`, so generated links keep spelling out the whole path.
+* **LAN HTTP support:** open SilverBullet via a LAN IP or hostname without TLS in online-only mode, with compatible hashing and text copying. Failed loads now preserve the current editor and page list instead of presenting empty content, direct requests update the connection indicator, and the browser warns before leaving an unsaved editor. See [[TLS]] for limitations.
+* Fix: a linked-mention snippet that contained a `![[transclusion]]` inlined the entire target page into the Linked Mentions widget -- frontmatter first, rendered as garbage. Snippets now show such a mention as a plain link, and a transcluded page's frontmatter no longer leaks into rendered widget content. (Triggers a full space reindex on upgrade.)
+* Fix: better blockquote rendering:
+  * Nested blockquotes now draw one accent bar per level, with real per-level indentation. Previously every level shared a single bar and the indent was an accident of the whitespace left behind by hidden quote markers.
+  * A heading inside a blockquote or a list item no longer jumps sideways when you put the cursor in it: its `#` markers hang back into the margin the way a top-level heading's always have, instead of shoving the whole line right.
+  * A quoted heading's accent bar now runs the full height of its line, instead of stopping short of the heading's breathing room at both ends and breaking the bar into dashes.
+* [[Space Manager|Multi-space]] mode: an **account menu** in the editor's top bar.
+  * Worth knowing before you upgrade: the first admin save of *any* space rewrites the whole `spaces.json`, dropping `public` from **every** entry, not just the one edited. Rolling back to an older SilverBullet after that point makes every previously-public space private until you restore `public: true` by hand. It fails safe — a published wiki goes dark rather than leaking — but the effect is server-wide.
+* Fix: the first-run **setup wizard** and the [[Space Manager]] are usable on a phone.
+* A batch of mobile (iOS) fixes:
+  * Pickers no longer show keyboard shortcuts on touch devices, where they cannot be pressed and only crowd out the page names.
+  * Filter boxes no longer autocapitalize or autocorrect: command and page names are identifiers, and the phone's corrections only fought the fuzzy match.
+  * Fix: the hamburger menu on a narrow screen stayed grey when the rest of the top bar turned yellow to signal a lost connection.
+  * Fix: on iOS 27, a home-screen install drew its page title and top-bar buttons underneath the system's new blurred top edge, leaving them smeared. The top bar now leaves that band clear.
+* [[Space Lua]]: scripts that runs too long no longer freeze the editor: after a couple of seconds it offers to stop the script, while the rest of the app stays responsive.
+* Fix: releasing a drag-selection on top of a link no longer navigates to it — only a real click (pointer down and up in the same spot) follows a link.
+* Fix: a markdown table whose column happens to be named `ref`, `tag`, `tags`, `itags`, `page` or `tableref` no longer overwrites the indexed row’s own identity.
+* Fix: the [[Runtime API]]’s headless Chrome crashed and restarted every few seconds on the `-runtime-api` docker image, spamming the server log (and the host’s console with core dumps) and leaving the API only intermittently available.
+* Fix: the server-side rendered HTML of a public, read-only space now resolves `[[wiki links]]` the same way the client does (space-wide by basename), instead of emitting the raw link text as the href. Crawlers and no-JS visitors get working links.
+* Fix: `.heif` files are now served as `image/heif` (their registered type) instead of `image/heic`
+* Fix: a `.gitignore` file in the space root was applied as a SilverBullet ignore list
+* Fix: the docker image ignored `PUID`/`PGID` and space folder ownership, running as `root` and creating root-owned files
+* Fix: the FreeBSD **server** binary is being built and released again
+* Fix: [[Space Manager|multi-space]] mode silently ignored `SB_REMEMBER_ME_HOURS`, `SB_LOCKOUT_TIME`, and `SB_LOCKOUT_LIMIT`, hardcoding “remember me” sessions to 7 days and lockout to 10 attempts per minute. All three now apply there too — server-wide, like the session itself — matching what [[Install/Configuration]] documents.
+* The [[Runtime API]] now uses a separate Chrome process and temporary profile for each user and space, isolating cookies, browser storage, and logs. Runtime requests carry the user’s identity; revoking access stops the affected browser. Chrome detection is reported at startup.
+* Fix: the Runtime API failed to start when authentication was enabled.
+* **[[CLI|CLI]] remote file operations:** `sb fs` lists, reads, creates, edits, and deletes space files without the Runtime API. Exact text replacements support batches and revision checks to detect concurrent changes.
+* Removed the experimental `sb repl` command and its dedicated runtime support. Use `sb lua`, `sb lua-script`, and `sb logs` for terminal access.
+* Fixes around casing in page/file names:
+  * Renaming a page or folder to a different casing of the same name now works on case-insensitive filesystems (macOS, Windows)
+  * Renames are now rejected when the new name differs only in casing from an existing page or document, so spaces stay portable between case-sensitive and case-insensitive hosts.
+  * On case-insensitive filesystems, writing a file whose folder differs only in casing from an existing one now re-cases that folder to match — so writing `notes/foo` when the disk holds `Notes/` renames the folder, changing the reported path of every page inside it.
 
+## 2.10.0
 * [[Space Manager]]: multi-space hosting with multiple accounts is here. A fresh install pointed at an empty folder opens a browser-based first-run **setup wizard** that creates an admin account and your first space, then serves it in place with no restart. One server can host any number of [[Space|spaces]], each bound to a URL prefix or hostname.
 * [[Baked Sections]]: bake `${...}` Lua expressions and widgets into
   HTML-comment-delimited markdown (`<!--#lua EXPR -->` … `<!--/lua-->`).
@@ -45,7 +111,7 @@ Whenever a commit is pushed to the `main` branch, within ~5 minutes, it will be 
 * UX: a _lot_ of little visual tweaks and usability fixes all over the place that hopefully will trigger less of your OCD, including:
   * On narrow viewports (<800px) header `#` markers no longer get pushed off-screen when the cursor enters a heading
   * Positioning of the page title is now (more) left-aligned with editor text.
-  * List/outline alignment: bullets, checkboxes and ordered-list numbers now line up in a clean column regardless of nesting depth, list type, or whether items are tasks, see [[Outline Stress Test]]. 
+  * List/outline alignment: bullets, checkboxes and ordered-list numbers now line up in a clean column regardless of nesting depth, list type, or whether items are tasks, see [[Outline Stress Test]].
     * Note: potentially **breaking CSS change for theme authors**: per-nesting-level indent values previously carried by `.sb-line-ul.sb-line-li-N`, `.sb-line-ol.sb-line-li-N`, `.sb-line-task` and `.sb-line-blockquote.sb-line-li-N` selectors have been removed.
   * Task checkboxes are now drawn in CSS (`appearance: none` + bordered box + rotated-rectangle checkmark) instead of relying on the native checkboxes. Should improve rendering on webkit browsers, and gives more control over the width.
 * Start of shared UI components (between SB core and plugs): component styles (for buttons, inputs, selects, checkboxes, tabs, alerts, badges, progress bars), and a `@silverbulletmd/silverbullet/ui` package export providing optional Preact wrappers. See [[Plugs/Development/Reference]] for notes on how to use this as a plug author. Built-in plugs like [[Configuration Manager]]  and [[Object Graph]] use these components already. In addition, these now also load [[Space Style]] inside the iframe, so components should become themable.
@@ -68,7 +134,7 @@ Whenever a commit is pushed to the `main` branch, within ~5 minutes, it will be 
 
 ## 2.8.1
 * Fix: cursor and clicks no longer drift by a line or two when working below a tall widget (e.g. arrow-up from a list under a `${query[[…]]}` now advances exactly one line). Some other cursor preservation issues addressed as well.
-* Fix: arrow keys now reliably enter multi-line block widgets (queries, tables) line by line. 
+* Fix: arrow keys now reliably enter multi-line block widgets (queries, tables) line by line.
 * Fix: Some finetuning of the markdown renderer.
 * Fix: PWA boot no longer crashes silently when the server is unreachable and a boot-time file (e.g. `CONFIG.md`) was previously 404 — the 404 result is now cached so subsequent offline boots succeed instead of throwing a raw `TypeError: Failed to fetch` that the boot code swallowed.
 * New [[API/index]] query-collection helpers: `index.objects` (the new alias for `index.tag`), plus `index.pages`, `index.subPages`, `index.contentPages`, `index.metaPages`, `index.aspiringPages`, `index.tasks`, `index.headers`, `index.items`, `index.paragraphs`, `index.tables`, `index.documents`, `index.links`, and `index.tags`. Each type-specific helper takes an optional extra tag for filtering (except `index.subPages`, which takes the parent page name, and `index.documents`/`index.links`/`index.tags`, which take no arguments).
@@ -122,6 +188,7 @@ Whenever a commit is pushed to the `main` branch, within ~5 minutes, it will be 
 * Configuration Manager: Key Bindings tab now says "Filter commands" instead of "Search commands".
 * More sensible fallback values for config options before the initial index has populated defaults.
 * Lint: the `name` attribute uniqueness check is now limited to `#meta/library` pages.
+* [[Runtime API]] uses less browser memory by disabling unused Chrome address-bar renderers and tuning V8 for memory usage. Headless shell is now detected across platforms and included in the runtime Docker image, with per-user storage isolation preserved.
 * [[Runtime API]]: better debug output when the headless Chrome instance fails to boot.
 * Fix: more robust markdown tree traversal in the face of invalid markdown trees.
 * Fix: [outline operation edge cases](https://github.com/silverbulletmd/silverbullet/issues/1936).
@@ -160,7 +227,7 @@ Whenever a commit is pushed to the `main` branch, within ~5 minutes, it will be 
 * [[Task]] `Task: Clean Completed` now handles more scenarios, and leaves a cleaner outline.
 * [Panels now use Shadow DOM elements instead of iframes](https://github.com/silverbulletmd/silverbullet/pull/1819) (by [onespaceman](https://github.com/onespaceman)).
 * `editor.flashNotification` now supports an optional third argument with `timeout` (use `0` for persistent notifications) and `actions` (buttons with callbacks).
-* Fix: [table cell alignment for missing and misaligned cells](https://github.com/silverbulletmd/silverbullet/pull/1873) 
+* Fix: [table cell alignment for missing and misaligned cells](https://github.com/silverbulletmd/silverbullet/pull/1873)
 * Fix: [handle tagged floats before plain object check in `renderCellContent`](https://github.com/silverbulletmd/silverbullet/pull/1876) (by [Matouš Jan Fialka](https://github.com/mjf)).
 * Fix: document file opening with URL prefix.
 * Fix: autofocus on authentication page.

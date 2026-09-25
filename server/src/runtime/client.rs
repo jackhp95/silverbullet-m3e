@@ -42,10 +42,7 @@ impl<T: ClientTransport> RuntimeBackend for ClientRuntime<T> {
         arg: &str,
         timeout: Duration,
     ) -> Result<serde_json::Value, RuntimeError> {
-        // Single choke point for the Lua runtime API calls (evalLua and
-        // evalLuaScript), so a failure here — the runtime not coming up, a
-        // timeout, or a thrown error in the client (e.g. a Lua error) — always
-        // leaves a trace in the server log.
+        // Log all runtime API failures here, including client-side Lua errors.
         let result = self.transport.wait_ready(timeout).and_then(|()| {
             self.transport
                 .eval_js(&build_global_call_js(fn_name, arg), timeout)
@@ -57,16 +54,36 @@ impl<T: ClientTransport> RuntimeBackend for ClientRuntime<T> {
     }
 
     fn logs(&self, limit: usize, since: Option<i64>) -> Vec<LogEntry> {
-        // Reading logs counts as using the runtime: nudge a lazily-launched
-        // transport to boot so console output actually starts flowing. Without
-        // this, `sb logs` (especially `--follow`) against a freshly-started
-        // server that has had no eval yet would sit on an empty buffer forever.
+        // A log read must start a lazy runtime or sb logs --follow can wait forever.
         self.transport.ensure_started();
         self.logs.query(limit, since)
     }
 
     fn ready(&self) -> bool {
         self.transport.is_ready()
+    }
+
+    fn snapshot(&self) -> Option<super::RuntimeSnapshot> {
+        self.transport.snapshot()
+    }
+    fn stop(&self, retain_profile: bool) -> Result<(), RuntimeError> {
+        self.transport.stop(retain_profile)
+    }
+    fn restart(
+        &self,
+        token: &str,
+    ) -> Result<Option<std::sync::Arc<dyn RuntimeBackend>>, RuntimeError> {
+        let logs = LogBuffer::new();
+        Ok(self
+            .transport
+            .restart(token, logs.clone())?
+            .map(|transport| {
+                std::sync::Arc::new(ClientRuntime::new(transport, logs))
+                    as std::sync::Arc<dyn RuntimeBackend>
+            }))
+    }
+    fn shutdown(&self) {
+        self.transport.shutdown();
     }
 }
 
@@ -77,12 +94,20 @@ mod tests {
     use std::sync::Mutex;
 
     #[test]
+    fn unsupported_management_cannot_report_success() {
+        let runtime =
+            ClientRuntime::new(FakeTransport::ok(serde_json::json!(null)), LogBuffer::new());
+        assert!(runtime.snapshot().is_none());
+        assert!(runtime.stop(true).is_err());
+        assert!(runtime.restart("fresh-token").is_err());
+    }
+
+    #[test]
     fn builds_call_snippet_with_json_escaping() {
         assert_eq!(
             build_global_call_js("sbRuntime.evalLua", "1 + 1"),
             r#"sbRuntime.evalLua("1 + 1")"#
         );
-        // Quotes / newlines in the argument are JSON-escaped, not injected raw.
         assert_eq!(
             build_global_call_js("f", "print(\"hi\")\n"),
             r#"f("print(\"hi\")\n")"#
@@ -118,6 +143,7 @@ mod tests {
                 .as_ref()
                 .map(|v| v.clone())
                 .map_err(|e| match e {
+                    RuntimeError::Forbidden => RuntimeError::Forbidden,
                     RuntimeError::NotReady => RuntimeError::NotReady,
                     RuntimeError::Timeout => RuntimeError::Timeout,
                     RuntimeError::Transport(s) => RuntimeError::Transport(s.clone()),
@@ -127,6 +153,7 @@ mod tests {
         fn wait_ready(&self, _timeout: Duration) -> Result<(), RuntimeError> {
             match &self.wait_result {
                 Ok(()) => Ok(()),
+                Err(RuntimeError::Forbidden) => Err(RuntimeError::Forbidden),
                 Err(RuntimeError::NotReady) => Err(RuntimeError::NotReady),
                 Err(RuntimeError::Timeout) => Err(RuntimeError::Timeout),
                 Err(RuntimeError::Transport(s)) => Err(RuntimeError::Transport(s.clone())),
@@ -149,7 +176,6 @@ mod tests {
         let out = rt
             .eval_global("sbRuntime.evalLua", "1 + 1", Duration::from_secs(5))
             .unwrap();
-        // The transport's value is returned verbatim (no shaping at this layer).
         assert_eq!(out, envelope);
         let seen = rt.transport.seen_js.lock().unwrap();
         assert_eq!(seen[0], r#"sbRuntime.evalLua("1 + 1")"#);
@@ -165,7 +191,6 @@ mod tests {
             .eval_global("sbRuntime.evalLua", "x", Duration::from_secs(1))
             .unwrap_err();
         assert!(matches!(err, RuntimeError::NotReady));
-        // eval_js must NOT have been called.
         assert!(rt.transport.seen_js.lock().unwrap().is_empty());
     }
 
@@ -185,8 +210,7 @@ mod tests {
 
     #[test]
     fn logs_nudges_a_lazy_transport_to_start() {
-        // Reading logs must boot a lazily-launched runtime so console output
-        // starts flowing (the `sb logs`-on-a-fresh-server fix).
+        // Log reads must start a lazy runtime even before the first eval.
         let logs = LogBuffer::new();
         let rt = ClientRuntime::new(FakeTransport::ok(serde_json::json!(null)), logs);
         let _ = rt.logs(100, None);

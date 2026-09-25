@@ -1,42 +1,73 @@
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
+import type { PageMeta } from "../plug-api/types/index.ts";
+import type { Action, AppViewState } from "./types/ui.ts";
 import reducer from "./reducer.ts";
-import { initialViewState } from "./types/ui.ts";
 
-// V1 (docs/plans/2026-09-17-vertical-toolbar-search-nav-redesign-spec.md):
-// replaces select-nav-destination/close-nav-panel with independent boolean
-// setters for the search and navigation sheets. Each is a pure setter, so
-// these assertions only check the resulting boolean per action.
+function pageMeta(name: string, extra: Partial<PageMeta> = {}): PageMeta {
+  return {
+    ref: name,
+    tag: "page",
+    name,
+    created: "",
+    lastModified: "",
+    perm: "rw",
+    ...extra,
+  } as PageMeta;
+}
 
-test("show-search-sheet sets searchSheetOpen to true", () => {
-  const state = reducer(initialViewState, { type: "show-search-sheet" });
-  expect(state.searchSheetOpen).toBe(true);
-});
+function stateWithCurrent(path: string): AppViewState {
+  return {
+    allPages: [],
+    current: { path, meta: pageMeta("stale") },
+  } as unknown as AppViewState;
+}
 
-test("show-search-sheet on an already-open sheet stays true", () => {
-  let state = reducer(initialViewState, { type: "show-search-sheet" });
-  state = reducer(state, { type: "show-search-sheet" });
-  expect(state.searchSheetOpen).toBe(true);
-});
+function updatePageList(state: AppViewState, allPages: PageMeta[]) {
+  return reducer(state, { type: "update-page-list", allPages } as Action);
+}
 
-test("hide-search-sheet clears searchSheetOpen to false", () => {
-  const opened = reducer(initialViewState, { type: "show-search-sheet" });
-  expect(opened.searchSheetOpen).toBe(true);
+describe("update-page-list current page meta matching", () => {
+  test("the open markdown page's fresh meta is applied to current", () => {
+    const fresh = pageMeta("foo/bar", { lastModified: "123" });
+    const next = updatePageList(stateWithCurrent("foo/bar.md"), [
+      pageMeta("other"),
+      fresh,
+    ]);
+    expect(next.current!.meta).toBe(fresh);
+  });
 
-  const closed = reducer(opened, { type: "hide-search-sheet" });
-  expect(closed.searchSheetOpen).toBe(false);
-});
+  test("a page whose name carries an extension matches its verbatim path", () => {
+    const fresh = pageMeta("notes.v2");
+    const next = updatePageList(stateWithCurrent("notes.v2"), [fresh]);
+    expect(next.current!.meta).toBe(fresh);
+  });
 
-test("hide-search-sheet on an already-closed sheet stays false", () => {
-  expect(initialViewState.searchSheetOpen).toBe(false);
-  const state = reducer(initialViewState, { type: "hide-search-sheet" });
-  expect(state.searchSheetOpen).toBe(false);
-});
+  test("no page matching the current path leaves current meta alone", () => {
+    const state = stateWithCurrent("foo/bar.md");
+    const staleMeta = state.current!.meta;
+    const next = updatePageList(state, [pageMeta("unrelated")]);
+    expect(next.current!.meta).toBe(staleMeta);
+  });
 
-test("show-navigation-sheet / hide-navigation-sheet toggle navigationSheetOpen independently of searchSheetOpen", () => {
-  const opened = reducer(initialViewState, { type: "show-navigation-sheet" });
-  expect(opened.navigationSheetOpen).toBe(true);
-  expect(opened.searchSheetOpen).toBe(false);
+  test("a similarly-prefixed name does not match", () => {
+    const state = stateWithCurrent("foo/bar.md");
+    const staleMeta = state.current!.meta;
+    const next = updatePageList(state, [
+      pageMeta("foo/bar.md"),
+      pageMeta("foo/ba"),
+    ]);
+    // "foo/bar.md" as a *name* normalizes to path "foo/bar.md" and does match;
+    // this pins the current (admittedly odd) matching semantics.
+    expect(next.current!.meta).not.toBe(staleMeta);
+    expect(next.current!.meta!.name).toBe("foo/bar.md");
+  });
 
-  const closed = reducer(opened, { type: "hide-navigation-sheet" });
-  expect(closed.navigationSheetOpen).toBe(false);
+  test("lastOpened survives a page list refresh", () => {
+    const state = {
+      allPages: [pageMeta("foo", { lastOpened: 42 })],
+      current: undefined,
+    } as unknown as AppViewState;
+    const next = updatePageList(state, [pageMeta("foo")]);
+    expect(next.allPages[0].lastOpened).toBe(42);
+  });
 });

@@ -1,3 +1,5 @@
+import { sha256 } from "@noble/hashes/sha2.js";
+
 export function base64Decode(s: string): Uint8Array {
   const binString = atob(s);
   const len = binString.length;
@@ -32,29 +34,31 @@ export function base64DecodeDataUrl(dataUrl: string): Uint8Array {
   return base64Decode(b64Encoded);
 }
 
-/**
- * Perform sha256 hash using the browser's crypto APIs
- * Note: this will only work over HTTPS
- * @param message
- */
 export async function hashSHA256(
   message: string | Uint8Array,
 ): Promise<string> {
-  // Transform the string into an ArrayBuffer
   const encoder = new TextEncoder();
   const data: Uint8Array =
     typeof message === "string" ? encoder.encode(message) : message;
 
-  // Generate the hash
-  const hashBuffer = await globalThis.crypto.subtle.digest(
-    "SHA-256",
-    data as BufferSource,
-  );
+  const hashBuffer = globalThis.crypto.subtle
+    ? await globalThis.crypto.subtle.digest("SHA-256", data as BufferSource)
+    : sha256(data);
 
-  // Transform the hash into a hex string
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+export function randomUUID(): string {
+  if (globalThis.crypto.randomUUID) return globalThis.crypto.randomUUID();
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /**
@@ -117,7 +121,6 @@ export async function encryptAesGcm(
   );
   const encrypted = new Uint8Array(encryptedBuffer);
 
-  // Prepend IV to ciphertext
   const result = new Uint8Array(iv.length + encrypted.length);
   result.set(iv, 0);
   result.set(encrypted, iv.length);
@@ -143,10 +146,8 @@ export async function deriveCTRKeyFromPassword(
   password: string,
   salt: Uint8Array,
 ): Promise<CryptoKey> {
-  // Encode password to ArrayBuffer
   const passwordBytes = new TextEncoder().encode(password);
 
-  // Import password as a CryptoKey
   const baseKey = await globalThis.crypto.subtle.importKey(
     "raw",
     passwordBytes,

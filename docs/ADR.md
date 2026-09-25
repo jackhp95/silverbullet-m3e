@@ -1,4 +1,4 @@
-Important [[Architecture]] decisions for SilverBullet are captured as [Architecture Decision Records](https://adr.github.io/) (template: [[^Library/Page Templates/ADR]]). See [[Health]] for records due for review.
+Important [[Architecture]] decisions for SilverBullet are captured as [Architecture Decision Records](https://adr.github.io/) (template: [[^Library/Page Templates/ADR]]).
 
 # Stats
 ${query[[
@@ -12,7 +12,7 @@ ${query[[
 ${query[[
   from p = index.pages("adr")
   where p.status ~= "superseded" and p.status ~= "deprecated"
-  order by p.status, p.name
+  order by p.date desc, p.name
   select {
     ADR = "[[" .. p.name .. "]]",
     Owner = p.owner,

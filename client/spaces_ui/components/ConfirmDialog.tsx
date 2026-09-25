@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "preact/hooks";
-import "@m3e/web/dialog";
-import "@m3e/web/button";
+// `m3e-dialog`/`m3e-dialog-action`/`m3e-button` are registered once by the
+// spaces.tsx browser entry, not here: SpaceForm.tsx and UsersView.tsx import
+// this file and are themselves loaded by plain-Node vitest tests.
 import "../m3e-jsx.d.ts";
 
 /**

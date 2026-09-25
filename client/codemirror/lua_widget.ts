@@ -4,7 +4,9 @@ import {
   type ParseTree,
   renderToText,
 } from "@silverbulletmd/silverbullet/lib/tree";
+import { escapeBakedBody } from "../baked_sections/regions.ts";
 import type { Client } from "../client.ts";
+import { createWidgetSandboxIFrame } from "../components/widget_sandbox_iframe.ts";
 import { parse } from "../markdown_parser/parse_tree.ts";
 import { buildExtendedMarkdownLanguage } from "../markdown_parser/parser.ts";
 import { expandMarkdown } from "../markdown_renderer/inline.ts";
@@ -18,12 +20,11 @@ import {
 import { activeWidgets } from "./code_widget.ts";
 import {
   attachWidgetEventHandlers,
+  buildResolveTransclusion,
   buildTranslateUrls,
   findWidgetSourceRange,
   moveCursorToWidgetStart,
 } from "./widget_util.ts";
-import { escapeBakedBody } from "../baked_sections/regions.ts";
-import { createWidgetSandboxIFrame } from "../components/widget_sandbox_iframe.ts";
 
 export type LuaWidgetCallback = (
   bodyText: string,
@@ -37,16 +38,11 @@ export type EventPayLoad = {
 
 export type LuaWidgetContent =
   | {
-      // Magic marker
       _isWidget?: true;
-      // Render as HTML
       html?: string | HTMLElement;
-      // Render as markdown
       markdown?: string;
-      // CSS classes for wrapper
       cssClasses?: string[];
       display?: "block" | "inline";
-      // Event handlers
       events?: Record<string, (event: EventPayLoad) => void>;
       // When true, html+script render inside a sandbox iframe (see renderContent).
       sandbox?: boolean;
@@ -66,12 +62,8 @@ export interface LuaWidgetOptions {
   /** Code as it appears in the page (used to find when hitting the "edit" button) */
   codeText?: string;
   /**
-   * Whether this widget can be "baked" into a `<!--#lua EXPR -->` region. Only
-   * `${…}` Lua directives qualify, because baking rewrites the source to
-   * `<!--#lua EXPR -->` where `EXPR` is re-evaluated as a Lua expression. The
-   * body of a fenced code block (e.g. ```mermaid) is not a Lua expression, so
-   * those widgets never get a Bake button even though they render through the
-   * same pipeline.
+   * Whether this widget can be baked into a `<!--#lua EXPR -->` region.
+   * Only `${…}` directives qualify: fenced code bodies are not Lua expressions.
    */
   bakeable?: boolean;
   renderEmpty?: boolean;
@@ -119,11 +111,8 @@ export class LuaWidget extends WidgetType {
     wrapperSpan.className = "sb-lua-wrapper";
     const innerDiv = document.createElement("div");
     wrapperSpan.appendChild(innerDiv);
-    // On a cache hit, apply the correct block/inline class and reserve
-    // vertical space via min-height. We deliberately do NOT insert any
-    // cached HTML — re-parsing a cached HTML string produces a subtly
-    // different measured height than the fresh render, causing a brief
-    // border-position glitch on first paint.
+    // Reserve cached height without restoring HTML: reparsing it changes the
+    // measured height and briefly shifts the border on first paint.
     const cachedMeta = this.opts.client.widgetCache.getCachedWidgetMeta(
       this.opts.cacheKey,
     );
@@ -136,8 +125,15 @@ export class LuaWidget extends WidgetType {
       }
     }
 
-    // Async kick-off of content renderer
-    this.renderContent(innerDiv).catch(console.error);
+    const renderStart = performance.now();
+    this.renderContent(innerDiv)
+      .then(() => {
+        performance.measure(`sb:widget:${this.opts.cacheKey.slice(0, 80)}`, {
+          start: renderStart,
+          end: performance.now(),
+        });
+      })
+      .catch(console.error);
     this.dom = wrapperSpan;
     return wrapperSpan;
   }
@@ -190,10 +186,8 @@ export class LuaWidget extends WidgetType {
     let block = false;
     let copyContent: string | undefined;
 
-    // Normalization (non-widget results go through markdown rendering)
     if (typeof widgetContent === "string" || !widgetContent._isWidget) {
       const rawResult = widgetContent;
-      // Classify once, share the result between the display and copy paths.
       const classified = classifyResult(rawResult);
       const { markdown, dataType } = renderResultToMarkdown(
         rawResult,
@@ -221,10 +215,9 @@ export class LuaWidget extends WidgetType {
       div.className = wc.cssClasses.join(" ");
     }
 
-    // Explicit opt-in: when `sandbox` is true, render html+script inside a
-    // sandbox iframe (the script, if any, runs there).
     if (wc.sandbox) {
-      div.className += " sb-lua-directive-block";
+      // display moved to a Tailwind utility — see editor.scss's audit note.
+      div.className += " sb-lua-directive-block block";
       const iframeContent = {
         html: typeof wc.html === "string" ? wc.html : "",
         script: typeof wc.script === "string" ? wc.script : "",
@@ -273,10 +266,7 @@ export class LuaWidget extends WidgetType {
         html = wc.html;
       }
 
-      // When a widget provides both `html` and `markdown`, the `html` is the
-      // display and the `markdown` is what the Copy button should copy (e.g. a
-      // diagram renders to an SVG via `html` while exposing its source block via
-      // `markdown`). Only fall back to the html itself when no markdown is given.
+      // Widgets may display HTML while exposing Markdown source for copying.
       if (!copyContent) {
         copyContent =
           typeof wc.html === "string"
@@ -286,13 +276,14 @@ export class LuaWidget extends WidgetType {
 
       block = wc.display === "block";
       if (block) {
-        div.className += " sb-lua-directive-block";
+        // display moved to a Tailwind utility — see editor.scss's audit note.
+        div.className += " sb-lua-directive-block block";
       } else {
-        div.className += " sb-lua-directive-inline";
+        // display/padding moved to Tailwind utilities — see editor.scss's
+        // audit note.
+        div.className += " sb-lua-directive-inline inline p-[2px]";
       }
     }
-    // `markdown` is only used for display when there is no `html` to show; when
-    // both are present `markdown` is reserved for the Copy button (handled above).
     if (!html && wc.markdown) {
       const syntaxExtensions = this.syntaxExtensions;
       let mdTree = parse(
@@ -300,6 +291,7 @@ export class LuaWidget extends WidgetType {
         wc.markdown || "",
       );
 
+      const resolveTransclusion = buildResolveTransclusion(this.opts.client);
       mdTree = await expandMarkdown(
         this.opts.client.space,
         currentName,
@@ -308,18 +300,16 @@ export class LuaWidget extends WidgetType {
         {
           rewriteTasks: false,
           syntaxExtensions,
+          resolveTransclusion,
         },
       );
       const trimmedMarkdown = renderToText(mdTree).trim();
 
-      // Fall back to the rendered markdown only if the raw-result path
-      // didn't already produce a clean copy string.
       if (!copyContent) {
         copyContent = trimmedMarkdown;
       }
 
       if (!trimmedMarkdown) {
-        // Net empty result after expansion
         div.innerHTML = "";
         div.style.minHeight = "";
         this.opts.client.widgetCache.removeCachedWidgetMeta(this.opts.cacheKey);
@@ -330,9 +320,12 @@ export class LuaWidget extends WidgetType {
         (wc._isWidget && wc.display === "block") ||
         isBlockMarkdown(trimmedMarkdown);
       if (block) {
-        div.className += " sb-lua-directive-block";
+        // display moved to a Tailwind utility — see editor.scss's audit note.
+        div.className += " sb-lua-directive-block block";
       } else {
-        div.className += " sb-lua-directive-inline";
+        // display/padding moved to Tailwind utilities — see editor.scss's
+        // audit note.
+        div.className += " sb-lua-directive-inline inline p-[2px]";
       }
 
       mdTree = await this.parseAndExpandCustomSyntax(
@@ -346,6 +339,7 @@ export class LuaWidget extends WidgetType {
           {
             shortWikiLinks: this.opts.client.config.get("shortWikiLinks", true),
             translateUrls: buildTranslateUrls(this.opts.client),
+            resolveTransclusion,
           },
           this.opts.client.ui.viewState.allPages,
         ),
@@ -367,7 +361,6 @@ export class LuaWidget extends WidgetType {
       );
     }
 
-    // Let's give it a tick, then measure and cache
     setTimeout(() => {
       this.opts.client.widgetCache.setCachedWidgetMeta(this.opts.cacheKey, {
         height: div.offsetHeight,
@@ -375,8 +368,7 @@ export class LuaWidget extends WidgetType {
       });
       // Skip during IME composition to avoid caret jumps
       if (!this.opts.client.editorView.composing) {
-        // Because of the rejiggering of the DOM, we need to do a no-op
-        // cursor move to make sure it's positioned correctly
+        // Reposition the caret after the widget changes the DOM.
         this.opts.client.editorView.dispatch({
           selection: this.opts.client.editorView.state.selection,
         });
@@ -568,7 +560,11 @@ export class LuaWidget extends WidgetType {
     // with the in-page button-bar chrome below and carries its own
     // padding/max-height rules that would double up with m3e-card's own
     // padded `content` slot.
-    content.className = "sb-lua-card-content";
+    // max-height/overflow moved to Tailwind utilities — see editor.scss's
+    // audit note. The `[hidden]` display:none override stays in CSS: it's
+    // defensive against m3e-card's own slot styling on this `content`-slot
+    // element, not a plain layout property.
+    content.className = "sb-lua-card-content max-h-[500px] overflow-y-auto";
     content.appendChild(html);
 
     const collapseButton = document.createElement("m3e-icon-button");
@@ -668,10 +664,8 @@ export class LuaWidget extends WidgetType {
 export function parseHtmlString(html: string): HTMLElement {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
-  // Create a wrapper div to hold all elements
   const wrapper = document.createElement("span");
   wrapper.className = "wrapper";
-  // Move all body children into the wrapper
   while (doc.body.firstChild) {
     wrapper.appendChild(doc.body.firstChild);
   }

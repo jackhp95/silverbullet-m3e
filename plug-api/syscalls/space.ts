@@ -1,11 +1,15 @@
-import { syscall } from "../syscall.ts";
-
+import type { Path, Ref } from "@silverbulletmd/silverbullet/lib/ref";
 import type {
   DocumentMeta,
   FileMeta,
   PageMeta,
 } from "../../plug-api/types/index.ts";
-import type { Ref } from "@silverbulletmd/silverbullet/lib/ref";
+import type {
+  FileRevisions,
+  SpaceLog,
+} from "../../plug-api/types/revisions.ts";
+import type { PathLookup } from "../lib/resolve_path.ts";
+import { syscall } from "../syscall.ts";
 
 /**
  * Exposes the space with its pages, documents and plugs.
@@ -134,8 +138,6 @@ export function deleteDocument(name: string): Promise<void> {
   return syscall("space.deleteDocument", name);
 }
 
-// Lower level-file operations
-
 /**
  * List all files in the space (pages, documents and plugs).
  * @returns a list of all files in the space represented as FileMeta objects
@@ -202,4 +204,119 @@ export function deleteFile(name: string): Promise<void> {
 
 export function fileExists(name: string): Promise<boolean> {
   return syscall("space.fileExists", name);
+}
+
+/**
+ * Every basename carried by more than one file, with the files that carry it.
+ * Small under the bare-iff-unique invariant; pair with `collisionIndex` and
+ * `writeLinkPath` from `lib/resolve_path` to decide link write formats.
+ */
+export function collidingBasenames(): Promise<Record<string, Path[]>> {
+  return syscall("space.collidingBasenames");
+}
+
+/**
+ * Looks up a batch of paths at once: for each, whether that exact path exists
+ * and which files share its basename. Pair with `lookupIndex` and `resolvePath`
+ * from `lib/resolve_path` to resolve them.
+ */
+export function lookupPaths(
+  paths: string[],
+): Promise<Record<string, PathLookup>> {
+  return syscall("space.lookupPaths", paths);
+}
+
+/**
+ * Lists the revision history of a file.
+ * @param path the path of the file to list revisions for
+ * @param before list revisions older than this revision id
+ */
+export function listRevisions(
+  path: string,
+  before?: string,
+): Promise<FileRevisions> {
+  return syscall("space.listRevisions", path, before);
+}
+
+/**
+ * Reads the text of a file as it was at a given revision, or at that
+ * revision's parent.
+ * @param path the path of the file to read
+ * @param rev the revision id to read
+ * @param parent read the file as of the revision's parent instead (e.g. the
+ * version immediately before a deletion commit)
+ */
+export function getRevision(
+  path: string,
+  rev: string,
+  parent?: boolean,
+): Promise<string> {
+  return syscall("space.getRevision", path, rev, parent);
+}
+
+/**
+ * Reads a unified diff of a revision's own change (vs its parent; a root
+ * commit reads as fully added).
+ * @param path the path of the file to diff
+ * @param rev the revision id to diff; omitted, diffs the uncommitted change
+ */
+export function getRevisionDiff(path: string, rev?: string): Promise<string> {
+  return syscall("space.getRevisionDiff", path, rev);
+}
+
+/**
+ * Lists the space-wide commit log.
+ * @param before list commits older than this revision id
+ * @param q match commits whose message or author contains this phrase
+ */
+export function getSpaceLog(before?: string, q?: string): Promise<SpaceLog> {
+  return syscall("space.getSpaceLog", before, q);
+}
+
+/**
+ * Commits everything outstanding as a revision now, rather than waiting for
+ * the automatic commit.
+ * @returns false if there was nothing to commit
+ */
+export function createRevisionSnapshot(): Promise<boolean> {
+  return syscall("space.createRevisionSnapshot");
+}
+
+export function getGitSyncStatus(): Promise<
+  import("../types/revisions.ts").GitSyncSnapshot
+> {
+  return syscall("space.getGitSyncStatus");
+}
+
+export function getGitConflicts(): Promise<
+  import("../types/revisions.ts").GitConflicts
+> {
+  return syscall("space.getGitConflicts");
+}
+
+export function syncGitNow(): Promise<void> {
+  return syscall("space.syncGitNow");
+}
+
+export function resolveGitConflict(
+  id: string,
+  generation: string,
+  contentRevision: string,
+  action: import("../types/revisions.ts").GitConflictAction,
+): Promise<import("../types/revisions.ts").GitConflicts> {
+  return syscall(
+    "space.resolveGitConflict",
+    id,
+    generation,
+    contentRevision,
+    action,
+  );
+}
+
+export function getGitConflictVersion(
+  id: string,
+  generation: string,
+  side: "local" | "remote",
+): Promise<Uint8Array> {
+  return syscall("space.getGitConflictVersion", id, generation, side);
 }

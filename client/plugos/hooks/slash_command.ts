@@ -46,7 +46,6 @@ export class SlashCommandHook implements Hook<SlashCommandHookT> {
         });
       }
     }
-    // Iterate over script defined slash commands
     for (const command of Object.values(
       this.client.config.get<Record<string, SlashCommand>>("slashCommands", {}),
     )) {
@@ -70,13 +69,12 @@ export class SlashCommandHook implements Hook<SlashCommandHookT> {
     // the user is referring to preceding text, not what comes after.
     const currentNode = syntaxTree(ctx.state).resolveInner(ctx.pos, -1);
     if (
-      currentNode.type.name === "CommentBlock" ||
+      currentNode.type.name === "CommentMarkerBlock" ||
       currentNode.type.name === "Link"
     ) {
       return null;
     }
 
-    // Check if the slash command is available in the current context
     const parentNodes = this.client.extractParentNodes(ctx.state, currentNode);
     for (const def of this.slashCommands) {
       if (
@@ -99,7 +97,6 @@ export class SlashCommandHook implements Hook<SlashCommandHookT> {
         detail: def.description,
         boost: def.priority,
         apply: () => {
-          // Delete slash command part
           this.client.editorView.dispatch({
             changes: {
               from: prefix!.from + prefixText.indexOf("/"),
@@ -107,7 +104,6 @@ export class SlashCommandHook implements Hook<SlashCommandHookT> {
               insert: "",
             },
           });
-          // Replace with whatever the completion is
           safeRun(async () => {
             await def.run!();
             this.client.focus();
@@ -126,7 +122,6 @@ export class SlashCommandHook implements Hook<SlashCommandHookT> {
           detail: slashCompletion.detail,
           boost: slashCompletion.order && -slashCompletion.order,
           apply: () => {
-            // Delete slash command part
             this.client.editorView.dispatch({
               changes: {
                 from: prefix!.from + prefixText.indexOf("/"),
@@ -134,7 +129,6 @@ export class SlashCommandHook implements Hook<SlashCommandHookT> {
                 insert: "",
               },
             });
-            // Replace with whatever the completion is
             safeRun(async () => {
               await this.client.clientSystem.system.invokeFunction(
                 slashCompletion.invoke,

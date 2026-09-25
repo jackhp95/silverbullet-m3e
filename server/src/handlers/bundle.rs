@@ -7,8 +7,11 @@ use axum::response::{IntoResponse, Response};
 
 use crate::handlers::http_date;
 use crate::router::run_blocking;
-use crate::ssr::{convert_wiki_links, render_markdown};
+use crate::ssr::{convert_wiki_links, render_markdown, SpaceLinks};
 use crate::state::ServerState;
+
+#[derive(Clone)]
+pub struct ServerName(pub String);
 
 /// Cache policy for a bundle asset, keyed on whether its filename pins its
 /// content.
@@ -39,9 +42,9 @@ fn is_content_hashed(path: &str) -> bool {
 
 /// SPA fallback: serve a bundle asset by request path verbatim, or fall back to
 /// the templated `index.html` shell for any unknown path (client-side routing).
-/// For a public, read-only space the shell is filled with server-side-rendered
-/// page markdown (SEO); otherwise the empty shell is served and the JS client
-/// renders.
+/// For a space anonymous visitors may read but not write, the shell is filled
+/// with server-side-rendered page markdown (SEO); otherwise the empty shell is
+/// served and the JS client renders.
 pub async fn handle_client_bundle(
     State(state): State<Arc<ServerState>>,
     req: axum::http::Request<Body>,
@@ -56,10 +59,9 @@ pub async fn handle_client_bundle(
 
     let path = req.uri().path().trim_start_matches('/').to_string();
 
-    // Authorization for the SPA-shell fallback. Real assets (served below)
-    // always load; only unknown / page paths are gated, matching the legacy
-    // server's allow-list intent.
-    let authorized = match state.authorizer.as_ref() {
+    // Grade SPA-shell access through the policy: AnonymousFallbackAuthorizer
+    // accepts every request and cannot enforce access by itself. Assets remain public.
+    let level = match state.authorizer.as_ref() {
         Some(authz) => {
             let ctx = crate::auth::AuthContext {
                 method: req.method(),
@@ -67,13 +69,18 @@ pub async fn handle_client_bundle(
                 query: req.uri().query(),
                 headers: req.headers(),
             };
-            authz.is_authorized(&ctx)
+            authz
+                .authorize(&ctx)
+                .map(|o| {
+                    o.grant
+                        .unwrap_or_else(|| state.access_policy.level_for(o.username.as_deref()))
+                })
+                .unwrap_or(crate::auth::AccessLevel::None)
         }
-        None => true,
+        None => crate::auth::AccessLevel::Write,
     };
+    let authorized = level >= crate::auth::AccessLevel::Read;
 
-    // Try the requested asset first — served verbatim, no templating. Static
-    // bundle assets carry a `Last-Modified` so browsers can revalidate with a 304.
     let s = state.clone();
     let p = path.clone();
     let direct = run_blocking(move || s.client_bundle.read_file(&p)).await;
@@ -98,7 +105,6 @@ pub async fn handle_client_bundle(
         return builder.body(Body::from(data)).unwrap();
     }
 
-    // Fallback: the SPA shell (`.client/index.html`), templated.
     let s = state.clone();
     let shell = run_blocking(move || s.client_bundle.read_file(".client/index.html")).await;
     let shell = match shell {
@@ -131,24 +137,38 @@ pub async fn handle_client_bundle(
             .add(b'"')
             .add(b'#')
             .add(b'%')
+            .add(b'&')
+            .add(b'+')
             .add(b'<')
             .add(b'>')
+            .add(b'=')
             .add(b'?')
             .add(b'`')
             .add(b'{')
             .add(b'}');
-        let from = utf8_percent_encode(&path, FROM_SET);
+        let destination = format!(
+            "{prefix}{}",
+            req.uri()
+                .path_and_query()
+                .map_or("/", |value| value.as_str())
+        );
+        let from = utf8_percent_encode(&destination, FROM_SET);
         return Response::builder()
             .status(StatusCode::FOUND)
             .header(
                 axum::http::header::LOCATION,
-                format!("{prefix}/.auth?from=/{from}"),
+                format!("{prefix}/.auth?from={from}"),
             )
             .body(Body::empty())
             .unwrap();
     }
 
-    let (title, content_html) = server_side_content(&state, &path).await;
+    let server_name = req
+        .extensions()
+        .get::<ServerName>()
+        .map(|name| name.0.as_str())
+        .unwrap_or("SilverBullet");
+    let (title, content_html) = server_side_content(&state, &path, server_name).await;
     let body = template_index_html(
         &shell,
         &state.host_url_prefix,
@@ -166,13 +186,18 @@ pub async fn handle_client_bundle(
         .unwrap()
 }
 
-/// Decide the `<title>` and content HTML for the fallback shell. Only a public
-/// (read-only, unauthenticated) space renders real page content; everything
-/// else gets the plain shell with an empty body for the JS client to take over.
-async fn server_side_content(state: &Arc<ServerState>, path: &str) -> (String, String) {
-    let public = state.boot_config.read_only && state.authorizer.is_none();
-    if !public {
-        return ("SilverBullet".to_string(), String::new());
+/// Decide the `<title>` and content HTML for the fallback shell. Real page
+/// content renders only where anonymous visitors may read the space *and* may
+/// not write it, so the markdown being rendered was authored by the space's
+/// own members. Everything else gets the plain shell with an empty body for
+/// the JS client to take over.
+async fn server_side_content(
+    state: &Arc<ServerState>,
+    path: &str,
+    server_name: &str,
+) -> (String, String) {
+    if !state.anonymous_readable || state.anonymous_writable {
+        return (server_name.to_owned(), String::new());
     }
 
     let page_name = if path.is_empty() {
@@ -188,10 +213,18 @@ async fn server_side_content(state: &Arc<ServerState>, path: &str) -> (String, S
 
     let md_path = format!("{page_name}.md");
     let s = state.clone();
-    let content = match run_blocking(move || s.space.read_file(&md_path)).await {
+    let p = md_path.clone();
+    let content = match run_blocking(move || s.space.read_file(&p)).await {
         Ok((data, _)) => {
+            let s = state.clone();
+            let links = run_blocking(move || s.space.fetch_file_list())
+                .await
+                .ok()
+                .map(|files| {
+                    SpaceLinks::new(files.into_iter().map(|f| f.name), &state.host_url_prefix)
+                });
             let text = String::from_utf8_lossy(&data);
-            render_markdown(&convert_wiki_links(&text))
+            render_markdown(&convert_wiki_links(&text, &md_path, links.as_ref()))
         }
         Err(_) => String::new(),
     };
@@ -203,9 +236,13 @@ async fn server_side_content(state: &Arc<ServerState>, path: &str) -> (String, S
 /// HTML autoescaping is on, so `title`/`description` are escaped while the
 /// pre-rendered `additional_head_html` and `content` are emitted via the
 /// template's `| safe` filter. The latter two are NOT sanitized: raw HTML in a
-/// page passes straight through. That is acceptable here because SSR only ever
-/// runs for a public, read-only space, where the content is the space owner's
-/// own pages; do not reuse `render_markdown` for untrusted input.
+/// page passes straight through. That is acceptable only because SSR runs
+/// exclusively where anonymous visitors may read the space AND may not write
+/// it, so the content is always the space owner's or its members' own pages.
+/// Both halves are load-bearing: "anonymously readable" says nothing about who
+/// authored the bytes, and on an anonymously writable space this filter would
+/// serve a stranger's stored HTML to every later visitor. Do not reuse
+/// `render_markdown` for untrusted input.
 ///
 /// On a template error (e.g. a malformed shell) the raw shell bytes are served
 /// so the client JS can still boot — a best-effort fallback.
@@ -237,19 +274,21 @@ fn template_index_html(
 
 #[cfg(test)]
 mod tests {
+    use super::ServerName;
     use crate::state::ServerState;
+
     use crate::test_support::test_state;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use std::sync::Arc;
     use tower::ServiceExt;
 
-    use crate::auth::{AuthContext, RequestAuthorizer};
+    use crate::auth::{AuthContext, AuthOutcome, RequestAuthorizer};
 
     struct Deny;
     impl RequestAuthorizer for Deny {
-        fn is_authorized(&self, _ctx: &AuthContext) -> bool {
-            false
+        fn authorize(&self, _ctx: &AuthContext) -> Option<AuthOutcome> {
+            None
         }
     }
 
@@ -450,7 +489,6 @@ mod tests {
     async fn bundle_asset_supports_conditional_304() {
         let state = Arc::new(test_state());
         seed_bundle(&state, ".client/app.js", b"x");
-        // First request: 200 with a `Last-Modified` header.
         let r1 = crate::build_router(state.clone())
             .oneshot(
                 Request::builder()
@@ -469,7 +507,6 @@ mod tests {
             .unwrap()
             .to_string();
         assert!(!last_modified.is_empty());
-        // Re-request echoing that value back: 304 Not Modified, empty body.
         let r2 = crate::build_router(state)
             .oneshot(
                 Request::builder()
@@ -489,7 +526,6 @@ mod tests {
 
     #[tokio::test]
     async fn html_assets_are_served_raw_on_the_direct_path() {
-        // Direct path: no templating.
         let state = test_state();
         seed_bundle(&state, "raw.html", b"<title>{{.Title}}</title>");
         let resp = crate::build_router(Arc::new(state))
@@ -507,7 +543,6 @@ mod tests {
 
     #[tokio::test]
     async fn fallback_templates_the_spa_shell() {
-        // Writable space (read_only=false): the SPA shell, no SSR content.
         let state = test_state();
         seed_bundle(&state, ".client/index.html", INDEX_TPL);
         seed_space(&state, "Home.md", b"# Should not render");
@@ -518,7 +553,6 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let html = body_string(resp).await;
         assert!(html.contains("<title>SilverBullet</title>"), "{html}");
-        // Placeholders resolved, content empty (client renders).
         assert!(!html.contains("{{"), "unresolved placeholder: {html}");
         assert!(
             html.contains(r#"<div class="cm-content"></div>"#),
@@ -526,11 +560,96 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn managed_server_name_is_escaped_in_the_fallback_title() {
+        let state = test_state();
+        seed_bundle(&state, ".client/index.html", INDEX_TPL);
+        let response = crate::build_router(Arc::new(state))
+            .oneshot(
+                Request::builder()
+                    .uri("/Home")
+                    .extension(ServerName("Notebook & Co".into()))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(body_string(response)
+            .await
+            .contains("<title>Notebook &amp; Co</title>"));
+    }
+
     fn read_only_public_state() -> Arc<ServerState> {
         let mut s = test_state();
         s.boot_config.read_only = true;
         s.authorizer = None;
+        s.anonymous_readable = true;
         Arc::new(s)
+    }
+
+    #[tokio::test]
+    async fn an_anonymous_readable_space_renders_page_markdown_even_when_not_frozen() {
+        // Public read access permits SSR even when members can still write.
+        let mut s = test_state();
+        s.boot_config.read_only = false;
+        s.anonymous_readable = true;
+        s.anonymous_writable = false;
+        seed_bundle(&s, ".client/index.html", INDEX_TPL);
+        seed_space(&s, "Home.md", b"# Published\n\nCrawl me.");
+        let resp = crate::build_router(Arc::new(s))
+            .oneshot(Request::builder().uri("/Home").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = body_string(resp).await;
+        assert!(html.contains("<title>Home</title>"), "{html}");
+        assert!(html.contains("Published"), "{html}");
+    }
+
+    #[tokio::test]
+    async fn an_anonymously_writable_space_never_server_renders_content() {
+        // The XSS direction. On an `access: "write"` (legacy `public: true`)
+        // space any stranger can author a page, and `render_markdown` passes
+        // raw HTML through verbatim into a `| safe` slot. Rendering it would
+        // serve that stranger's stored HTML to every later visitor and
+        // crawler, so anonymous *readability* alone must never open the gate.
+        let mut s = test_state();
+        s.anonymous_readable = true;
+        s.anonymous_writable = true;
+        seed_bundle(&s, ".client/index.html", INDEX_TPL);
+        seed_space(&s, "Home.md", b"# Hi\n\n<script>alert(1)</script>");
+        let resp = crate::build_router(Arc::new(s))
+            .oneshot(Request::builder().uri("/Home").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = body_string(resp).await;
+        assert!(html.contains("<title>SilverBullet</title>"), "{html}");
+        assert!(
+            !html.contains("alert(1)"),
+            "stranger-authored HTML must never be server-rendered: {html}"
+        );
+        assert!(
+            html.contains(r#"<div class="cm-content"></div>"#),
+            "content should be withheld: {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_writable_private_space_withholds_content() {
+        let mut s = test_state();
+        s.boot_config.read_only = false;
+        s.anonymous_readable = false;
+        seed_bundle(&s, ".client/index.html", INDEX_TPL);
+        seed_space(&s, "Home.md", b"# Secret\n\nShould not leak.");
+        let resp = crate::build_router(Arc::new(s))
+            .oneshot(Request::builder().uri("/Home").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = body_string(resp).await;
+        assert!(html.contains("<title>SilverBullet</title>"), "{html}");
+        assert!(!html.contains("Secret"), "leaked page content: {html}");
     }
 
     #[tokio::test]
@@ -544,12 +663,9 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let html = body_string(resp).await;
-        // Title is the page basename.
         assert!(html.contains("<title>Home</title>"), "{html}");
-        // Markdown rendered into the content div.
         assert!(html.contains("<h1"), "expected rendered h1: {html}");
         assert!(html.contains("Welcome"), "{html}");
-        // Wiki link became an anchor.
         assert!(html.contains(r#"href="Other""#), "{html}");
     }
 
@@ -572,7 +688,6 @@ mod tests {
     async fn public_read_only_missing_page_renders_empty_content() {
         let state = read_only_public_state();
         seed_bundle(&state, ".client/index.html", INDEX_TPL);
-        // No matching .md in the space.
         let resp = crate::build_router(state)
             .oneshot(
                 Request::builder()
@@ -587,6 +702,28 @@ mod tests {
         assert!(
             html.contains(r#"<div class="cm-content"></div>"#),
             "missing page → empty content: {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_read_only_space_that_is_not_anonymous_readable_withholds_content() {
+        // Freezing a private space must not expose its content through SSR.
+        let mut state = test_state();
+        state.boot_config.read_only = true;
+        state.anonymous_readable = false;
+        seed_bundle(&state, ".client/index.html", INDEX_TPL);
+        seed_space(&state, "Home.md", b"# Secret\n\nShould not leak.");
+        let resp = crate::build_router(Arc::new(state))
+            .oneshot(Request::builder().uri("/Home").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = body_string(resp).await;
+        assert!(html.contains("<title>SilverBullet</title>"), "{html}");
+        assert!(!html.contains("Secret"), "leaked page content: {html}");
+        assert!(
+            html.contains(r#"<div class="cm-content"></div>"#),
+            "content should be withheld: {html}"
         );
     }
 
@@ -609,9 +746,7 @@ mod tests {
 
     #[test]
     fn renders_the_real_shipped_index_html_without_leftover_placeholders() {
-        // Guard against the renderer and the shipped template drifting apart:
-        // render the ACTUAL bundled `index.html` (not a synthetic fixture) and
-        // assert every placeholder resolved.
+        // Exercise the shipped template so placeholder changes cannot evade this test.
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../client_bundle/client/.client/index.html"

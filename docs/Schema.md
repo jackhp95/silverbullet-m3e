@@ -48,6 +48,6 @@ This ensures that `config.set("myLibrary.config", ...)` only accepts values matc
 The [[^Library/Std/APIs/Schema]] library provides convenience functions like `schema.string()`, `schema.number()`, `schema.array(typ)`, etc. for building JSON Schema objects in Lua. See the API page for the full list.
 
 # How validation surfaces
-When schema validation fails for page and attributes, SilverBullet shows the error as a lint warning in the editor. 
+When schema validation fails for page and attributes, SilverBullet shows the error as a lint warning in the editor.
 
 See also: [[Tag#Custom tags]], [[API/jsonschema]], [[API/config]]
