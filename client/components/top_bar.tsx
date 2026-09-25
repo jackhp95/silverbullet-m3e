@@ -16,6 +16,20 @@ export type BreadcrumbItem = {
   onClick?: () => void;
 };
 
+/** One entry in the app bar's trailing kebab menu (`#sb-app-bar-menu`). */
+export type AppBarMenuItem = {
+  key: string;
+  /** Material Symbols ligature, rendered as `<m3e-icon slot="icon">`. */
+  icon?: string;
+  /** Keep it ≤ ~30 chars: a kebab item ellipsizes past that (fork
+   * `fa3d075a`, `.sb-app-bar-menu-label` in top.scss). */
+  label: string;
+  /** Full sentence behind a terse `label`, shown as the hover tooltip. */
+  detail?: string;
+  onClick: () => void;
+  disabled?: boolean;
+};
+
 export type ActionButton = {
   icon: FunctionalComponent<any>;
   description: string;
@@ -198,13 +212,6 @@ function ActionButtons({
           e.stopPropagation();
           actionButton.callback(e.currentTarget as HTMLElement);
         };
-        const onBlur = () => {
-          if (mobileMenuStyle === "hamburger") {
-            document
-              .querySelector("#sb-top .sb-actions.hamburger")
-              ?.classList.remove("open");
-          }
-        };
         // The profile avatar stays a native <button> — e2e selects it as
         // `#sb-top button:has(.sb-profile-avatar)` (accounts.test.ts,
         // http.test.ts). Every other action button becomes m3e-icon-button.
@@ -214,7 +221,6 @@ function ActionButtons({
               type="button"
               key={key}
               onClick={onClick}
-              onBlur={onBlur}
               title={actionButton.description}
               className={actionButton.class}
               aria-haspopup={actionButton.hasPopup ? "menu" : undefined}
@@ -241,13 +247,84 @@ function ActionButtons({
             aria-label={actionButton.description}
             className={actionButton.class}
             onClick={onClick}
-            onBlur={onBlur}
           >
             <actionButton.icon size={18} />
           </m3e-icon-button>
         );
       })}
     </span>
+  );
+}
+
+/** Hamburger-style mobile menus (D2) move every `dropdown !== false` action
+ * button into the kebab; the profile avatar (`native`) always stays a
+ * trailing button. Any other style keeps main's trailing split. */
+function isHamburger(mobileMenuStyle?: string): boolean {
+  return !!mobileMenuStyle?.includes("hamburger");
+}
+
+function overflowsIntoKebab(button: ActionButton): boolean {
+  return button.dropdown !== false && !button.native;
+}
+
+/** A kebab item for an action button moved there by the hamburger style.
+ * Its icon is a Preact component (feather/mdi), so it goes into the item's
+ * `icon` slot through a wrapper span, as dock_menu.tsx does. */
+function actionButtonMenuItem(button: ActionButton, i: number) {
+  return (
+    <m3e-menu-item
+      key={`action-${button.description}-${i}`}
+      onClick={(e: MouseEvent) => {
+        e.preventDefault();
+        button.callback();
+      }}
+    >
+      <span slot="icon">
+        <button.icon size={18} />
+      </span>
+      <span className="sb-app-bar-menu-label" title={button.description}>
+        {button.description}
+      </span>
+    </m3e-menu-item>
+  );
+}
+
+function AppBarMenu({
+  items,
+  actionButtons,
+}: {
+  items: AppBarMenuItem[];
+  actionButtons: ActionButton[];
+}) {
+  return (
+    // The anchor sits at the top of the viewport, so the menu opens below.
+    <m3e-menu id="sb-app-bar-menu" position-y="below">
+      {items.map((item) => (
+        <m3e-menu-item
+          key={item.key}
+          disabled={item.disabled}
+          onClick={
+            item.disabled
+              ? undefined
+              : (e: MouseEvent) => {
+                  e.preventDefault();
+                  item.onClick();
+                }
+          }
+        >
+          {item.icon && <m3e-icon slot="icon" name={item.icon}></m3e-icon>}
+          {/* Wrapped (not a bare text node) so `.sb-app-bar-menu-label` can
+              cap its width and let it ellipsize — see top.scss. */}
+          <span
+            className="sb-app-bar-menu-label"
+            title={item.detail ?? item.label}
+          >
+            {item.label}
+          </span>
+        </m3e-menu-item>
+      ))}
+      {actionButtons.map(actionButtonMenuItem)}
+    </m3e-menu>
   );
 }
 
@@ -331,6 +408,7 @@ export function TopBar({
   breadcrumbItems,
   lastModified,
   bodyText,
+  menuItems = [],
 }: {
   pageName?: string;
   unsavedChanges: boolean;
@@ -364,7 +442,14 @@ export function TopBar({
   /** The page's body text (frontmatter range excluded) for the "N min
    * read" subtitle segment via `reading_time.ts`. */
   bodyText: string;
+  /** Trailing kebab-menu items (`#sb-app-bar-menu`), before any action
+   * buttons the hamburger mobile style moves there. */
+  menuItems?: AppBarMenuItem[];
 }) {
+  const hamburger = isHamburger(mobileMenuStyle);
+  const kebabActionButtons = hamburger
+    ? actionButtons.filter(overflowsIntoKebab)
+    : [];
   const pageIconNode = resolveIconNode(pageIcon);
   return (
     <div id="sb-top" className={isOnline ? undefined : "sb-sync-error"}>
@@ -459,7 +544,11 @@ export function TopBar({
             Offline
           </m3e-chip>
         )}
-        {mobileMenuStyle ? (
+        {hamburger ? (
+          <ActionButtons
+            buttons={actionButtons.filter((b) => !overflowsIntoKebab(b))}
+          />
+        ) : mobileMenuStyle ? (
           <>
             <ActionButtons
               buttons={actionButtons.filter((b) => b.dropdown === false)}
@@ -472,7 +561,17 @@ export function TopBar({
         ) : (
           <ActionButtons buttons={actionButtons} />
         )}
+        <m3e-icon-button
+          slot="trailing"
+          title="More actions"
+          aria-label="More actions"
+        >
+          <m3e-menu-trigger for="sb-app-bar-menu">
+            <m3e-icon name="more_vert"></m3e-icon>
+          </m3e-menu-trigger>
+        </m3e-icon-button>
       </m3e-app-bar>
+      <AppBarMenu items={menuItems} actionButtons={kebabActionButtons} />
       <NotificationPanel
         notifications={notifications}
         onDismiss={onDismissNotification}

@@ -2,7 +2,11 @@ import { expect, test } from "vitest";
 import {
   isPushActionable,
   notificationsIconFor,
+  PUSH_MENU_CHECKING_LABEL,
+  PUSH_MENU_LABELS,
+  PUSH_MENU_PENDING_LABEL,
   pushConfigFrom,
+  pushMenuLabel,
   pushNoticeFor,
   type PushState,
 } from "./push_ui.ts";
@@ -105,5 +109,30 @@ test("pushNoticeFor: on/off states are info, dead-end states are error", () => {
   );
   expect(pushNoticeFor({ kind: "state", state: "unsupported" }).type).toBe(
     "error",
+  );
+});
+
+test("pushMenuLabel: every label fits a kebab menu item (≤ 30 chars)", () => {
+  const states: (PushState | undefined)[] = [
+    undefined,
+    "unsupported",
+    "no-service-worker",
+    "not-configured",
+    "denied",
+    "off",
+    "on",
+  ];
+  for (const state of states) {
+    expect(pushMenuLabel(state).length).toBeLessThanOrEqual(30);
+  }
+  expect(pushMenuLabel("off", true).length).toBeLessThanOrEqual(30);
+});
+
+test("pushMenuLabel: checking, pending and resting states", () => {
+  expect(pushMenuLabel(undefined)).toBe(PUSH_MENU_CHECKING_LABEL);
+  expect(pushMenuLabel("on", true)).toBe(PUSH_MENU_PENDING_LABEL);
+  expect(pushMenuLabel("off")).toBe(PUSH_MENU_LABELS.off);
+  expect(pushMenuLabel("no-service-worker")).toBe(
+    PUSH_MENU_LABELS["no-service-worker"],
   );
 });

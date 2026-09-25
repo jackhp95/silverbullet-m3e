@@ -140,3 +140,120 @@ test("a non-native action button renders m3e-icon-button, not a native button", 
   });
   expect(html).toContain("<m3e-icon-button");
 });
+
+// CS-7b: trailing kebab menu (`#sb-app-bar-menu`) + mobile hamburger
+// overflow (D2).
+
+const kebabItems = [
+  {
+    key: "push",
+    icon: "notifications_off",
+    label: "Push not configured",
+    detail: "Push notifications are not configured for this server",
+    disabled: true,
+    onClick: () => {},
+  },
+  {
+    key: "open-config",
+    icon: "settings",
+    label: "Open Config",
+    onClick: () => {},
+  },
+];
+
+const starButton: ActionButton = {
+  icon: featherIcons.Star,
+  description: "Star",
+  callback: () => {},
+};
+const profileButton: ActionButton = {
+  icon: featherIcons.User,
+  description: "Account",
+  callback: () => {},
+  native: true,
+};
+
+/** The `#sb-app-bar-menu` markup only (the menu is rendered after the bar). */
+function menuHtml(html: string): string {
+  const start = html.indexOf('<m3e-menu id="sb-app-bar-menu"');
+  expect(start).toBeGreaterThanOrEqual(0);
+  return html.slice(start, html.indexOf("</m3e-menu>", start));
+}
+
+/** The `m3e-app-bar` markup only. */
+function barHtml(html: string): string {
+  return html.slice(
+    html.indexOf("<m3e-app-bar"),
+    html.indexOf("</m3e-app-bar>"),
+  );
+}
+
+test("the kebab trigger is a trailing 'More actions' icon button bound to #sb-app-bar-menu, opening below", () => {
+  const html = renderTopBar({ menuItems: kebabItems } as any);
+  expect(barHtml(html)).toMatch(
+    /<m3e-icon-button slot="trailing"[^>]*aria-label="More actions"[^>]*><m3e-menu-trigger for="sb-app-bar-menu">/,
+  );
+  expect(html).toMatch(/<m3e-menu id="sb-app-bar-menu" position-y="below"/);
+});
+
+test("the read-only toggle precedes the kebab trigger in the trailing slot", () => {
+  const html = renderTopBar({
+    menuItems: kebabItems,
+    readOnlyToggle: {
+      active: false,
+      label: "Enable read-only",
+      onClick: () => {},
+    },
+  } as any);
+  expect(html.indexOf('aria-label="Enable read-only"')).toBeLessThan(
+    html.indexOf('aria-label="More actions"'),
+  );
+});
+
+test("menu items render labels, slotted icons, tooltips and disabled state", () => {
+  const menu = menuHtml(renderTopBar({ menuItems: kebabItems } as any));
+  expect(menu).toMatch(
+    /<m3e-menu-item disabled><m3e-icon slot="icon" name="notifications_off"><\/m3e-icon><span title="Push notifications are not configured for this server" class="sb-app-bar-menu-label">Push not configured<\/span>/,
+  );
+  expect(menu).toMatch(
+    /<m3e-menu-item><m3e-icon slot="icon" name="settings"><\/m3e-icon><span title="Open Config" class="sb-app-bar-menu-label">Open Config<\/span>/,
+  );
+});
+
+test("desktop keeps action buttons as trailing icon buttons, not kebab items", () => {
+  const html = renderTopBar({
+    menuItems: kebabItems,
+    actionButtons: [starButton],
+  } as any);
+  expect(barHtml(html)).toMatch(/<m3e-icon-button[^>]*aria-label="Star"/);
+  expect(menuHtml(html)).not.toContain("Star");
+});
+
+test("mobile hamburger style moves dropdown action buttons into the kebab", () => {
+  const html = renderTopBar({
+    menuItems: kebabItems,
+    mobileMenuStyle: "hamburger",
+    actionButtons: [starButton],
+  } as any);
+  expect(barHtml(html)).not.toContain('aria-label="Star"');
+  expect(menuHtml(html)).toMatch(
+    /<span title="Star" class="sb-app-bar-menu-label">Star<\/span>/,
+  );
+  // No hamburger expander/fly-out any more.
+  expect(html).not.toContain("hamburger");
+});
+
+test("mobile hamburger style keeps dropdown:false buttons and the profile avatar trailing", () => {
+  const pinned = { ...starButton, description: "Pinned", dropdown: false };
+  const html = renderTopBar({
+    menuItems: kebabItems,
+    mobileMenuStyle: "hamburger",
+    actionButtons: [pinned, profileButton],
+  } as any);
+  const bar = barHtml(html);
+  expect(bar).toMatch(/<m3e-icon-button[^>]*aria-label="Pinned"/);
+  expect(bar).toMatch(/<button[^>]*title="Account"/);
+  const menu = menuHtml(html);
+  expect(menu).not.toContain("Pinned");
+  expect(menu).not.toContain("Account");
+});

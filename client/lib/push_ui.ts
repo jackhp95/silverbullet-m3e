@@ -109,3 +109,35 @@ export function pushNoticeFor(outcome: PushOutcome): PushNotice {
       return { message: PUSH_STATE_DETAILS[outcome.state], type: "error" };
   }
 }
+
+/**
+ * Terse labels for the app-bar kebab's push item (`#sb-app-bar-menu`), each
+ * ≤ 30 characters so they fit a menu item without ellipsizing (fork
+ * `fa3d075a`). The full sentence stays in `PUSH_STATE_DETAILS`, surfaced as
+ * the item's tooltip.
+ */
+export const PUSH_MENU_LABELS: Record<PushState, string> = {
+  unsupported: "Push not supported",
+  "no-service-worker": "Push needs service worker",
+  "not-configured": "Push not configured",
+  denied: "Push permission denied",
+  off: "Enable push notifications",
+  on: "Disable push notifications",
+};
+
+/** Kebab label while the push state is still being read. */
+export const PUSH_MENU_CHECKING_LABEL = "Checking push support…";
+
+/** Kebab label while a toggle is in flight. */
+export const PUSH_MENU_PENDING_LABEL = "Updating push…";
+
+/** The kebab push item's label: `undefined` state = still checking. */
+export function pushMenuLabel(
+  state: PushState | undefined,
+  pending = false,
+): string {
+  if (pending) return PUSH_MENU_PENDING_LABEL;
+  return state === undefined
+    ? PUSH_MENU_CHECKING_LABEL
+    : PUSH_MENU_LABELS[state];
+}

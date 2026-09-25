@@ -81,14 +81,27 @@ import {
   profileMenuHeader,
   profileMenuLabel,
 } from "./components/profile_button.tsx";
-import { type BreadcrumbItem, TopBar } from "./components/top_bar.tsx";
+import {
+  type AppBarMenuItem,
+  type BreadcrumbItem,
+  TopBar,
+} from "./components/top_bar.tsx";
 import * as mdi from "./filtered_material_icons.ts";
 import { kebabToPascal } from "./lib/feather_icons.ts";
 import { accentSeed } from "./lib/theme_seed.ts";
 import { RevisionPreviewModal } from "./navigator/ui/components/revision_preview.tsx";
 import { NavigatorDock, NavigatorModal } from "./navigator/ui/panels.tsx";
 import { useNavigatorSlot } from "./navigator/ui/slots.ts";
+import {
+  CHECKING_LABEL,
+  isPushActionable,
+  notificationsIconFor,
+  PUSH_STATE_DETAILS,
+  type PushState,
+  pushMenuLabel,
+} from "./lib/push_ui.ts";
 import { loadProfile, type ProfileState } from "./profile.ts";
+import { readPushState, togglePush } from "./push_toggle.ts";
 import reducer from "./reducer.ts";
 import {
   type Action,
@@ -386,6 +399,14 @@ export class MainUI {
       undefined,
     );
 
+    // Kebab push item: `undefined` until the (async) first read resolves,
+    // re-read after every toggle; `togglePush` flashes its own outcome.
+    const [pushState, setPushState] = useState<PushState | undefined>();
+    const [pushPending, setPushPending] = useState(false);
+    useEffect(() => {
+      void readPushState(client.bootConfig).then(setPushState);
+    }, []);
+
     // `<m3e-theme>`'s color seed. Read once on mount and again whenever a
     // space style finishes loading (`loadCustomStyles` sets `customStyles`
     // after the `#custom-styles` stylesheet is in the DOM) -- a space style
@@ -506,6 +527,46 @@ export class MainUI {
     const readOnlyToggleShown = viewState.commands.has(
       "Editor: Toggle Read Only Mode",
     );
+
+    const pushActionable =
+      pushState !== undefined && isPushActionable(pushState);
+    const pushLabel = pushMenuLabel(pushState, pushPending);
+    const onPushClick = () => {
+      setPushPending(true);
+      void togglePush(client)
+        .then(() => readPushState(client.bootConfig))
+        .then(setPushState)
+        .finally(() => setPushPending(false));
+    };
+    const appBarMenuItems: AppBarMenuItem[] = [
+      {
+        key: "push",
+        icon: notificationsIconFor(
+          pushState === undefined
+            ? undefined
+            : {
+                active: pushState === "on",
+                unavailable: !pushActionable,
+                pending: pushPending,
+                label: pushLabel,
+                onClick: onPushClick,
+              },
+        ),
+        label: pushLabel,
+        detail:
+          pushState === undefined
+            ? CHECKING_LABEL
+            : PUSH_STATE_DETAILS[pushState],
+        disabled: pushPending || !pushActionable,
+        onClick: onPushClick,
+      },
+      {
+        key: "open-config",
+        icon: "settings",
+        label: "Open Config",
+        onClick: () => void client.navigate({ path: "CONFIG.md" }),
+      },
+    ];
 
     // App-bar breadcrumb: root runs "Navigate: Home", intermediate segments
     // open the page navigator, the last segment is the current page.
@@ -643,24 +704,8 @@ export class MainUI {
               client.focus();
             }
           }}
+          menuItems={appBarMenuItems}
           actionButtons={[
-            ...(viewState.isMobile &&
-            client.config
-              .get<string>("mobileMenuStyle", "hamburger")
-              .includes("hamburger")
-              ? [
-                  {
-                    icon: featherIcons.Menu,
-                    description: "Open Menu",
-                    class: "expander",
-                    callback: () => {
-                      document
-                        .querySelector("#sb-top .sb-actions.hamburger")
-                        ?.classList.toggle("open");
-                    },
-                  },
-                ]
-              : []),
             ...visibleActionButtons(actionButtons, {
               isMobile: viewState.isMobile,
               isStandalone: viewState.isStandalone,
