@@ -44,6 +44,7 @@ import "@m3e/web/theme";
 // is what actually upgrades them from inert HTML.
 import "@m3e/web/card";
 import "@m3e/web/app-bar";
+import "@m3e/web/breadcrumb"; // m3e-breadcrumb/-item: top_bar.tsx's app-bar leading-slot folder trail (CS-7a).
 import "@m3e/web/icon";
 // m3e-dialog: the plug modal (`showPanel("modal", ...)`) below.
 import "@m3e/web/dialog";
@@ -70,6 +71,7 @@ import {
 import type { Client } from "./client.ts";
 import { AnchoredMenu } from "./components/anchored_menu.tsx";
 import { Confirm, Prompt } from "./components/basic_modals.tsx";
+import { findFrontmatterBlock } from "./codemirror/frontmatter_folding.ts";
 import { FilterList } from "./components/filter.tsx";
 import { FloatingToolbar } from "./components/floating_toolbar.tsx";
 import { Panel } from "./components/panel.tsx";
@@ -79,7 +81,7 @@ import {
   profileMenuHeader,
   profileMenuLabel,
 } from "./components/profile_button.tsx";
-import { TopBar } from "./components/top_bar.tsx";
+import { type BreadcrumbItem, TopBar } from "./components/top_bar.tsx";
 import * as mdi from "./filtered_material_icons.ts";
 import { kebabToPascal } from "./lib/feather_icons.ts";
 import { accentSeed } from "./lib/theme_seed.ts";
@@ -97,6 +99,25 @@ import {
 // _tokens.scss's own `--ui-accent-color` default -- used only if the
 // computed custom property can't be read at all (e.g. no matching rule).
 const FALLBACK_ACCENT = "#3569b8";
+
+// TopBar's "N min read" subtitle segment (CS-7a) should reflect body prose,
+// not YAML key/value noise -- slice the frontmatter range out the same way
+// `client/lib/reading_time.ts`'s doc comment specifies. Computed inline at
+// render time, same as `pageNamePrefix`/`cssClass` below -- this file's
+// `ViewComponent` already re-renders on every `page-changed`/`document-
+// editor-changed` dispatch (reducer.ts), i.e. on every doc edit, so no
+// separate live-doc subscription is needed here.
+//
+// Guarded against `client.editorView` not existing yet: `client.ts` calls
+// `this.ui.render(this.parent)` (MainUI's first render) BEFORE `this.
+// editorView = new EditorView(...)` a few lines later, so the very first
+// render pass has no editor view at all (fork `1f8b8943`).
+function computeBodyText(client: Client): string {
+  const state = client.editorView?.state;
+  if (!state) return "";
+  const block = findFrontmatterBlock(state);
+  return block ? state.sliceDoc(block.to) : state.sliceDoc();
+}
 
 export class MainUI {
   viewState: AppViewState = initialViewState;
@@ -496,6 +517,43 @@ export class MainUI {
       "Editor: Toggle Read Only Mode",
     );
 
+    // App-bar leading breadcrumb (D4/CS-7a): root segment ("Space") runs
+    // the existing "Navigate: Home" command
+    // (plugs/editor/editor.plug.yaml:104) -- the same one the old
+    // home/asterisk affordance used, one binding not two. Intermediate
+    // path segments open the page navigator (`client.startPageNavigate
+    // ("page")`, client/client.ts:752); the final segment is the current
+    // page itself -- `current`, no `onClick` (see BreadcrumbItem's own doc
+    // in top_bar.tsx). Undefined onClick when the command isn't
+    // registered mirrors the readOnlyToggle guard just above.
+    const currentPageName = viewState.current
+      ? getNameFromPath(viewState.current.path)
+      : undefined;
+    const pathSegments = currentPageName
+      ? currentPageName.split("/").filter((s) => s.length > 0)
+      : [];
+    const breadcrumbItems: BreadcrumbItem[] = [
+      {
+        key: "sb-breadcrumb-root",
+        label: "Space",
+        current: pathSegments.length === 0,
+        onClick: viewState.commands.has("Navigate: Home")
+          ? () => void client.runCommandByName("Navigate: Home")
+          : undefined,
+      },
+      ...pathSegments.map((segment, i) => {
+        const isLast = i === pathSegments.length - 1;
+        return {
+          key: `sb-breadcrumb-${i}`,
+          label: segment,
+          current: isLast,
+          onClick: isLast
+            ? undefined
+            : () => void client.startPageNavigate("page"),
+        };
+      }),
+    ];
+
     // Only one modal may occupy the slot; close the plug panel before the
     // navigator takes its backdrop and focus.
     const plugModalMode = viewState.panels.modal.mode;
@@ -715,6 +773,9 @@ export class MainUI {
               : undefined
           }
           readOnly={isReadOnly}
+          breadcrumbItems={breadcrumbItems}
+          lastModified={client.currentPageMeta()?.lastModified}
+          bodyText={computeBodyText(client)}
           readOnlyToggle={
             readOnlyToggleShown
               ? {

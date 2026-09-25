@@ -6,8 +6,8 @@
   z-index: 20;
 
   // Height is intrinsic to content now — the `m3e-app-bar` inside `.main`
-  // below is `size="small"` (client/components/top_bar.tsx), whose own
-  // `--m3e-app-bar-small-container-height` token sizes it, not a hardcoded
+  // below is `size="medium"` (D4, client/components/top_bar.tsx), whose own
+  // `--m3e-app-bar-medium-container-height` token sizes it, not a hardcoded
   // number here. `#sb-main` (main.scss, `flex-grow: 1; height: 0`) absorbs
   // whatever height #sb-top ends up with, same as before.
 
@@ -40,7 +40,11 @@
 
   .sb-page-title {
     display: flex;
-    align-items: baseline;
+    // A wrapping `<textarea>` (D5) can grow to a 2nd line; `baseline`
+    // alignment would anchor the prefix to the textarea's LAST line as it
+    // grows, drifting it down. `flex-start` keeps the prefix pinned to
+    // where reading starts.
+    align-items: flex-start;
     min-width: 0;
     width: 100%;
   }
@@ -49,13 +53,19 @@
     flex: 1;
     min-width: 0;
 
-    overflow: hidden;
-    white-space: nowrap;
     text-align: left;
     display: block;
 
     -webkit-app-region: drag;
 
+    // The page-title editor is a `<textarea>` now (D5, top_bar.tsx's
+    // PageNameEditor) — textareas wrap natively, so no `white-space`/
+    // `overflow`/`text-overflow` clipping is needed or wanted here anymore.
+    // The app bar's own vendor CSS caps it at 2 lines
+    // (`--m3e-app-bar-medium-title-max-lines`, `-webkit-line-clamp` on the
+    // shadow `.title` wrapping our slotted content) — that's the "doesn't
+    // grow forever" half; `field-sizing: content` + `max-block-size: 2lh`
+    // below is the "actually grows to fit, up to that cap" half.
     .sb-input {
       font-family: var(--ui-font);
       font-size: inherit;
@@ -68,9 +78,26 @@
       border: 0;
       border-radius: 0;
       outline: none;
-      overflow-x: hidden;
-      text-overflow: ellipsis;
+      resize: none;
+      overflow: hidden;
       caret-color: var(--editor-caret-color);
+
+      // Auto-grow height as the title wraps onto more lines (modern-web-
+      // guidance skill's `form-fields-automatically-fit-contents` guide).
+      // `width` stays pinned explicitly (not field-sizing's own horizontal
+      // auto-size, which would jarringly resize the box as the user
+      // types) — only the block-size auto-sizes. Baseline "Newly
+      // available" (Chrome/Edge 123+, Firefox 152+, Safari 26.2+);
+      // unsupported browsers fall back to the fixed 2-line height below
+      // with internal scrolling rather than breaking.
+      field-sizing: content;
+      min-block-size: 1lh;
+      max-block-size: 2lh;
+
+      @supports not (field-sizing: content) {
+        height: 2lh;
+        overflow-y: auto;
+      }
 
       &:focus {
         box-shadow: none;

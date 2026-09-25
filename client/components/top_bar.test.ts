@@ -21,17 +21,42 @@ const baseProps = {
   onDismissNotification: () => {},
   actionButtons: [] as ActionButton[],
   readOnly: false,
+  breadcrumbItems: [{ key: "sb-breadcrumb-root", label: "Space", current: true }],
+  lastModified: "2026-09-20T12:00:00.000Z",
+  bodyText: "hello world",
 };
 
 function renderTopBar(overrides: Partial<Parameters<typeof TopBar>[0]> = {}) {
   return render(h(TopBar, { ...baseProps, ...overrides } as any));
 }
 
-test("renders the small m3e-app-bar shell with the page name editor", () => {
+test("renders the medium m3e-app-bar shell with the wrapping-textarea page name editor", () => {
   const html = renderTopBar();
   expect(html).toContain("<m3e-app-bar");
+  expect(html).toMatch(/<m3e-app-bar[^>]*size="medium"/);
   expect(html).toContain('id="sb-current-page"');
-  expect(html).toMatch(/<input[^>]*class="[^"]*\bsb-input\b/);
+  expect(html).toMatch(/<textarea[^>]*class="[^"]*\bsb-input\b/);
+});
+
+test("breadcrumb items render inside the app bar's leading slot", () => {
+  const html = renderTopBar({
+    breadcrumbItems: [
+      { key: "sb-breadcrumb-root", label: "Space", current: false },
+      { key: "sb-breadcrumb-0", label: "Projects", current: false },
+      { key: "sb-breadcrumb-1", label: "Alpha", current: true },
+    ],
+  } as any);
+  expect(html).toMatch(/<m3e-breadcrumb slot="leading"/);
+  const itemCount = (html.match(/<m3e-breadcrumb-item/g) ?? []).length;
+  expect(itemCount).toBe(3);
+  expect(html).toMatch(/<m3e-breadcrumb-item[^>]*current="page"[^>]*>Alpha/);
+});
+
+test("subtitle renders the 'Edited ... · N min read' string", () => {
+  const html = renderTopBar();
+  expect(html).toMatch(
+    /<span slot="subtitle">Edited .+ · \d+ min read<\/span>/,
+  );
 });
 
 test("determinate sync progress renders a valued circular indicator", () => {

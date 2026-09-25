@@ -21,7 +21,7 @@ export function navSegment(frame: Locator, label: string) {
 }
 
 export function currentPage(page: Page) {
-  return page.locator("#sb-current-page input.sb-input");
+  return page.locator("#sb-current-page textarea.sb-input");
 }
 
 /**

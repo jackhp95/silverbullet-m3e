@@ -1,9 +1,23 @@
 import type { Notification } from "@silverbulletmd/silverbullet/type/client";
-import { Icon, Input } from "@silverbulletmd/silverbullet/ui";
+import { Icon } from "@silverbulletmd/silverbullet/ui";
 import type { ComponentChildren, FunctionalComponent } from "preact";
 import { createPortal } from "preact/compat";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { resolveIconNode } from "../lib/icon.ts";
+import { countWords, readingTimeMinutes } from "../lib/reading_time.ts";
+import { relativeTime } from "../lib/relative_time.ts";
+
+/** One segment of the app bar's leading breadcrumb trail. `current: true`
+ * marks the page itself (no `onClick`); every other segment navigates —
+ * see editor_ui.tsx's `breadcrumbItems` computation for how `onClick` is
+ * wired (root -> "Navigate: Home", intermediate segments ->
+ * `client.startPageNavigate("page")`). */
+export type BreadcrumbItem = {
+  key: string;
+  label: string;
+  current?: boolean;
+  onClick?: () => void;
+};
 
 export type ActionButton = {
   icon: FunctionalComponent<any>;
@@ -272,15 +286,39 @@ function PageNameEditor({
   };
 
   return (
-    <Input
-      // Chrome-less inline page-title editor, not a boxed Material field —
-      // see Input's `bare` doc comment.
-      bare
-      class="sb-page-name-editor"
+    // A real `<input>` can never wrap onto multiple lines (browser-level
+    // constraint, not a CSS one) — D5 (docs/plans/2026-09-24-core-shell-
+    // decomposition.md) chose a wrapping `<textarea>` instead, kept as a
+    // single always-live, always-clickable element so the existing "no
+    // separate edit-mode step" e2e contract (page-rename, page-picker,
+    // wiki-links, navigate-restore, …) still holds — only the tag name
+    // changed, `currentPage()` (e2e/fixtures/actions.ts) is the one place
+    // that selector lives. Auto-grow height is CSS `field-sizing: content`
+    // (top.scss's `#sb-current-page .sb-input`), capped at the app bar's
+    // own vendor 2-line title clamp.
+    <textarea
+      class="sb-input sb-page-name-editor"
+      rows={1}
       value={name}
       readOnly={readOnly}
       onInput={(e) => setName(e.currentTarget.value)}
-      onConfirm={(value) => commit(value)}
+      onKeyDown={(e) => {
+        // IME composition guard (CJK candidate confirmation etc.) — same
+        // rule plug-api/ui/input.tsx's `Input` uses, so a half-composed
+        // value can't be submitted by its own confirming Enter.
+        if (e.isComposing) {
+          return;
+        }
+        // A textarea's native Enter behavior is "insert a newline"; the
+        // title is a single logical string that merely wraps visually, so
+        // Enter here means "commit", exactly like the old input's
+        // onConfirm.
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit(e.currentTarget.value);
+          e.currentTarget.blur();
+        }
+      }}
       onBlur={(e) => commit(e.currentTarget.value)}
     />
   );
@@ -306,6 +344,9 @@ export function TopBar({
   mobileMenuStyle,
   readOnly,
   readOnlyToggle,
+  breadcrumbItems,
+  lastModified,
+  bodyText,
 }: {
   pageName?: string;
   unsavedChanges: boolean;
@@ -328,12 +369,48 @@ export function TopBar({
   /** Read-only mode toggle, rendered in the trailing slot before the action
    * buttons. Undefined hides it entirely (e.g. command unavailable). */
   readOnlyToggle?: { active: boolean; label: string; onClick: () => void };
+  /** Folder-path trail rendered in the app bar's own `slot="leading"`
+   * breadcrumb (D4). `breadcrumbItems[0]` is the root ("Space" / Navigate:
+   * Home); the rest are the page path's segments, last marked `current`. */
+  breadcrumbItems: BreadcrumbItem[];
+  /** `PageMeta.lastModified` (ISO-8601) for the "Edited …" subtitle
+   * segment — kept raw (not pre-formatted) so `relativeTime`'s `now` stays
+   * live across re-renders. Undefined before the page's meta has loaded. */
+  lastModified?: string;
+  /** The page's body text (frontmatter range excluded) for the "N min
+   * read" subtitle segment via `reading_time.ts`. */
+  bodyText: string;
 }) {
   const pageIconNode = resolveIconNode(pageIcon);
   return (
     <div id="sb-top" className={isOnline ? undefined : "sb-sync-error"}>
       {lhs}
-      <m3e-app-bar className="main" size="small">
+      {/* D4: size="medium", pinned — main has no `#sb-page-scroll` for the
+          bar to scroll away with (that container is dead, see the plan's
+          §2.3), so a pinned `large` bar would cost ~20% of a phone screen
+          permanently. `medium` keeps the breadcrumb/title/subtitle
+          hierarchy with less chrome; the title still wraps to the vendor's
+          2-line clamp regardless of size. */}
+      <m3e-app-bar className="main" size="medium">
+        <m3e-breadcrumb slot="leading" aria-label="Breadcrumb">
+          {breadcrumbItems.map((item) => (
+            <m3e-breadcrumb-item
+              key={item.key}
+              current={item.current ? "page" : null}
+              disabled={!item.onClick}
+              onClick={
+                item.onClick
+                  ? (e: MouseEvent) => {
+                      e.preventDefault();
+                      item.onClick!();
+                    }
+                  : undefined
+              }
+            >
+              {item.label}
+            </m3e-breadcrumb-item>
+          ))}
+        </m3e-breadcrumb>
         <span slot="title" className="sb-page-title">
           <span className="sb-page-prefix">
             {pageIconNode && (
@@ -351,6 +428,10 @@ export function TopBar({
               onRename={onRename}
             />
           </span>
+        </span>
+        <span slot="subtitle">
+          Edited {relativeTime(lastModified ?? "")} ·{" "}
+          {readingTimeMinutes(countWords(bodyText))} min read
         </span>
         <SyncProgressIndicator
           slot="trailing"

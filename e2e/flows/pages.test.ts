@@ -28,7 +28,7 @@ test.describe("page links and lifecycle", () => {
     ).toBeVisible();
     await referenceLink.click();
 
-    await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       "Reference",
     );
     await expect(page.locator("#sb-editor .cm-content")).toContainText(
@@ -91,7 +91,7 @@ test.describe("page links and lifecycle", () => {
     });
     await expect(missing).toBeVisible();
     await missing.click();
-    await expect(page.locator("#sb-current-page input.sb-input")).toHaveValue(
+    await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
       "Draft Target",
     );
 
@@ -108,7 +108,7 @@ test.describe("page links and lifecycle", () => {
       "The page now has durable content.",
     );
 
-    const pageName = page.locator("#sb-current-page input.sb-input");
+    const pageName = page.locator("#sb-current-page textarea.sb-input");
     await pageName.click();
     await page.keyboard.press(`${mod}+a`);
     await page.keyboard.insertText("Published Target");
