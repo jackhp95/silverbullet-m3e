@@ -302,6 +302,7 @@ function AppBarMenu({
       {items.map((item) => (
         <m3e-menu-item
           key={item.key}
+          data-key={item.key}
           disabled={item.disabled}
           onClick={
             item.disabled

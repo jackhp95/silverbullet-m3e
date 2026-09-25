@@ -1,4 +1,15 @@
-import { currentPage, isUpgraded } from "../fixtures/actions.ts";
+import type { Page } from "@playwright/test";
+import {
+  isPushActionable,
+  PUSH_STATE_DETAILS,
+  type PushState,
+  pushMenuLabel,
+} from "../../client/lib/push_ui.ts";
+import {
+  currentPage,
+  isUpgraded,
+  runCommandViaPalette,
+} from "../fixtures/actions.ts";
 import { gotoSilverBulletPage, mod } from "../fixtures/core.ts";
 // Single `test` for the whole file (rather than mixing core.ts's and
 // offline.ts's fixture objects across describes): offline.ts's `test` is
@@ -204,5 +215,153 @@ test.describe("app bar: offline chip (real service worker)", () => {
     await context.setOffline(false);
     await expect(chip).toBeHidden();
     await expect(page.locator("#sb-top")).not.toHaveClass(/sb-sync-error/);
+  });
+});
+
+// CS-7b: trailing kebab menu (`#sb-app-bar-menu`) + push toggle item +
+// mobile hamburger overflow. See docs/plans/2026-09-24-core-shell-
+// decomposition.md CS-7b row and D2.
+
+const KEBAB = '#sb-top m3e-icon-button[aria-label="More actions"]';
+const MENU = "m3e-menu#sb-app-bar-menu";
+
+async function openKebab(page: Page) {
+  await page.locator(KEBAB).click();
+  await expect
+    .poll(() => page.locator(MENU).evaluate((el: any) => el.isOpen))
+    .toBe(true);
+  return page.locator(MENU);
+}
+
+// `config.set` (not the Std `actionButton.define` wrapper) so the list is
+// exactly this one entry, independent of whether Std is loaded.
+const kebabSpace = {
+  "index.md": "# Index\nKebab test space.\n",
+  "Some Page.md": "# Some Page\nContent.\n",
+  "CONFIG.md": [
+    "```space-lua",
+    'config.set("mobileMenuStyle", "hamburger")',
+    'config.set("actionButtons", {',
+    '  { icon = "activity", description = "Test Action", command = "Navigate: Home" },',
+    "})",
+    "```",
+    "",
+  ].join("\n"),
+};
+
+test.describe("app bar: kebab menu", () => {
+  test.use({ spaceFiles: kebabSpace });
+
+  test("the kebab is an upgraded trailing icon button that opens the menu below it, after the RO toggle", async ({
+    sbServer,
+    page,
+  }) => {
+    await gotoSilverBulletPage(page, sbServer, "Some Page");
+    expect(await isUpgraded(page, KEBAB)).toBe(true);
+    expect(await isUpgraded(page, MENU)).toBe(true);
+    await expect(page.locator(MENU)).toHaveAttribute("position-y", "below");
+
+    const roToggle = page.locator(
+      '#sb-top m3e-icon-button[aria-label="Enable read-only"]',
+    );
+    await expect(roToggle).toHaveCount(1);
+    const order = await page.locator("#sb-top m3e-app-bar").evaluate((bar) => {
+      const ro = bar.querySelector('m3e-icon-button[aria-label$="read-only"]')!;
+      const kebab = bar.querySelector(
+        'm3e-icon-button[aria-label="More actions"]',
+      )!;
+      return !!(
+        ro.compareDocumentPosition(kebab) & Node.DOCUMENT_POSITION_FOLLOWING
+      );
+    });
+    expect(order).toBe(true);
+
+    const kebabBox = (await page.locator(KEBAB).boundingBox())!;
+    const menu = await openKebab(page);
+    const firstItem = menu.locator("m3e-menu-item").first();
+    await expect(firstItem).toBeVisible();
+    expect((await firstItem.boundingBox())!.y).toBeGreaterThan(kebabBox.y);
+  });
+
+  test("the push item shows push_ui's label for the real push state and is disabled under the no-SW fixture", async ({
+    sbServer,
+    page,
+  }) => {
+    await gotoSilverBulletPage(page, sbServer, "Some Page");
+
+    // Resolve the in-page push state through the real readPushState path:
+    // the toggle command re-reads it and, for a dead-end state, flashes
+    // exactly PUSH_STATE_DETAILS[state].
+    await runCommandViaPalette(page, "Push Notifications: Toggle");
+    const notice = await page
+      .locator(".sb-notification-error .sb-notification-message")
+      .first()
+      .textContent();
+    const state = (Object.keys(PUSH_STATE_DETAILS) as PushState[]).find(
+      (s) => PUSH_STATE_DETAILS[s] === notice,
+    );
+    expect(state, `unrecognised push notice: ${notice}`).toBeDefined();
+    expect(isPushActionable(state!)).toBe(false);
+
+    const menu = await openKebab(page);
+    const pushItem = menu.locator('m3e-menu-item[data-key="push"]');
+    await expect(pushItem).toHaveCount(1);
+    await expect(pushItem.locator(".sb-app-bar-menu-label")).toHaveText(
+      pushMenuLabel(state),
+    );
+    await expect(pushItem).toHaveAttribute("disabled", "");
+  });
+
+  test("'Open Config' navigates to the CONFIG page", async ({
+    sbServer,
+    page,
+  }) => {
+    await gotoSilverBulletPage(page, sbServer, "Some Page");
+    const menu = await openKebab(page);
+    await menu.locator("m3e-menu-item", { hasText: "Open Config" }).click();
+    await expect(currentPage(page)).toHaveValue("CONFIG");
+  });
+
+  test("desktop keeps CONFIG actionButtons as trailing icon buttons (D2)", async ({
+    sbServer,
+    page,
+  }) => {
+    await gotoSilverBulletPage(page, sbServer, "Some Page");
+    await expect(
+      page.locator('#sb-top m3e-icon-button[aria-label^="Test Action"]'),
+    ).toHaveCount(1);
+    const menu = await openKebab(page);
+    await expect(
+      menu.locator("m3e-menu-item", { hasText: "Test Action" }),
+    ).toHaveCount(0);
+  });
+
+  test("mobile hamburger style moves CONFIG actionButtons into the kebab at 411x761", async ({
+    sbServer,
+    page,
+  }) => {
+    // isMobileDevice() (client/lib/mobile.ts) gates on `(pointer: fine)`,
+    // not viewport width — force a coarse pointer (as filterbox.test.ts does).
+    await page.addInitScript(() => {
+      const realMatchMedia = window.matchMedia.bind(window);
+      window.matchMedia = (query: string) =>
+        query === "(pointer: fine)"
+          ? realMatchMedia("not all")
+          : query === "(pointer: coarse)"
+            ? realMatchMedia("all")
+            : realMatchMedia(query);
+    });
+    await page.setViewportSize({ width: 411, height: 761 });
+    await gotoSilverBulletPage(page, sbServer, "Some Page");
+
+    await expect(
+      page.locator('#sb-top m3e-icon-button[aria-label^="Test Action"]'),
+    ).toHaveCount(0);
+    await expect(page.locator("#sb-top .sb-actions.hamburger")).toHaveCount(0);
+    const menu = await openKebab(page);
+    const item = menu.locator("m3e-menu-item", { hasText: "Test Action" });
+    await expect(item).toHaveCount(1);
+    await item.click();
+    await expect(currentPage(page)).toHaveValue("index");
   });
 });

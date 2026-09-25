@@ -213,10 +213,10 @@ test("the read-only toggle precedes the kebab trigger in the trailing slot", () 
 test("menu items render labels, slotted icons, tooltips and disabled state", () => {
   const menu = menuHtml(renderTopBar({ menuItems: kebabItems } as any));
   expect(menu).toMatch(
-    /<m3e-menu-item disabled><m3e-icon slot="icon" name="notifications_off"><\/m3e-icon><span title="Push notifications are not configured for this server" class="sb-app-bar-menu-label">Push not configured<\/span>/,
+    /<m3e-menu-item data-key="push" disabled><m3e-icon slot="icon" name="notifications_off"><\/m3e-icon><span title="Push notifications are not configured for this server" class="sb-app-bar-menu-label">Push not configured<\/span>/,
   );
   expect(menu).toMatch(
-    /<m3e-menu-item><m3e-icon slot="icon" name="settings"><\/m3e-icon><span title="Open Config" class="sb-app-bar-menu-label">Open Config<\/span>/,
+    /<m3e-menu-item data-key="open-config"><m3e-icon slot="icon" name="settings"><\/m3e-icon><span title="Open Config" class="sb-app-bar-menu-label">Open Config<\/span>/,
   );
 });
 
