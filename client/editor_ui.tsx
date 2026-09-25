@@ -45,13 +45,7 @@ import "@m3e/web/theme";
 import "@m3e/web/card";
 import "@m3e/web/app-bar";
 import "@m3e/web/icon";
-// m3e-dialog / m3e-dialog-action: CS-3's plug-modal wrapper below (the
-// `showPanel("modal", ...)` slot). Already registered transitively via
-// client/components/basic_modals.tsx's own `@m3e/web/dialog` self-import
-// (that file has no `.test.ts` sibling and isn't reachable from plug
-// FUNCTION code, so it's allowed to self-register) -- this explicit import
-// is the centralized-registration convention this file follows for every
-// other `<m3e-*>` tag it renders directly.
+// m3e-dialog: the plug modal (`showPanel("modal", ...)`) below.
 import "@m3e/web/dialog";
 import { getNameFromPath } from "@silverbulletmd/silverbullet/lib/ref";
 import type {
@@ -490,33 +484,16 @@ export class MainUI {
     }, [navSlots.modal, plugModalMode]);
     const modalVisible = plugModalMode !== undefined && !navSlots.modal;
     const modalInset = plugModalMode;
-    // PanelMode is `number | string` (plug-api/types/client.ts) — a plain
-    // pixel inset or a CSS length string. m3e-dialog has no inset concept,
-    // so the old absolute-positioned div's `inset: ${n}px` (which shrank
-    // BOTH axes against the fixed full-viewport backdrop) becomes explicit
-    // `--m3e-dialog-{min,max}-width`/`--m3e-dialog-max-height` on the
-    // dialog itself (all three verified as real custom properties against
-    // node_modules/@m3e/web/dist/dialog.js's own `css` template — the m3e
-    // skill's dialog card lists only the width pair, not max-height).
+    // PanelMode is a px inset (number) or a CSS length (string); m3e-dialog
+    // has no inset, so it becomes explicit width/max-height tokens.
     const modalDialogWidth = typeof modalInset === "number"
       ? `calc(100% - ${modalInset * 2}px)`
       : `calc(100% - 2 * (${modalInset}))`;
     const modalDialogHeight = typeof modalInset === "number"
       ? `calc(100dvh - ${modalInset * 2}px)`
       : `calc(100dvh - 2 * (${modalInset}))`;
-    // `.base` has no `height` property, only `max-height` (verified same
-    // file) -- with no explicit height DEMAND from its content it shrinks
-    // to intrinsic size (capped, not filled), so `.sb-modal` still needs an
-    // explicit height to actually render at the requested footprint. But
-    // `.base` is a column flexbox with a `.header` row (own fixed height,
-    // ~80px measured live -- Material type-scale + spacing tokens, not
-    // viewport- or theme-scaled, so stable) ABOVE `.content`, and `.base`
-    // itself is `overflow: visible`: demanding the FULL footprint on
-    // `.sb-modal` double-counts the header's height and spills the total
-    // past `--m3e-dialog-max-height` (and the viewport) instead of
-    // scrolling. Reserve room for it here; `--m3e-dialog-max-height` above
-    // stays the full footprint, giving the header space to exist inside it
-    // without the (header + this) total exceeding that cap.
+    // m3e-dialog's `.base` only caps height, so `.sb-modal` needs an explicit
+    // one; reserve ~88px for the dialog's own header row inside the cap.
     const modalPanelHeight =
       `calc(${modalDialogHeight} - 88px)`;
 
@@ -739,21 +716,8 @@ export class MainUI {
         <NavigatorModal state={navSlots.modal} client={client} />
         <RevisionPreviewModal />
         {modalVisible && (
-          // m3e-dialog replaces the hand-rolled .sb-modal-backdrop pair (see
-          // basic_modals.tsx's AlwaysShownModal for the identical pattern —
-          // onclosed must stay all-lowercase, see m3e-jsx.d.ts's comment on
-          // M3eDialogAttributes). Escape and backdrop-click both close the
-          // dialog by default (verified against dialog.js's handleClick/
-          // handleKeyDown -- both gate only on `disable-close`, left unset
-          // here); `dismissible` is deliberately omitted -- it only adds a
-          // second close ("x") button in the dialog's own header row, which
-          // plug content already provides its own close affordance for
-          // (e.g. configuration-manager's #cfg-header), so it was pure
-          // redundant chrome. Exactly one "closed" event -> one `hide-panel`
-          // dispatch either way. The inner `.sb-modal` div is kept (not
-          // folded into m3e-dialog's own content) purely so
-          // `e2e/flows/extensions.test.ts`'s `.sb-modal iframe` locator
-          // keeps matching plug content.
+          // Escape/backdrop close -> one `closed` event -> one hide-panel.
+          // Inner `.sb-modal` kept: extensions.test.ts targets `.sb-modal iframe`.
           <m3e-dialog
             open
             style={{
