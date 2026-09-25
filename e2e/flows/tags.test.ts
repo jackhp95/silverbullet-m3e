@@ -1,18 +1,10 @@
 import { isUpgraded } from "../fixtures/actions.ts";
 import { expect, test } from "../fixtures/core.ts";
 
-// Port of fork `tag-pills.test.ts` (4cfc3763). editor_state.ts's click
-// handler was `closest("a")`, so a hashtag chip (an m3e-assist-chip, not an
-// <a>) never reached client.dispatchAppEvent("page:click", ...) via that
-// branch; `closest("a, [data-tag-name]")` fixes that. NOTE (investigated
-// during CS-2): for this short "task" chip, CM's positional distanceX
-// fallback (editor_state.ts's other branch, unconditional on closest())
-// already resolves the click to inside the hashtag's syntax range and
-// separately triggers navigation via `client.dispatchClickEvent`, so this
-// specific assertion does NOT go red if the hunk is reverted -- confirmed
-// empirically, not assumed. Kept as the fork's literal acceptance check
-// (chip is real, clickable, lands on /tag:task); see the CS-2 report's
-// Frictions section for the mutation-check gap.
+// Port of fork `tag-pills.test.ts` (4cfc3763). A hashtag renders as an
+// href-less m3e-assist-chip; editor_state.ts's `closest("a, [data-tag-name]")`
+// click intercept routes it through `page:click` (in-app navigation).
+
 test.describe("hashtag tag pills (m3e-assist-chip)", () => {
   test.use({
     spaceFiles: {

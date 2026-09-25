@@ -1,10 +1,7 @@
 import { syntaxTree } from "@codemirror/language";
 import { Decoration } from "@codemirror/view";
 import { decoratorStateField } from "./util.ts";
-import * as Constants from "../../plugs/index/constants.ts";
 import { extractHashtag } from "../../plug-api/lib/tags.ts";
-import { encodePageURI } from "@silverbulletmd/silverbullet/lib/ref";
-import type { Client } from "../client.ts";
 // NOTE: no `import "@m3e/web/chips"` here on purpose — this module (and
 // frontmatter_folding.ts, markdown_render.ts) is imported by plain-Node
 // vitest unit tests with no DOM (see frontmatter_folding.test.ts's
@@ -14,7 +11,7 @@ import type { Client } from "../client.ts";
 // browser-only app root) — custom-element registration is global, so one
 // import there covers every module that renders `<m3e-assist-chip>`.
 
-export function hashtagPlugin(client: Client) {
+export function hashtagPlugin() {
   return decoratorStateField((state) => {
     const widgets: any[] = [];
 
@@ -32,24 +29,17 @@ export function hashtagPlugin(client: Client) {
         }
 
         const tagName = extractHashtag(tag);
-        const tagPage = client.config.get<string | null>(
-          ["tags", tagName, "tagPage"],
-          null,
-        );
-        const target = tagPage ?? Constants.tagPrefix + tagName;
 
-        // Wrap the tag in a real m3e-assist-chip (a chip that carries a
-        // native `href`, not a decorative m3e-chip — see the chips skill
-        // card: "Navigable: carries a native href — do not wrap it in an
-        // <a>"). Decoration.mark just re-parents the existing tag text
-        // inside this wrapper, so the raw `#tagname` stays live, editable
-        // text — same as the old `<a>` wrapper did.
+        // m3e-assist-chip WITHOUT `href`: an href makes the chip navigate
+        // itself (full page load) and swallow the mousedown CodeMirror's
+        // click handler needs. Unlinked, the click reaches editor_state.ts's
+        // `[data-tag-name]` intercept -> `page:click` -> navigate.ts's Hashtag
+        // case (which honours `tags.<name>.tagPage`), like main's old `<a>`.
+        // Decoration.mark re-parents the raw `#tagname`, so it stays editable.
         widgets.push(
           Decoration.mark({
             tagName: "m3e-assist-chip",
             attributes: {
-              href: `/${encodePageURI(target)}`,
-              rel: "tag",
               variant: "outlined",
               "data-tag-name": tagName,
             },
