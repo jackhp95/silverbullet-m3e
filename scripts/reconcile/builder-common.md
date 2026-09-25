@@ -9,6 +9,8 @@
 2. An unregistered `<m3e-*>` renders as inert, roleless HTML and silently breaks main's own e2e flows. Before/after e2e diff against the baseline is the only reliable catch.
 3. `git merge-tree` only shows textual conflicts; a "clean" fork file can depend on a method/type main doesn't have. Compile + e2e, don't trust clean merges.
 4. Keep main's business logic (SSO/OIDC, git-sync, revisions, live collab, navigator) intact — the fork never had it. Port only the fork's visual/reskin intent onto main's current code.
+5. CodeMirror block widgets (`WidgetType` with `block: true`) must contain their children's margins (`display: flow-root` or padding, not a margin on the first/last child) — collapsed margins make CM measure the widget short and every click/cursor position below it lands on the wrong line (CS-8, 2026-09-25). For any geometry/click bug, compare `view.viewportLineBlocks` tops against DOM `getBoundingClientRect()` before theorising, and never swap a real click/keypress in a spec for a programmatic workaround without reporting it as a blocker.
+6. A `<m3e-*>` element with `href` navigates itself (full page load, after a microtask) and its shadow pseudo-link swallows `mousedown`; never put `href` on m3e elements inside CodeMirror/contenteditable — route through the app's click handler (CS-2b). Navigation specs should assert in-app navigation (a `window` marker survives), not only the URL.
 
 **Gate — run ALL of it from YOUR worktree, in this order (or run `scripts/reconcile/sb-gate.sh "$PWD" /tmp/sbgate/<slice>` which does exactly this and writes `/tmp/sbgate/<slice>-summary.log`), and paste the terminal exit code + final summary line of each into your report (never paraphrase counts; never pipe a gate into `&&`; capture `$?`):**
 ```
