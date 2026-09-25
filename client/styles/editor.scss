@@ -32,9 +32,7 @@ $comment-border: 1px;
 
 #sb-main .cm-editor {
   font-size: 18px;
-  // No fixed height: the editor sizes to content so CM's scrollableParents()
-  // walk tracks #sb-page-scroll as the real scrolling ancestor, not
-  // .cm-scroller.
+  height: 100%;
 
   .cm-content {
     width: 100%;
@@ -954,10 +952,11 @@ $comment-border: 1px;
 
   .cm-scroller {
     padding-bottom: 20em;
-    // #sb-page-scroll (top.scss), not .cm-scroller, owns scroll now.
-    overflow: visible;
-    height: auto;
   }
+}
+
+#sb-editor>.cm-editor>.cm-scroller {
+  scrollbar-gutter: stable;
 }
 
 div:not(.cm-focused).cm-fat-cursor {
