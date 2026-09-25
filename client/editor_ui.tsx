@@ -50,10 +50,7 @@ import "@m3e/web/dialog";
 // m3e-textarea-autosize: the frontmatter raw-YAML card
 // (client/components/front_matter_panel.tsx, a CodeMirror block widget).
 import "@m3e/web/textarea-autosize";
-// m3e-toolbar: client/components/floating_toolbar.tsx's bottom-right
-// vertical toolbar (icon-button/icon are already registered above). Same
-// reasoning as the other imports here: floating_toolbar.tsx has a vitest
-// sibling and must stay `@m3e/web`-free itself (CS-6).
+// m3e-toolbar: the floating toolbar (client/components/floating_toolbar.tsx).
 import "@m3e/web/toolbar";
 import { getNameFromPath } from "@silverbulletmd/silverbullet/lib/ref";
 import type {
