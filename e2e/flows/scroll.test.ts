@@ -26,7 +26,9 @@ for (const viewport of [
     ).toBe(true);
 
     await page.mouse.move(viewport.width / 2, viewport.height / 2);
-    await page.mouse.wheel(0, 3000);
+    // Wheel well past the end: the last line must be reachable and fully
+    // visible (a fixed-distance wheel overshoots mid-page lines on mobile).
+    await page.mouse.wheel(0, 20000);
     await expect
       .poll(() =>
         page.evaluate(
@@ -35,8 +37,8 @@ for (const viewport of [
       )
       .toBeGreaterThan(1000);
     await expect(
-      page.locator("#sb-editor .cm-line", { hasText: /^Line 100$/ }),
-    ).toBeInViewport();
+      page.locator("#sb-editor .cm-line", { hasText: /^Line 149$/ }),
+    ).toBeInViewport({ ratio: 1 });
     expect(
       await page.evaluate(
         () => document.querySelector("#sb-top")!.getBoundingClientRect().top,
