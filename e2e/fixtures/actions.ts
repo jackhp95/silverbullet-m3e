@@ -133,6 +133,29 @@ export async function createPageViaPagePicker(page: Page, name: string) {
   await expect(currentPage(page)).toHaveValue(name);
 }
 
+/**
+ * Ported from fork `e2e/visual-verification.test.ts` (`4cfc3763`) — asserts
+ * two elements' bounding boxes don't intersect, e.g. the floating toolbar
+ * against `#sb-top` or `.sb-notifications`.
+ */
+export async function assertNoOverlap(
+  page: Page,
+  selectorA: string,
+  selectorB: string,
+) {
+  const boxA = await page.locator(selectorA).first().boundingBox();
+  const boxB = await page.locator(selectorB).first().boundingBox();
+  expect(boxA).not.toBeNull();
+  expect(boxB).not.toBeNull();
+  const a = boxA!;
+  const b = boxB!;
+  const intersects = a.x < b.x + b.width &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.height &&
+    a.y + a.height > b.y;
+  expect(intersects).toBe(false);
+}
+
 export async function runCommandViaPalette(page: Page, command: string) {
   const frame = await openPicker(page, `${mod}+/`, "Command");
   await fillNavPhrase(page, command, () =>

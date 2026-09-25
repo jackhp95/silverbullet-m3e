@@ -348,19 +348,23 @@
   line-height: 1.5;
 }
 
+// Live since CS-6 (client/editor_ui.tsx renders FloatingToolbar). Bottom
+// offset padded for the safe-area inset; kept clear of `.sb-notifications`
+// (top: 60px, growing down) and `.sb-resizer-bhs` via z-index + its own
+// bottom-right anchor.
+.sb-floating-toolbar {
+  position: fixed;
+  right: 24px;
+  bottom: max(24px, env(safe-area-inset-bottom, 0px) + 24px);
+  z-index: 30;
+}
+
 // App-bar kebab menu (#sb-app-bar-menu): m3e-menu-item's shadow `.wrapper`
 // is missing `min-width: 0` (upstream @m3e/web v2.7.3 bug), so a long label
 // floors the menu's width instead of shrinking into it and its own
 // ellipsis never fires. Capping the label's own max-width (rather than
 // zeroing it) caps what it contributes to that floor, letting short labels
-// stay tight and long ones ellipsize. Inert until the floating-toolbar
-// shell lands (no `.sb-floating-toolbar` consumer on main yet).
-.sb-floating-toolbar {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 30;
-}
+// stay tight and long ones ellipsize.
 
 #sb-app-bar-menu {
   --m3e-menu-container-max-width: min(280px, calc(100vw - 32px));

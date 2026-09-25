@@ -50,6 +50,11 @@ import "@m3e/web/dialog";
 // m3e-textarea-autosize: the frontmatter raw-YAML card
 // (client/components/front_matter_panel.tsx, a CodeMirror block widget).
 import "@m3e/web/textarea-autosize";
+// m3e-toolbar: client/components/floating_toolbar.tsx's bottom-right
+// vertical toolbar (icon-button/icon are already registered above). Same
+// reasoning as the other imports here: floating_toolbar.tsx has a vitest
+// sibling and must stay `@m3e/web`-free itself (CS-6).
+import "@m3e/web/toolbar";
 import { getNameFromPath } from "@silverbulletmd/silverbullet/lib/ref";
 import type {
   FilterOption,
@@ -69,6 +74,7 @@ import type { Client } from "./client.ts";
 import { AnchoredMenu } from "./components/anchored_menu.tsx";
 import { Confirm, Prompt } from "./components/basic_modals.tsx";
 import { FilterList } from "./components/filter.tsx";
+import { FloatingToolbar } from "./components/floating_toolbar.tsx";
 import { Panel } from "./components/panel.tsx";
 import {
   editorProfileMenuItems,
@@ -734,6 +740,17 @@ export class MainUI {
             onClose={() => setMenuTrigger(undefined)}
           />
         )}
+        <FloatingToolbar
+          onSearchClick={() => {
+            void client.startPageNavigate("page");
+          }}
+          journal={{
+            available: viewState.commands.has("Journal: Today"),
+            onClick: () => {
+              void client.runCommandByName("Journal: Today");
+            },
+          }}
+        />
         <div id="sb-main">
           <NavigatorDock slot="lhs" state={navSlots.lhs} client={client} />
           {viewState.panels.lhs.mode !== undefined && (
