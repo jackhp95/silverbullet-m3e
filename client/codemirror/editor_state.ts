@@ -58,6 +58,7 @@ import { conflictMarkers } from "./conflict_markers.ts";
 import { disableSpellcheck } from "../codemirror/spell_checking.ts";
 import type { ClickEvent } from "@silverbulletmd/silverbullet/type/client";
 import {
+  frontMatterSyncExtension,
   frontmatterFoldingExtension,
   frontmatterFoldPlaceholderDOM,
   prepareFrontmatterFoldPlaceholder,
@@ -190,6 +191,7 @@ export function createEditorState(
           frontmatterFoldPlaceholderDOM(view, onclick, prepared, client),
       }),
       frontmatterFoldingExtension(client),
+      frontMatterSyncExtension(() => client.onFrontMatterChanged?.()),
       indentUnits,
       indentOnInput(),
       ...cleanModePlugins(client),

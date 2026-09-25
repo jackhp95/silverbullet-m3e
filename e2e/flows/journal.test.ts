@@ -21,7 +21,9 @@ test("today's journal starts from the template and saves an entry", async ({
   const editor = sbPage.locator("#sb-editor .cm-content");
   await expect(editor).toContainText("tags: journal");
 
-  await editor.click();
+  // Click the template's trailing bullet line, not the editor's centre: on a
+  // short page the frontmatter card widget occupies the middle.
+  await sbPage.locator("#sb-editor .cm-line").last().click();
   await sbPage.keyboard.insertText("Outlined tomorrow's priorities.");
   await waitForPersistedContent(
     sbServer,

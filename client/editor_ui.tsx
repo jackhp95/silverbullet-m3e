@@ -47,6 +47,9 @@ import "@m3e/web/app-bar";
 import "@m3e/web/icon";
 // m3e-dialog: the plug modal (`showPanel("modal", ...)`) below.
 import "@m3e/web/dialog";
+// m3e-textarea-autosize: the frontmatter raw-YAML card
+// (client/components/front_matter_panel.tsx, a CodeMirror block widget).
+import "@m3e/web/textarea-autosize";
 import { getNameFromPath } from "@silverbulletmd/silverbullet/lib/ref";
 import type {
   FilterOption,

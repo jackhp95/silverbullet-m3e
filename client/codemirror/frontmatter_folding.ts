@@ -347,3 +347,78 @@ export function frontmatterFoldingExtension(client: Client): Extension {
     },
   );
 }
+
+/**
+ * A CM `ViewPlugin` that calls `onFrontMatterChanged` whenever a document
+ * change intersects the frontmatter block — either where it WAS before the
+ * change, or where it IS after (covers both "edited a value inside it" and
+ * "the block itself just got added/removed/resized"). Built on the same
+ * plain-callback primitive `frontmatterFoldingExtension` above already
+ * proves works in this codebase — no `eventHook` API guess needed.
+ *
+ * Lives here, not in `client/components/front_matter_panel.tsx`, even
+ * though that's its only real consumer: it's pure CM (no Preact/JSX), and
+ * `client/codemirror/editor_state.ts` (`createEditorState`) needs to
+ * register it unconditionally alongside `frontmatterFoldingExtension` for
+ * EVERY editor state — `editor_state.ts` importing a Preact component file
+ * would be a backwards data/domain → view dependency (coding-preferences'
+ * "data → domain → view → page" direction), the same reasoning the
+ * 2026-09-22 plan's §11.2 applied to `snapToAppBar`.
+ *
+ * Registering it unconditionally in `createEditorState` (rather than having
+ * `<FrontMatterPanel>` append it once via `StateEffect.appendConfig` on
+ * mount) matters because `content_manager.ts`'s `navigateWithinPage` and
+ * `client.ts`'s own boot both load a page via `editorView.setState(...)` —
+ * a full state replacement built fresh from `createEditorState`, not an
+ * incremental transaction on the existing state. An extension appended via
+ * `appendConfig` onto the state being replaced does not carry over to the
+ * next one, so a mount-time-only `appendConfig` call would silently stop
+ * syncing after the very first navigation. `onFrontMatterChanged` is looked
+ * up dynamically (via the callback passed in, e.g. `() =>
+ * client.onFrontMatterChanged?.()`) rather than captured once, so whichever
+ * function `<FrontMatterPanel>` last assigned onto the long-lived `Client`
+ * instance is always the one invoked, regardless of how many times the
+ * `EditorState` itself has been swapped out from under it.
+ */
+export function frontMatterSyncExtension(
+  onFrontMatterChanged: () => void,
+): Extension {
+  return ViewPlugin.fromClass(
+    class {
+      constructor() {
+        // A page load (`content_manager.ts`'s `navigateWithinPage`, and
+        // `client.ts`'s own boot) replaces the WHOLE `EditorState` via
+        // `editorView.setState(...)`, not an incremental transaction — CM6
+        // constructs a brand-new instance of every `ViewPlugin` for that,
+        // it does not call `update()` on the old one. Without this, the
+        // panel would only ever reflect the doc at the moment its `Client`
+        // was first constructed (an empty placeholder — see `client.ts`'s
+        // boot sequence), never the real page that loads moments later.
+        // Fires on EVERY plugin (re)construction, including this
+        // extension's own initial install onto the placeholder boot state
+        // (harmless: `onFrontMatterChanged` — `FrontMatterPanel`'s
+        // `refresh` — handles "no frontmatter block" gracefully already).
+        onFrontMatterChanged();
+      }
+      update(update: ViewUpdate): void {
+        if (!update.docChanged) return;
+        const oldBlock = findFrontmatterBlock(update.startState);
+        const newBlock = findFrontmatterBlock(update.state);
+        let intersects = false;
+        update.changes.iterChangedRanges((fromA, toA, fromB, toB) => {
+          if (
+            oldBlock && fromA < oldBlock.to && toA > oldBlock.from
+          ) {
+            intersects = true;
+          }
+          if (
+            newBlock && fromB < newBlock.to && toB > newBlock.from
+          ) {
+            intersects = true;
+          }
+        });
+        if (intersects) onFrontMatterChanged();
+      }
+    },
+  );
+}

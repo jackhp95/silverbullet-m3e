@@ -1,5 +1,6 @@
 import type { EditorState } from "@codemirror/state";
 import { Decoration, WidgetType } from "@codemirror/view";
+import { h, render as preactRender } from "preact";
 import type { Client } from "../client.ts";
 import { decoratorStateField } from "./util.ts";
 import { LuaWidget, type LuaWidgetContent } from "./lua_widget.ts";
@@ -9,6 +10,7 @@ import {
   renderPageSlot,
   unmountPageSlot,
 } from "../navigator/ui/components/page_widget.tsx";
+import { FrontMatterPanel } from "../components/front_matter_panel.tsx";
 
 class ArrayWidget extends WidgetType {
   public dom?: HTMLElement;
@@ -185,12 +187,152 @@ class NavPageSlotWidget extends WidgetType {
   }
 }
 
+/** CS-8 / D7: the frontmatter raw-YAML card, mounted as a CM block widget
+ * at document start (`side: -3`, above the navigator's `page-top` slot at
+ * `-2`) so it scrolls with the page like the fork's own placement, without
+ * reviving the fork's now-dead `#sb-page-scroll` container (§2.3 of
+ * docs/plans/2026-09-24-core-shell-decomposition.md). Renders Preact the
+ * way `renderPageSlot` (navigator/ui/components/page_widget.tsx) does --
+ * `render(<Component/>, div)` directly into the widget's own DOM node.
+ *
+ * `ignoreEvent()` -> `true`: the card's own `<textarea>` (editable mode) or
+ * plain read-only rows must own every keystroke/click themselves --
+ * CodeMirror must never intercept an event inside this widget's DOM and
+ * try to reinterpret it as an editor command/selection change.
+ *
+ * `FrontMatterPanel` itself renders `null` (an empty wrapper) when there is
+ * no frontmatter block, so this widget is unconditionally present in the
+ * decoration set -- no separate "does this page have frontmatter" check
+ * needed here, and `.sb-fm-panel` legitimately has zero matches on a page
+ * without frontmatter.
+ *
+ * `eq()` is keyed on page path + the combined read-only flag (mirroring
+ * the same `perm === "ro" || forcedROMode || bootConfig.readOnly`
+ * expression `createEditorState` already uses to decide the underlying
+ * CM state's own editability) -- NOT on frontmatter content, since content
+ * sync is handled independently and continuously by
+ * `frontMatterSyncExtension` -> `client.onFrontMatterChanged` ->
+ * `<FrontMatterPanel>`'s own internal `refresh()`. Keeping `eq` stable
+ * across ordinary typing means `toDOM`/Preact re-render only happens once
+ * per real navigation or read-only-mode change, not on every keystroke.
+ */
+class FrontMatterCardWidget extends WidgetType {
+  private destroyed = false;
+  private measureTimer?: ReturnType<typeof setTimeout>;
+  private resizeObserver?: ResizeObserver;
+
+  constructor(
+    readonly client: Client,
+    readonly cacheKey: string,
+    readonly readOnly: boolean,
+  ) {
+    super();
+  }
+
+  // Same caching pattern as the sibling `NavPageSlotWidget`/`ArrayWidget`
+  // widgets in this file -- gives CM a real initial height estimate instead
+  // of the unknown (-1) default.
+  override get estimatedHeight(): number {
+    return this.client.widgetCache.getCachedWidgetHeight(this.cacheKey);
+  }
+
+  override ignoreEvent(): boolean {
+    return true;
+  }
+
+  toDOM(): HTMLElement {
+    const div = document.createElement("div");
+    div.className = "sb-frontmatter-card-widget";
+
+    const cachedHeight = this.client.widgetCache.getCachedWidgetHeight(
+      this.cacheKey,
+    );
+    if (cachedHeight > 0) {
+      div.style.minHeight = `${cachedHeight}px`;
+    }
+
+    preactRender(
+      h(FrontMatterPanel, { client: this.client, readOnly: this.readOnly }),
+      div,
+    );
+
+    // The card resizes after CM's first measure (textarea autosize, YAML
+    // edits); tell CM so its height map (click/cursor mapping) stays in sync.
+    // Margins are kept inside this box by `display: flow-root` (top.scss).
+    this.resizeObserver = new ResizeObserver(() => {
+      if (this.destroyed) return;
+      this.client.editorView?.requestMeasure();
+    });
+    this.resizeObserver.observe(div);
+
+    this.measure(div);
+    return div;
+  }
+
+  private measure(div: HTMLElement): void {
+    clearTimeout(this.measureTimer);
+    this.measureTimer = setTimeout(() => {
+      if (this.destroyed) return;
+      div.style.minHeight = "";
+      if (!div.isConnected) return;
+      this.client.widgetCache.setCachedWidgetMeta(this.cacheKey, {
+        height: div.clientHeight,
+        block: true,
+      });
+      this.client.editorView?.requestMeasure();
+    }, 0);
+  }
+
+  override destroy(dom: HTMLElement): void {
+    this.destroyed = true;
+    clearTimeout(this.measureTimer);
+    this.resizeObserver?.disconnect();
+    preactRender(null, dom);
+  }
+
+  override eq(other: WidgetType): boolean {
+    return (
+      other instanceof FrontMatterCardWidget &&
+      other.cacheKey === this.cacheKey &&
+      other.readOnly === this.readOnly
+    );
+  }
+}
+
+/** Same combined read-only expression `createEditorState` uses to decide
+ * the underlying CM state's own editability (client/codemirror/
+ * editor_state.ts) -- the card must never claim to be editable when the
+ * doc underneath it actually isn't. */
+function isFrontMatterReadOnly(client: Client): boolean {
+  return (
+    client.currentPageMeta()?.perm === "ro" ||
+    client.ui.viewState.uiOptions.forcedROMode ||
+    client.bootConfig.readOnly
+  );
+}
+
 export function postScriptPrefacePlugin(editor: Client) {
   return decoratorStateField((state: EditorState) => {
     if (!editor.clientSystem.scriptsLoaded) {
       return Decoration.none;
     }
     const widgets: any[] = [];
+
+    // side -3: above (outside) the navigator's page-top slot (-2) -- the
+    // outermost top-of-document widget, so the frontmatter card is the
+    // very first thing rendered on a page (D7,
+    // docs/plans/2026-09-24-core-shell-decomposition.md).
+    widgets.push(
+      Decoration.widget({
+        widget: new FrontMatterCardWidget(
+          editor,
+          `frontmatter:${editor.currentPath()}`,
+          isFrontMatterReadOnly(editor),
+        ),
+        side: -3,
+        block: true,
+      }).range(0),
+    );
 
     // side -2/2 puts the navigator's page slots outside the legacy Lua top and bottom widgets
     widgets.push(

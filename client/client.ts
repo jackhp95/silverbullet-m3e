@@ -185,6 +185,11 @@ export class Client {
   commandAugmenter!: Augmenter;
 
   editorView!: EditorView;
+  // Set by <FrontMatterPanel> on mount; called by frontMatterSyncExtension
+  // (client/codemirror/frontmatter_folding.ts) whenever a doc change
+  // intersects the frontmatter block, so the panel stays in sync with
+  // live CodeMirror edits across every editorView.setState(...) swap.
+  onFrontMatterChanged?: () => void;
   commandKeyHandlerCompartment?: Compartment;
   vimCompartment?: Compartment;
   indentUnitCompartment?: Compartment;

@@ -271,6 +271,14 @@
     }
   }
 }
+
+// CodeMirror block widget hosting the card. flow-root keeps the card's
+// margins inside the widget box: collapsed out, CM measures the widget 40px
+// short and every click below it lands two lines too low.
+.sb-frontmatter-card-widget {
+  display: flow-root;
+}
+
 .sb-fm-panel {
   margin: 20px;
   border: 1px solid var(--md-sys-color-outline-variant);
