@@ -15,6 +15,10 @@ export type ActionButton = {
   dropdown?: boolean;
   hasPopup?: boolean;
   expanded?: boolean;
+  /** Render as a native `<button>` instead of `m3e-icon-button` — reserved
+   * for the profile avatar (`accounts.test.ts:38`, `http.test.ts:156,163`
+   * select it as `#sb-top button:has(.sb-profile-avatar)`). */
+  native?: boolean;
 };
 
 function pageNameClass(
@@ -128,30 +132,40 @@ function SyncProgressIndicator({
   percentage,
   type,
   withLabel,
+  slot,
 }: {
   percentage?: number;
   type?: string;
   withLabel?: boolean;
+  /** Forwarded onto the root element so the caller can slot it directly. */
+  slot?: string;
 }) {
   if (percentage === undefined) return null;
+  // `filesProcessed / totalFiles` (plugs/sync/sync.ts) is NaN when
+  // totalFiles is 0 — fall back to the component's own `indeterminate`
+  // mode ("something is happening") rather than feeding NaN to `value`.
+  const indeterminate = Number.isNaN(percentage);
   return (
-    <div className="sb-sync-progress">
+    <div className="sb-sync-progress" slot={slot}>
       <div
-        className="progress-wrapper"
-        title={`${type} progress: ${percentage}%`}
+        className={`progress-wrapper progress-${type}`}
+        title={
+          indeterminate
+            ? `${type} in progress`
+            : `${type} progress: ${percentage}%`
+        }
       >
         {withLabel && (
           <span className="progress-label">
             {type === "sync" ? "Syncing space" : "Indexing"}
           </span>
         )}
-        <div className="progress-bar">
-          <div
-            className="progress-ring"
-            style={`background: conic-gradient(var(--progress-${type}-color) ${percentage}%, var(--progress-background-color) 0);`}
-          />
-          <div className="progress-hole">{percentage}</div>
-        </div>
+        <m3e-circular-progress-indicator
+          indeterminate={indeterminate}
+          value={indeterminate ? undefined : percentage}
+        >
+          {indeterminate ? null : percentage}
+        </m3e-circular-progress-indicator>
       </div>
     </div>
   );
@@ -165,42 +179,64 @@ function ActionButtons({
   mobileMenuStyle?: string;
 }) {
   return (
-    <div className={`sb-actions ${mobileMenuStyle ?? ""}`}>
-      {buttons.map((actionButton) => {
-        const btn = (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              actionButton.callback(e.currentTarget as HTMLElement);
-            }}
-            onBlur={() => {
-              if (mobileMenuStyle === "hamburger") {
-                document
-                  .querySelector("#sb-top .sb-actions.hamburger")
-                  ?.classList.remove("open");
+    <span slot="trailing" className={`sb-actions ${mobileMenuStyle ?? ""}`}>
+      {buttons.map((actionButton, i) => {
+        const key = `${actionButton.description}-${i}`;
+        const onClick = (e: MouseEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          actionButton.callback(e.currentTarget as HTMLElement);
+        };
+        const onBlur = () => {
+          if (mobileMenuStyle === "hamburger") {
+            document
+              .querySelector("#sb-top .sb-actions.hamburger")
+              ?.classList.remove("open");
+          }
+        };
+        // The profile avatar stays a native <button> — e2e selects it as
+        // `#sb-top button:has(.sb-profile-avatar)` (accounts.test.ts,
+        // http.test.ts). Every other action button becomes m3e-icon-button.
+        if (actionButton.native) {
+          const btn = (
+            <button
+              type="button"
+              key={key}
+              onClick={onClick}
+              onBlur={onBlur}
+              title={actionButton.description}
+              className={actionButton.class}
+              aria-haspopup={actionButton.hasPopup ? "menu" : undefined}
+              aria-expanded={
+                actionButton.hasPopup ? !!actionButton.expanded : undefined
               }
-            }}
+            >
+              <actionButton.icon size={18} />
+            </button>
+          );
+          return actionButton.href ? (
+            <a href={actionButton.href} key={key}>
+              {btn}
+            </a>
+          ) : (
+            btn
+          );
+        }
+        return (
+          <m3e-icon-button
+            key={key}
+            href={actionButton.href || undefined}
             title={actionButton.description}
+            aria-label={actionButton.description}
             className={actionButton.class}
-            aria-haspopup={actionButton.hasPopup ? "menu" : undefined}
-            aria-expanded={
-              actionButton.hasPopup ? !!actionButton.expanded : undefined
-            }
+            onClick={onClick}
+            onBlur={onBlur}
           >
             <actionButton.icon size={18} />
-          </button>
-        );
-        return actionButton.href ? (
-          <a href={actionButton.href} key={actionButton.href}>
-            {btn}
-          </a>
-        ) : (
-          btn
+          </m3e-icon-button>
         );
       })}
-    </div>
+    </span>
   );
 }
 
@@ -269,6 +305,7 @@ export function TopBar({
   cssClass,
   mobileMenuStyle,
   readOnly,
+  readOnlyToggle,
 }: {
   pageName?: string;
   unsavedChanges: boolean;
@@ -288,55 +325,97 @@ export function TopBar({
   cssClass?: string;
   mobileMenuStyle?: string;
   readOnly: boolean;
+  /** Read-only mode toggle, rendered in the trailing slot before the action
+   * buttons. Undefined hides it entirely (e.g. command unavailable). */
+  readOnlyToggle?: { active: boolean; label: string; onClick: () => void };
 }) {
   const pageIconNode = resolveIconNode(pageIcon);
   return (
     <div id="sb-top" className={isOnline ? undefined : "sb-sync-error"}>
       {lhs}
-      <div className="main">
-        <div className="inner">
-          <div className="wrapper">
-            <div className="sb-page-prefix">
-              {pageIconNode && (
-                <Icon node={pageIconNode} class="sb-page-decoration-icon" />
-              )}
-              {pageNamePrefix}
-            </div>
-            <span
-              id="sb-current-page"
-              className={pageNameClass(isLoading, unsavedChanges, cssClass)}
-            >
-              <PageNameEditor
-                pageName={pageName}
-                readOnly={readOnly}
-                onRename={onRename}
-              />
-            </span>
-            <NotificationPanel
-              notifications={notifications}
-              onDismiss={onDismissNotification}
-            />
-            <SyncProgressIndicator
-              percentage={progressPercentage}
-              type={progressType}
-              withLabel={progressWithLabel}
-            />
-            {mobileMenuStyle ? (
-              <>
-                <ActionButtons
-                  buttons={actionButtons.filter((b) => b.dropdown === false)}
-                />
-                <ActionButtons
-                  buttons={actionButtons.filter((b) => b.dropdown !== false)}
-                  mobileMenuStyle={mobileMenuStyle}
-                />
-              </>
-            ) : (
-              <ActionButtons buttons={actionButtons} />
+      <m3e-app-bar className="main" size="small">
+        <span slot="title" className="sb-page-title">
+          <span className="sb-page-prefix">
+            {pageIconNode && (
+              <Icon node={pageIconNode} class="sb-page-decoration-icon" />
             )}
-          </div>
-        </div>
-      </div>
+            {pageNamePrefix}
+          </span>
+          <span
+            id="sb-current-page"
+            className={pageNameClass(isLoading, unsavedChanges, cssClass)}
+          >
+            <PageNameEditor
+              pageName={pageName}
+              readOnly={readOnly}
+              onRename={onRename}
+            />
+          </span>
+        </span>
+        <SyncProgressIndicator
+          slot="trailing"
+          percentage={progressPercentage}
+          type={progressType}
+          withLabel={progressWithLabel}
+        />
+        {readOnlyToggle && (
+          <m3e-icon-button
+            slot="trailing"
+            title={readOnlyToggle.label}
+            aria-label={readOnlyToggle.label}
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              readOnlyToggle.onClick();
+            }}
+          >
+            <m3e-icon
+              name={readOnlyToggle.active ? "lock" : "lock_open"}
+            ></m3e-icon>
+          </m3e-icon-button>
+        )}
+        {/* Sustained-state indicator, additive to the whole-bar
+            `#sb-top.sb-sync-error` tint above. `m3e-chip` is the
+            non-interactive chip variant (ChipElement — "a non-interactive
+            chip used to convey small pieces of information"); it carries no
+            color-role attribute (verified against the m3e skill's chips
+            card: `variant` is only "outlined"|"elevated"), so the error
+            treatment is set via the same `--m3e-outlined-chip-outline-color`
+            / `--m3e-chip-label-text-color` custom properties colors.scss
+            uses for chip error roles elsewhere, applied inline since this
+            leaf is scoped to top_bar.tsx. The online/offline M3eSnackbar
+            toast (fork V11) is deferred — main's notifications stay. */}
+        {!isOnline && (
+          <m3e-chip
+            slot="trailing"
+            className="sb-offline-chip"
+            title="Offline — changes will sync once reconnected"
+            aria-label="Offline"
+            style={{
+              "--m3e-outlined-chip-outline-color": "var(--md-sys-color-error)",
+              "--m3e-chip-label-text-color": "var(--md-sys-color-error)",
+            }}
+          >
+            Offline
+          </m3e-chip>
+        )}
+        {mobileMenuStyle ? (
+          <>
+            <ActionButtons
+              buttons={actionButtons.filter((b) => b.dropdown === false)}
+            />
+            <ActionButtons
+              buttons={actionButtons.filter((b) => b.dropdown !== false)}
+              mobileMenuStyle={mobileMenuStyle}
+            />
+          </>
+        ) : (
+          <ActionButtons buttons={actionButtons} />
+        )}
+      </m3e-app-bar>
+      <NotificationPanel
+        notifications={notifications}
+        onDismiss={onDismissNotification}
+      />
       {rhs}
     </div>
   );

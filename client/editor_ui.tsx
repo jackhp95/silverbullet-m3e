@@ -57,30 +57,30 @@ import { notificationDismissTimeouts } from "@silverbulletmd/silverbullet/type/c
 import { h, render as preactRender } from "preact";
 import { useEffect, useMemo, useReducer, useState } from "preact/hooks";
 import * as featherIcons from "preact-feather";
-import type { Client } from "./client.ts";
+import { isMacLike, keyboardHint } from "../plug-api/lib/shortcut.ts";
 import {
   type ConfiguredActionButton,
   visibleActionButtons,
 } from "./action_buttons.ts";
-import { Confirm, Prompt } from "./components/basic_modals.tsx";
-import { isMacLike, keyboardHint } from "../plug-api/lib/shortcut.ts";
-import { kebabToPascal } from "./lib/feather_icons.ts";
-import { FilterList } from "./components/filter.tsx";
-import { accentSeed } from "./lib/theme_seed.ts";
-import { NavigatorDock, NavigatorModal } from "./navigator/ui/panels.tsx";
-import { RevisionPreviewModal } from "./navigator/ui/components/revision_preview.tsx";
-import { useNavigatorSlot } from "./navigator/ui/slots.ts";
-import { Panel } from "./components/panel.tsx";
-import { TopBar } from "./components/top_bar.tsx";
+import type { Client } from "./client.ts";
 import { AnchoredMenu } from "./components/anchored_menu.tsx";
+import { Confirm, Prompt } from "./components/basic_modals.tsx";
+import { FilterList } from "./components/filter.tsx";
+import { Panel } from "./components/panel.tsx";
 import {
+  editorProfileMenuItems,
   ProfileAvatar,
   profileMenuHeader,
-  editorProfileMenuItems,
   profileMenuLabel,
 } from "./components/profile_button.tsx";
-import { loadProfile, type ProfileState } from "./profile.ts";
+import { TopBar } from "./components/top_bar.tsx";
 import * as mdi from "./filtered_material_icons.ts";
+import { kebabToPascal } from "./lib/feather_icons.ts";
+import { accentSeed } from "./lib/theme_seed.ts";
+import { RevisionPreviewModal } from "./navigator/ui/components/revision_preview.tsx";
+import { NavigatorDock, NavigatorModal } from "./navigator/ui/panels.tsx";
+import { useNavigatorSlot } from "./navigator/ui/slots.ts";
+import { loadProfile, type ProfileState } from "./profile.ts";
 import reducer from "./reducer.ts";
 import {
   type Action,
@@ -347,6 +347,13 @@ export class MainUI {
 
     const client = this.client;
 
+    // Single source of truth for read-only state — same expression that
+    // used to be inlined at TopBar's `readOnly` prop below, now also
+    // driving whether the Std library's static "lock" actionButton is
+    // filtered out in favor of TopBar's own live toggle.
+    const isReadOnly =
+      viewState.uiOptions.forcedROMode || client.bootConfig.readOnly;
+
     // Loaded once on mount, not polled or re-fetched on navigation
     const [profile, setProfile] = useState<ProfileState>({
       status: "unavailable",
@@ -369,16 +376,18 @@ export class MainUI {
     // the computed value, not retroactively on an already-read one.
     const [themeColor, setThemeColor] = useState(FALLBACK_ACCENT);
     useEffect(() => {
-      const computed = getComputedStyle(document.documentElement)
-        .getPropertyValue("--ui-accent-color");
+      const computed = getComputedStyle(
+        document.documentElement,
+      ).getPropertyValue("--ui-accent-color");
       setThemeColor(accentSeed(computed, FALLBACK_ACCENT));
     }, [viewState.uiOptions.customStyles]);
 
-    const themeScheme = viewState.uiOptions.darkMode === undefined
-      ? "auto"
-      : viewState.uiOptions.darkMode
-        ? "dark"
-        : "light";
+    const themeScheme =
+      viewState.uiOptions.darkMode === undefined
+        ? "auto"
+        : viewState.uiOptions.darkMode
+          ? "dark"
+          : "light";
 
     const navSlots = {
       lhs: useNavigatorSlot("lhs"),
@@ -472,6 +481,13 @@ export class MainUI {
     const profileAvatarComponent = useMemo(
       () => ProfileAvatar(profile),
       [profile],
+    );
+    // Gates both TopBar's own live toggle (below) and the Std static
+    // "lock" button filter (visibleActionButtons) — undefined when the
+    // command isn't registered (e.g. system.getMode() !== "rw", see
+    // "Read Only Mode.md"), same guard the fork used.
+    const readOnlyToggleShown = viewState.commands.has(
+      "Editor: Toggle Read Only Mode",
     );
 
     // Only one modal may occupy the slot; close the plug panel before the
@@ -602,6 +618,7 @@ export class MainUI {
               isMobile: viewState.isMobile,
               isStandalone: viewState.isStandalone,
               accountManaged: !!client.bootConfig.accountManaged,
+              readOnlyToggleShown,
             })
               // Until the profile request settles we do not know who the
               // visitor is, and offering "Log in" to someone who is signed in
@@ -639,6 +656,7 @@ export class MainUI {
                       : featherIcon,
                   description,
                   dropdown: button.dropdown,
+                  native: isProfileButton,
                   hasPopup: isProfileButton ? true : undefined,
                   expanded: isProfileButton
                     ? menuTrigger !== undefined
@@ -690,8 +708,19 @@ export class MainUI {
               ? client.config.get<string>("mobileMenuStyle", "hamburger")
               : undefined
           }
-          readOnly={
-            viewState.uiOptions.forcedROMode || client.bootConfig.readOnly
+          readOnly={isReadOnly}
+          readOnlyToggle={
+            readOnlyToggleShown
+              ? {
+                  active: isReadOnly,
+                  label: isReadOnly ? "Disable read-only" : "Enable read-only",
+                  onClick: () => {
+                    void client.runCommandByName(
+                      "Editor: Toggle Read Only Mode",
+                    );
+                  },
+                }
+              : undefined
           }
         />
         {menuTrigger && (

@@ -48,6 +48,32 @@ describe("visibleActionButtons", () => {
     ).toEqual([]);
   });
 
+  test("drops the Std static lock button once the live read-only toggle is shown", () => {
+    const lock = btn({
+      icon: "lock",
+      description: "Toggle read-only mode",
+      mobile: true,
+    });
+    expect(
+      visibleActionButtons([lock], { ...ctx, isMobile: true }),
+    ).toHaveLength(1);
+    expect(
+      visibleActionButtons([lock], {
+        ...ctx,
+        isMobile: true,
+        readOnlyToggleShown: true,
+      }),
+    ).toEqual([]);
+    // A "lock" icon with a different description is a user's own button,
+    // not the Std one — must survive.
+    expect(
+      visibleActionButtons(
+        [btn({ icon: "lock", description: "Something else" })],
+        { ...ctx, readOnlyToggleShown: true },
+      ),
+    ).toHaveLength(1);
+  });
+
   test("sorts by explicit priority, highest first, before falling back to order", () => {
     const out = visibleActionButtons(
       [btn({ icon: "a", priority: 1 }), btn({ icon: "b", priority: 5 })],

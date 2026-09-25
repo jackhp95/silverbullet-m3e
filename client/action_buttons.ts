@@ -15,10 +15,17 @@ export type ActionButtonContext = {
   isMobile: boolean;
   isStandalone: boolean;
   accountManaged: boolean;
+  /** True when TopBar's own live, state-reflecting read-only toggle is
+   * shown — the Std library's static "lock" actionButton (see "Read Only
+   * Mode.md") never reflects real state and would duplicate it. */
+  readOnlyToggleShown?: boolean;
 };
 
 const matches = (want: boolean | undefined, actual: boolean) =>
   typeof want === "undefined" || want === actual;
+
+const isStdLockButton = (button: ConfiguredActionButton) =>
+  button.icon === "lock" && button.description === "Toggle read-only mode";
 
 export function visibleActionButtons(
   buttons: ConfiguredActionButton[],
@@ -30,7 +37,8 @@ export function visibleActionButtons(
         button.icon &&
         matches(button.mobile, ctx.isMobile) &&
         matches(button.standalone, ctx.isStandalone) &&
-        matches(button.accountManaged, ctx.accountManaged),
+        matches(button.accountManaged, ctx.accountManaged) &&
+        !(ctx.readOnlyToggleShown && isStdLockButton(button)),
     )
     .map((button, index) => ({
       ...button,
