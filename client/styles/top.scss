@@ -40,10 +40,7 @@
 
   .sb-page-title {
     display: flex;
-    // A wrapping `<textarea>` (D5) can grow to a 2nd line; `baseline`
-    // alignment would anchor the prefix to the textarea's LAST line as it
-    // grows, drifting it down. `flex-start` keeps the prefix pinned to
-    // where reading starts.
+    // Keep the prefix on the title's first line when it wraps (D5).
     align-items: flex-start;
     min-width: 0;
     width: 100%;
@@ -58,14 +55,7 @@
 
     -webkit-app-region: drag;
 
-    // The page-title editor is a `<textarea>` now (D5, top_bar.tsx's
-    // PageNameEditor) — textareas wrap natively, so no `white-space`/
-    // `overflow`/`text-overflow` clipping is needed or wanted here anymore.
-    // The app bar's own vendor CSS caps it at 2 lines
-    // (`--m3e-app-bar-medium-title-max-lines`, `-webkit-line-clamp` on the
-    // shadow `.title` wrapping our slotted content) — that's the "doesn't
-    // grow forever" half; `field-sizing: content` + `max-block-size: 2lh`
-    // below is the "actually grows to fit, up to that cap" half.
+    // The title editor is a wrapping `<textarea>` (D5), capped at 2 lines.
     .sb-input {
       font-family: var(--ui-font);
       font-size: inherit;
@@ -82,14 +72,8 @@
       overflow: hidden;
       caret-color: var(--editor-caret-color);
 
-      // Auto-grow height as the title wraps onto more lines (modern-web-
-      // guidance skill's `form-fields-automatically-fit-contents` guide).
-      // `width` stays pinned explicitly (not field-sizing's own horizontal
-      // auto-size, which would jarringly resize the box as the user
-      // types) — only the block-size auto-sizes. Baseline "Newly
-      // available" (Chrome/Edge 123+, Firefox 152+, Safari 26.2+);
-      // unsupported browsers fall back to the fixed 2-line height below
-      // with internal scrolling rather than breaking.
+      // Grow block-size with wrapped lines; unsupported browsers get a
+      // fixed 2-line box that scrolls.
       field-sizing: content;
       min-block-size: 1lh;
       max-block-size: 2lh;

@@ -100,18 +100,8 @@ import {
 // computed custom property can't be read at all (e.g. no matching rule).
 const FALLBACK_ACCENT = "#3569b8";
 
-// TopBar's "N min read" subtitle segment (CS-7a) should reflect body prose,
-// not YAML key/value noise -- slice the frontmatter range out the same way
-// `client/lib/reading_time.ts`'s doc comment specifies. Computed inline at
-// render time, same as `pageNamePrefix`/`cssClass` below -- this file's
-// `ViewComponent` already re-renders on every `page-changed`/`document-
-// editor-changed` dispatch (reducer.ts), i.e. on every doc edit, so no
-// separate live-doc subscription is needed here.
-//
-// Guarded against `client.editorView` not existing yet: `client.ts` calls
-// `this.ui.render(this.parent)` (MainUI's first render) BEFORE `this.
-// editorView = new EditorView(...)` a few lines later, so the very first
-// render pass has no editor view at all (fork `1f8b8943`).
+// Page body minus frontmatter, for the app bar's "N min read" subtitle.
+// `editorView` is unset on MainUI's first render (fork `1f8b8943`).
 function computeBodyText(client: Client): string {
   const state = client.editorView?.state;
   if (!state) return "";
@@ -517,15 +507,8 @@ export class MainUI {
       "Editor: Toggle Read Only Mode",
     );
 
-    // App-bar leading breadcrumb (D4/CS-7a): root segment ("Space") runs
-    // the existing "Navigate: Home" command
-    // (plugs/editor/editor.plug.yaml:104) -- the same one the old
-    // home/asterisk affordance used, one binding not two. Intermediate
-    // path segments open the page navigator (`client.startPageNavigate
-    // ("page")`, client/client.ts:752); the final segment is the current
-    // page itself -- `current`, no `onClick` (see BreadcrumbItem's own doc
-    // in top_bar.tsx). Undefined onClick when the command isn't
-    // registered mirrors the readOnlyToggle guard just above.
+    // App-bar breadcrumb: root runs "Navigate: Home", intermediate segments
+    // open the page navigator, the last segment is the current page.
     const currentPageName = viewState.current
       ? getNameFromPath(viewState.current.path)
       : undefined;

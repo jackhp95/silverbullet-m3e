@@ -21,7 +21,9 @@ const baseProps = {
   onDismissNotification: () => {},
   actionButtons: [] as ActionButton[],
   readOnly: false,
-  breadcrumbItems: [{ key: "sb-breadcrumb-root", label: "Space", current: true }],
+  breadcrumbItems: [
+    { key: "sb-breadcrumb-root", label: "Space", current: true },
+  ],
   lastModified: "2026-09-20T12:00:00.000Z",
   bodyText: "hello world",
 };
@@ -57,6 +59,11 @@ test("subtitle renders the 'Edited ... · N min read' string", () => {
   expect(html).toMatch(
     /<span slot="subtitle">Edited .+ · \d+ min read<\/span>/,
   );
+});
+
+test("subtitle omits the 'Edited' segment before page meta has loaded", () => {
+  const html = renderTopBar({ lastModified: undefined });
+  expect(html).toMatch(/<span slot="subtitle">\d+ min read<\/span>/);
 });
 
 test("determinate sync progress renders a valued circular indicator", () => {

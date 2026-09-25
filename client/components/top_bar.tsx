@@ -7,11 +7,8 @@ import { resolveIconNode } from "../lib/icon.ts";
 import { countWords, readingTimeMinutes } from "../lib/reading_time.ts";
 import { relativeTime } from "../lib/relative_time.ts";
 
-/** One segment of the app bar's leading breadcrumb trail. `current: true`
- * marks the page itself (no `onClick`); every other segment navigates —
- * see editor_ui.tsx's `breadcrumbItems` computation for how `onClick` is
- * wired (root -> "Navigate: Home", intermediate segments ->
- * `client.startPageNavigate("page")`). */
+/** One segment of the app bar's leading breadcrumb trail. `current` marks
+ * the page itself; segments without `onClick` render disabled. */
 export type BreadcrumbItem = {
   key: string;
   label: string;
@@ -286,16 +283,8 @@ function PageNameEditor({
   };
 
   return (
-    // A real `<input>` can never wrap onto multiple lines (browser-level
-    // constraint, not a CSS one) — D5 (docs/plans/2026-09-24-core-shell-
-    // decomposition.md) chose a wrapping `<textarea>` instead, kept as a
-    // single always-live, always-clickable element so the existing "no
-    // separate edit-mode step" e2e contract (page-rename, page-picker,
-    // wiki-links, navigate-restore, …) still holds — only the tag name
-    // changed, `currentPage()` (e2e/fixtures/actions.ts) is the one place
-    // that selector lives. Auto-grow height is CSS `field-sizing: content`
-    // (top.scss's `#sb-current-page .sb-input`), capped at the app bar's
-    // own vendor 2-line title clamp.
+    // `<textarea>` so long titles wrap (D5); height auto-grows via
+    // `field-sizing: content` in top.scss, capped at 2 lines.
     <textarea
       class="sb-input sb-page-name-editor"
       rows={1}
@@ -303,16 +292,11 @@ function PageNameEditor({
       readOnly={readOnly}
       onInput={(e) => setName(e.currentTarget.value)}
       onKeyDown={(e) => {
-        // IME composition guard (CJK candidate confirmation etc.) — same
-        // rule plug-api/ui/input.tsx's `Input` uses, so a half-composed
-        // value can't be submitted by its own confirming Enter.
+        // IME guard, as in plug-api/ui/input.tsx.
         if (e.isComposing) {
           return;
         }
-        // A textarea's native Enter behavior is "insert a newline"; the
-        // title is a single logical string that merely wraps visually, so
-        // Enter here means "commit", exactly like the old input's
-        // onConfirm.
+        // Enter commits (the title is one logical line), never a newline.
         if (e.key === "Enter") {
           e.preventDefault();
           commit(e.currentTarget.value);
@@ -385,12 +369,8 @@ export function TopBar({
   return (
     <div id="sb-top" className={isOnline ? undefined : "sb-sync-error"}>
       {lhs}
-      {/* D4: size="medium", pinned — main has no `#sb-page-scroll` for the
-          bar to scroll away with (that container is dead, see the plan's
-          §2.3), so a pinned `large` bar would cost ~20% of a phone screen
-          permanently. `medium` keeps the breadcrumb/title/subtitle
-          hierarchy with less chrome; the title still wraps to the vendor's
-          2-line clamp regardless of size. */}
+      {/* D4: pinned `medium` — a pinned `large` bar costs too much of a
+          phone screen now that the bar can't scroll away with the page. */}
       <m3e-app-bar className="main" size="medium">
         <m3e-breadcrumb slot="leading" aria-label="Breadcrumb">
           {breadcrumbItems.map((item) => (
@@ -430,7 +410,7 @@ export function TopBar({
           </span>
         </span>
         <span slot="subtitle">
-          Edited {relativeTime(lastModified ?? "")} ·{" "}
+          {lastModified ? `Edited ${relativeTime(lastModified)} · ` : ""}
           {readingTimeMinutes(countWords(bodyText))} min read
         </span>
         <SyncProgressIndicator

@@ -1,3 +1,4 @@
+import { currentPage } from "../fixtures/actions.ts";
 import {
   expect,
   gotoSilverBulletPage,
@@ -28,9 +29,7 @@ test.describe("page links and lifecycle", () => {
     ).toBeVisible();
     await referenceLink.click();
 
-    await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
-      "Reference",
-    );
+    await expect(currentPage(page)).toHaveValue("Reference");
     await expect(page.locator("#sb-editor .cm-content")).toContainText(
       "A useful reference.",
     );
@@ -91,9 +90,7 @@ test.describe("page links and lifecycle", () => {
     });
     await expect(missing).toBeVisible();
     await missing.click();
-    await expect(page.locator("#sb-current-page textarea.sb-input")).toHaveValue(
-      "Draft Target",
-    );
+    await expect(currentPage(page)).toHaveValue("Draft Target");
 
     const editor = page.locator("#sb-editor .cm-content");
     await page.evaluate(() => {
@@ -108,7 +105,7 @@ test.describe("page links and lifecycle", () => {
       "The page now has durable content.",
     );
 
-    const pageName = page.locator("#sb-current-page textarea.sb-input");
+    const pageName = currentPage(page);
     await pageName.click();
     await page.keyboard.press(`${mod}+a`);
     await page.keyboard.insertText("Published Target");
