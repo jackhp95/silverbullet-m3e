@@ -14,6 +14,15 @@ export type SpaceLuaObject = ObjectValue<{
   priority?: number;
 }>;
 
+/**
+ * A `space-lua` tag query also returns any object merely *tagged* `space-lua`
+ * (e.g. a page with `tags: [space-lua]`), which has no `script`. Only fenced
+ * blocks emitted by `indexSpaceLua` are runnable.
+ */
+export function isSpaceLuaObject(o: ObjectValue<any>): o is SpaceLuaObject {
+  return o.tag === "space-lua" && typeof o.script === "string";
+}
+
 export function indexSpaceLua(
   pageMeta: PageMeta,
   _frontmatter: FrontMatter,

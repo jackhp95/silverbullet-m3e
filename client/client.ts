@@ -32,7 +32,7 @@ import type {
 } from "@silverbulletmd/silverbullet/type/index";
 import type { SyncState } from "@silverbulletmd/silverbullet/type/revisions";
 import { keyboardHint } from "../plug-api/lib/shortcut.ts";
-import type { StyleObject } from "../plugs/index/space_style.ts";
+import { isSpaceStyleObject } from "../plugs/index/space_style.ts";
 import type { ResolveAnchorResult } from "../plugs/index/types.ts";
 import { version as publicVersion } from "../version.json";
 import { ClientSystem } from "./client_system.ts";
@@ -1272,7 +1272,7 @@ export class Client {
       return;
     }
 
-    const spaceStyles = await this.queryLuaObjects<StyleObject>("space-style", {
+    const taggedObjects = await this.queryLuaObjects<any>("space-style", {
       objectVariable: "_",
       orderBy: [
         {
@@ -1281,9 +1281,10 @@ export class Client {
         },
       ],
     });
-    if (!spaceStyles) {
+    if (!taggedObjects) {
       return;
     }
+    const spaceStyles = taggedObjects.filter(isSpaceStyleObject);
 
     const customStylesContent = spaceStyles
       .map((s) => `<style>${s.style}</style>`)
