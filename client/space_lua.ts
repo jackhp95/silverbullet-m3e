@@ -1,5 +1,8 @@
 import type { System } from "./plugos/system.ts";
-import type { SpaceLuaObject } from "../plugs/index/space_lua.ts";
+import {
+  isSpaceLuaObject,
+  type SpaceLuaObject,
+} from "../plugs/index/space_lua.ts";
 import { LuaEnv, LuaRuntimeError, LuaStackFrame } from "./space_lua/runtime.ts";
 import { parseBlock, parseExpressionString } from "./space_lua/parse.ts";
 import { evalStatement } from "./space_lua/eval.ts";
@@ -56,7 +59,7 @@ export class SpaceLuaEnvironment {
    * @param system
    */
   async reload() {
-    const allScripts: SpaceLuaObject[] = await this.objectIndex.queryLuaObjects(
+    const taggedObjects = await this.objectIndex.queryLuaObjects<any>(
       this.env,
       "space-lua",
       {
@@ -74,6 +77,7 @@ export class SpaceLuaEnvironment {
         ],
       } as LuaCollectionQuery,
     );
+    const allScripts: SpaceLuaObject[] = taggedObjects.filter(isSpaceLuaObject);
     reconcileQuarantine(allScripts.map((script) => script.ref));
     try {
       this.env = buildLuaEnv(this.system);

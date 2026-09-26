@@ -14,6 +14,11 @@ export type StyleObject = ObjectValue<{
   priority?: number;
 }>;
 
+/** Same tag-collision guard as `isSpaceLuaObject`: a page tagged `space-style` has no `style`. */
+export function isSpaceStyleObject(o: ObjectValue<any>): o is StyleObject {
+  return o.tag === "space-style" && typeof o.style === "string";
+}
+
 export function indexSpaceStyle(
   pageMeta: PageMeta,
   _frontmatter: FrontMatter,
