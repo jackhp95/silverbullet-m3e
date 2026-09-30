@@ -1,13 +1,12 @@
 // Push-toggle presentation logic, extracted from
-// nav_views/notifications.tsx:26-60 (single source of truth). Fixes the
-// documented duplication wart between that file's `CHECKING_LABEL` and
-// editor_ui.tsx's own private `PUSH_TOGGLE_LABELS.checking` (editor_ui.tsx
-// is read-only in this leaf — it still owns its own literal copy for now;
-// this extraction just gives the string one canonical home for whichever
-// later leaf wires editor_ui.tsx up to it).
+// nav_views/notifications.tsx:26-60 (single source of truth). The app bar's
+// kebab push item is built by `client/m3e_chrome/chrome_model.ts`'s
+// `pushMenuItem`/`pushMenuIcon`, which import `CHECKING_LABEL` and the
+// constants below — this file owns the wording, chrome_model.ts owns the
+// item shape.
 
-/** editor_ui.tsx's `PUSH_TOGGLE_LABELS.checking`, verbatim — the one-time
- * label shown while `pushToggle` is still `undefined`. */
+/** The one-time label shown while the push state is still `undefined`
+ * (before the first read resolves). */
 export const CHECKING_LABEL = "Checking push notification support…";
 
 // ---------------------------------------------------------------------------
