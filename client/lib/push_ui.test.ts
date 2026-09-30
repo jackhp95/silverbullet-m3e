@@ -1,7 +1,6 @@
 import { expect, test } from "vitest";
 import {
   isPushActionable,
-  notificationsIconFor,
   PUSH_MENU_CHECKING_LABEL,
   PUSH_MENU_LABELS,
   PUSH_MENU_PENDING_LABEL,
@@ -10,6 +9,10 @@ import {
   pushNoticeFor,
   type PushState,
 } from "./push_ui.ts";
+
+// `notificationsIconFor`'s cases moved to
+// `client/m3e_chrome/chrome_model.test.ts` (as `pushMenuIcon`), alongside
+// `chrome_model.ts` which replaced it as the kebab icon's sole caller.
 
 test("isPushActionable is true only for off/on", () => {
   const states: PushState[] = [
@@ -28,46 +31,6 @@ test("isPushActionable is true only for off/on", () => {
     true,
     true,
   ]);
-});
-
-test("notificationsIconFor: checking state (undefined) shows the default bell", () => {
-  expect(notificationsIconFor(undefined)).toBe("notifications");
-});
-
-test("notificationsIconFor: unavailable wins over active", () => {
-  expect(
-    notificationsIconFor({
-      active: true,
-      unavailable: true,
-      pending: false,
-      label: "x",
-      onClick: () => {},
-    }),
-  ).toBe("notifications_off");
-});
-
-test("notificationsIconFor: active (and available) shows the filled bell", () => {
-  expect(
-    notificationsIconFor({
-      active: true,
-      unavailable: false,
-      pending: false,
-      label: "x",
-      onClick: () => {},
-    }),
-  ).toBe("notifications_active");
-});
-
-test("notificationsIconFor: inactive and available shows the default bell", () => {
-  expect(
-    notificationsIconFor({
-      active: false,
-      unavailable: false,
-      pending: false,
-      label: "x",
-      onClick: () => {},
-    }),
-  ).toBe("notifications");
 });
 
 test("pushConfigFrom: both fields present returns a config", () => {

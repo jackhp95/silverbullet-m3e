@@ -3,32 +3,15 @@ import { Icon } from "@silverbulletmd/silverbullet/ui";
 import type { ComponentChildren, FunctionalComponent } from "preact";
 import { createPortal } from "preact/compat";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import {
+  AppBarMenu,
+  Breadcrumb,
+  KebabTrigger,
+  ReadOnlyToggleButton,
+  Subtitle,
+  type AppBarChrome,
+} from "../m3e_chrome/app_bar_parts.tsx";
 import { resolveIconNode } from "../lib/icon.ts";
-import { countWords, readingTimeMinutes } from "../lib/reading_time.ts";
-import { relativeTime } from "../lib/relative_time.ts";
-
-/** One segment of the app bar's leading breadcrumb trail. `current` marks
- * the page itself; segments without `onClick` render disabled. */
-export type BreadcrumbItem = {
-  key: string;
-  label: string;
-  current?: boolean;
-  onClick?: () => void;
-};
-
-/** One entry in the app bar's trailing kebab menu (`#sb-app-bar-menu`). */
-export type AppBarMenuItem = {
-  key: string;
-  /** Material Symbols ligature, rendered as `<m3e-icon slot="icon">`. */
-  icon?: string;
-  /** Keep it ≤ ~30 chars: a kebab item ellipsizes past that (fork
-   * `fa3d075a`, `.sb-app-bar-menu-label` in top.scss). */
-  label: string;
-  /** Full sentence behind a terse `label`, shown as the hover tooltip. */
-  detail?: string;
-  onClick: () => void;
-  disabled?: boolean;
-};
 
 export type ActionButton = {
   icon: FunctionalComponent<any>;
@@ -267,68 +250,6 @@ function overflowsIntoKebab(button: ActionButton): boolean {
   return button.dropdown !== false && !button.native;
 }
 
-/** A kebab item for an action button moved there by the hamburger style.
- * Its icon is a Preact component (feather/mdi), so it goes into the item's
- * `icon` slot through a wrapper span, as dock_menu.tsx does. */
-function actionButtonMenuItem(button: ActionButton, i: number) {
-  return (
-    <m3e-menu-item
-      key={`action-${button.description}-${i}`}
-      onClick={(e: MouseEvent) => {
-        e.preventDefault();
-        button.callback();
-      }}
-    >
-      <span slot="icon">
-        <button.icon size={18} />
-      </span>
-      <span className="sb-app-bar-menu-label" title={button.description}>
-        {button.description}
-      </span>
-    </m3e-menu-item>
-  );
-}
-
-function AppBarMenu({
-  items,
-  actionButtons,
-}: {
-  items: AppBarMenuItem[];
-  actionButtons: ActionButton[];
-}) {
-  return (
-    // The anchor sits at the top of the viewport, so the menu opens below.
-    <m3e-menu id="sb-app-bar-menu" position-y="below">
-      {items.map((item) => (
-        <m3e-menu-item
-          key={item.key}
-          data-key={item.key}
-          disabled={item.disabled}
-          onClick={
-            item.disabled
-              ? undefined
-              : (e: MouseEvent) => {
-                  e.preventDefault();
-                  item.onClick();
-                }
-          }
-        >
-          {item.icon && <m3e-icon slot="icon" name={item.icon}></m3e-icon>}
-          {/* Wrapped (not a bare text node) so `.sb-app-bar-menu-label` can
-              cap its width and let it ellipsize — see top.scss. */}
-          <span
-            className="sb-app-bar-menu-label"
-            title={item.detail ?? item.label}
-          >
-            {item.label}
-          </span>
-        </m3e-menu-item>
-      ))}
-      {actionButtons.map(actionButtonMenuItem)}
-    </m3e-menu>
-  );
-}
-
 function PageNameEditor({
   pageName,
   readOnly,
@@ -394,7 +315,7 @@ export function TopBar({
   notifications,
   onRename,
   onDismissNotification,
-  actionButtons,
+  actionButtons: actionButtonsProp,
   progressPercentage,
   progressType,
   progressWithLabel,
@@ -405,11 +326,7 @@ export function TopBar({
   cssClass,
   mobileMenuStyle,
   readOnly,
-  readOnlyToggle,
-  breadcrumbItems,
-  lastModified,
-  bodyText,
-  menuItems = [],
+  chrome,
 }: {
   pageName?: string;
   unsavedChanges: boolean;
@@ -429,24 +346,14 @@ export function TopBar({
   cssClass?: string;
   mobileMenuStyle?: string;
   readOnly: boolean;
-  /** Read-only mode toggle, rendered in the trailing slot before the action
-   * buttons. Undefined hides it entirely (e.g. command unavailable). */
-  readOnlyToggle?: { active: boolean; label: string; onClick: () => void };
-  /** Folder-path trail rendered in the app bar's own `slot="leading"`
-   * breadcrumb (D4). `breadcrumbItems[0]` is the root ("Space" / Navigate:
-   * Home); the rest are the page path's segments, last marked `current`. */
-  breadcrumbItems: BreadcrumbItem[];
-  /** `PageMeta.lastModified` (ISO-8601) for the "Edited …" subtitle
-   * segment — kept raw (not pre-formatted) so `relativeTime`'s `now` stays
-   * live across re-renders. Undefined before the page's meta has loaded. */
-  lastModified?: string;
-  /** The page's body text (frontmatter range excluded) for the "N min
-   * read" subtitle segment via `reading_time.ts`. */
-  bodyText: string;
-  /** Trailing kebab-menu items (`#sb-app-bar-menu`), before any action
-   * buttons the hamburger mobile style moves there. */
-  menuItems?: AppBarMenuItem[];
+  /** Breadcrumb, subtitle, read-only toggle and kebab-menu items, derived
+   * upstream by `m3e_chrome/chrome_model.ts`'s `deriveChrome`. */
+  chrome: AppBarChrome;
 }) {
+  // The fork's kebab (below) supersedes upstream's hamburger "Open Menu"
+  // expander action button (restored verbatim in editor_ui.tsx for
+  // merge-tree parity) -- it never renders, in the bar or in the kebab.
+  const actionButtons = actionButtonsProp.filter((b) => b.class !== "expander");
   const hamburger = isHamburger(mobileMenuStyle);
   const kebabActionButtons = hamburger
     ? actionButtons.filter(overflowsIntoKebab)
@@ -458,25 +365,7 @@ export function TopBar({
       {/* D4: pinned `medium` — a pinned `large` bar costs too much of a
           phone screen now that the bar can't scroll away with the page. */}
       <m3e-app-bar className="main" size="medium">
-        <m3e-breadcrumb slot="leading" aria-label="Breadcrumb">
-          {breadcrumbItems.map((item) => (
-            <m3e-breadcrumb-item
-              key={item.key}
-              current={item.current ? "page" : null}
-              disabled={!item.onClick}
-              onClick={
-                item.onClick
-                  ? (e: MouseEvent) => {
-                      e.preventDefault();
-                      item.onClick!();
-                    }
-                  : undefined
-              }
-            >
-              {item.label}
-            </m3e-breadcrumb-item>
-          ))}
-        </m3e-breadcrumb>
+        <Breadcrumb items={chrome.breadcrumbItems} />
         <span slot="title" className="sb-page-title">
           <span className="sb-page-prefix">
             {pageIconNode && (
@@ -495,30 +384,18 @@ export function TopBar({
             />
           </span>
         </span>
-        <span slot="subtitle">
-          {lastModified ? `Edited ${relativeTime(lastModified)} · ` : ""}
-          {readingTimeMinutes(countWords(bodyText))} min read
-        </span>
+        <Subtitle
+          lastModified={chrome.lastModified}
+          bodyText={chrome.bodyText}
+        />
         <SyncProgressIndicator
           slot="trailing"
           percentage={progressPercentage}
           type={progressType}
           withLabel={progressWithLabel}
         />
-        {readOnlyToggle && (
-          <m3e-icon-button
-            slot="trailing"
-            title={readOnlyToggle.label}
-            aria-label={readOnlyToggle.label}
-            onClick={(e: MouseEvent) => {
-              e.preventDefault();
-              readOnlyToggle.onClick();
-            }}
-          >
-            <m3e-icon
-              name={readOnlyToggle.active ? "lock" : "lock_open"}
-            ></m3e-icon>
-          </m3e-icon-button>
+        {chrome.readOnlyToggle && (
+          <ReadOnlyToggleButton toggle={chrome.readOnlyToggle} />
         )}
         {/* Sustained-state indicator, additive to the whole-bar
             `#sb-top.sb-sync-error` tint above. `m3e-chip` is the
@@ -562,17 +439,9 @@ export function TopBar({
         ) : (
           <ActionButtons buttons={actionButtons} />
         )}
-        <m3e-icon-button
-          slot="trailing"
-          title="More actions"
-          aria-label="More actions"
-        >
-          <m3e-menu-trigger for="sb-app-bar-menu">
-            <m3e-icon name="more_vert"></m3e-icon>
-          </m3e-menu-trigger>
-        </m3e-icon-button>
+        <KebabTrigger />
       </m3e-app-bar>
-      <AppBarMenu items={menuItems} actionButtons={kebabActionButtons} />
+      <AppBarMenu items={chrome.menuItems} actionButtons={kebabActionButtons} />
       <NotificationPanel
         notifications={notifications}
         onDismiss={onDismissNotification}

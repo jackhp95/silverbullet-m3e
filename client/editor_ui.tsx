@@ -1,58 +1,5 @@
 import { closeSearchPanel } from "@codemirror/search";
 import { runScopeHandlers } from "@codemirror/view";
-// Global custom-element registration for `<m3e-assist-chip>` (tag pills, both
-// in the live CodeMirror editor via codemirror/hashtag.ts, and in rendered
-// markdown/widgets via markdown_renderer/markdown_render.ts's Hashtag case).
-// This is the browser-only app root, so one side-effect import here covers
-// every module that renders the tag — those modules can't import it
-// themselves because they're also loaded by plain-Node vitest unit tests
-// with no DOM (see frontmatter_folding.test.ts's `domTest` guard; a
-// LitElement class throws immediately at import time without a global
-// `HTMLElement`).
-import "@m3e/web/chips";
-// Global custom-element registration for the navigator panel's m3e reskin
-// (client/navigator/ui/components/{nav_root,dock_menu,content_view,
-// loading_indicator}.tsx) -- same reason as the chips import just above:
-// this is the browser-only app root, and none of those files may
-// self-import an `@m3e/web/*` module at module scope, because several
-// siblings under client/navigator/ have `.test.ts` files that run under
-// vitest's DOM-less `node` environment (a Lit custom-element class throws
-// immediately at import time with no global `HTMLElement`).
-import "@m3e/web/search"; // m3e-search-bar: the filter input's chrome; also registers m3e-search-view (CS-4's FilterList)
-import "@m3e/web/icon-button"; // m3e-icon-button: close/copy/dock-menu-trigger
-import "@m3e/web/menu"; // m3e-menu/-item-radio/-trigger: the dock-placement menu
-import "@m3e/web/progress-indicator"; // m3e-circular-progress-indicator: the loading spinner
-// m3e-list / m3e-list-item: CS-4's FilterList result rows (client/components/filter.tsx).
-import "@m3e/web/list";
-// Same reasoning as `@m3e/web/chips` above, for `<m3e-button>`: `Button`
-// (plug-api/ui/button.tsx) is reachable from plug FUNCTION code too (no
-// DOM), so its kit file deliberately doesn't self-register — every real
-// DOM-side consumer must, and this app root is the one that covers
-// client/navigator/ui/components/revision_preview.tsx's `<Button>` usage
-// (the only direct Button consumer left in the editor bundle;
-// client/components/basic_modals.tsx self-registers its own `@m3e/web/button`
-// since it isn't reachable from plug FUNCTION code, and
-// client/components/filter.tsx / top_bar.tsx render `Input` with `bare`,
-// which never renders an m3e element at all).
-import "@m3e/web/button";
-// m3e-theme: dynamic-color root wrapping MainUI (CS-1), seeded from the
-// space's `--ui-accent-color` custom property.
-import "@m3e/web/theme";
-// m3e-card / m3e-app-bar / m3e-icon: client/codemirror/lua_widget.ts's
-// TOP/BOTTOM Lua array widgets (Linked Mentions, TOC, Linked Tasks) have
-// rendered these tags since Slice 2's `3f6ba829` -- registering them here
-// is what actually upgrades them from inert HTML.
-import "@m3e/web/card";
-import "@m3e/web/app-bar";
-import "@m3e/web/breadcrumb"; // m3e-breadcrumb/-item: top_bar.tsx's app-bar leading-slot folder trail (CS-7a).
-import "@m3e/web/icon";
-// m3e-dialog: the plug modal (`showPanel("modal", ...)`) below.
-import "@m3e/web/dialog";
-// m3e-textarea-autosize: the frontmatter raw-YAML card
-// (client/components/front_matter_panel.tsx, a CodeMirror block widget).
-import "@m3e/web/textarea-autosize";
-// m3e-toolbar: the floating toolbar (client/components/floating_toolbar.tsx).
-import "@m3e/web/toolbar";
 import { getNameFromPath } from "@silverbulletmd/silverbullet/lib/ref";
 import type {
   FilterOption,
@@ -63,64 +10,38 @@ import { notificationDismissTimeouts } from "@silverbulletmd/silverbullet/type/c
 import { h, render as preactRender } from "preact";
 import { useEffect, useMemo, useReducer, useState } from "preact/hooks";
 import * as featherIcons from "preact-feather";
-import { isMacLike, keyboardHint } from "../plug-api/lib/shortcut.ts";
+import type { Client } from "./client.ts";
 import {
   type ConfiguredActionButton,
   visibleActionButtons,
 } from "./action_buttons.ts";
-import type { Client } from "./client.ts";
-import { AnchoredMenu } from "./components/anchored_menu.tsx";
 import { Confirm, Prompt } from "./components/basic_modals.tsx";
-import { findFrontmatterBlock } from "./codemirror/frontmatter_folding.ts";
+import { isMacLike, keyboardHint } from "../plug-api/lib/shortcut.ts";
+import { kebabToPascal } from "./lib/feather_icons.ts";
 import { FilterList } from "./components/filter.tsx";
-import { FloatingToolbar } from "./components/floating_toolbar.tsx";
+import { NavigatorDock, NavigatorModal } from "./navigator/ui/panels.tsx";
+import { RevisionPreviewModal } from "./navigator/ui/components/revision_preview.tsx";
+import { useNavigatorSlot } from "./navigator/ui/slots.ts";
 import { Panel } from "./components/panel.tsx";
+import { TopBar } from "./components/top_bar.tsx";
+import { AnchoredMenu } from "./components/anchored_menu.tsx";
 import {
-  editorProfileMenuItems,
   ProfileAvatar,
   profileMenuHeader,
+  editorProfileMenuItems,
   profileMenuLabel,
 } from "./components/profile_button.tsx";
-import {
-  type AppBarMenuItem,
-  type BreadcrumbItem,
-  TopBar,
-} from "./components/top_bar.tsx";
-import * as mdi from "./filtered_material_icons.ts";
-import { kebabToPascal } from "./lib/feather_icons.ts";
-import { accentSeed } from "./lib/theme_seed.ts";
-import { RevisionPreviewModal } from "./navigator/ui/components/revision_preview.tsx";
-import { NavigatorDock, NavigatorModal } from "./navigator/ui/panels.tsx";
-import { useNavigatorSlot } from "./navigator/ui/slots.ts";
-import {
-  CHECKING_LABEL,
-  isPushActionable,
-  notificationsIconFor,
-  PUSH_STATE_DETAILS,
-  type PushState,
-  pushMenuLabel,
-} from "./lib/push_ui.ts";
 import { loadProfile, type ProfileState } from "./profile.ts";
-import { readPushState, togglePush } from "./push_toggle.ts";
+import * as mdi from "./filtered_material_icons.ts";
 import reducer from "./reducer.ts";
 import {
   type Action,
   type AppViewState,
   initialViewState,
 } from "./types/ui.ts";
-
-// _tokens.scss's own `--ui-accent-color` default -- used only if the
-// computed custom property can't be read at all (e.g. no matching rule).
-const FALLBACK_ACCENT = "#3569b8";
-
-// Page body minus frontmatter, for the app bar's "N min read" subtitle.
-// `editorView` is unset on MainUI's first render (fork `1f8b8943`).
-function computeBodyText(client: Client): string {
-  const state = client.editorView?.state;
-  if (!state) return "";
-  const block = findFrontmatterBlock(state);
-  return block ? state.sliceDoc(block.to) : state.sliceDoc();
-}
+import { FloatingToolbar } from "./components/floating_toolbar.tsx";
+import "./m3e_chrome/register.ts";
+import { mountThemeRoot, PlugModal, useAppChrome } from "./m3e_chrome/index.ts";
 
 export class MainUI {
   viewState: AppViewState = initialViewState;
@@ -377,13 +298,6 @@ export class MainUI {
 
     const client = this.client;
 
-    // Single source of truth for read-only state — same expression that
-    // used to be inlined at TopBar's `readOnly` prop below, now also
-    // driving whether the Std library's static "lock" actionButton is
-    // filtered out in favor of TopBar's own live toggle.
-    const isReadOnly =
-      viewState.uiOptions.forcedROMode || client.bootConfig.readOnly;
-
     // Loaded once on mount, not polled or re-fetched on navigation
     const [profile, setProfile] = useState<ProfileState>({
       status: "unavailable",
@@ -399,33 +313,10 @@ export class MainUI {
       undefined,
     );
 
-    // Kebab push item: `undefined` until the (async) first read resolves,
-    // re-read after every toggle; `togglePush` flashes its own outcome.
-    const [pushState, setPushState] = useState<PushState | undefined>();
-    const [pushPending, setPushPending] = useState(false);
-    useEffect(() => {
-      void readPushState(client.bootConfig).then(setPushState);
-    }, []);
-
-    // `<m3e-theme>`'s color seed. Read once on mount and again whenever a
-    // space style finishes loading (`loadCustomStyles` sets `customStyles`
-    // after the `#custom-styles` stylesheet is in the DOM) -- a space style
-    // overriding `--ui-accent-color` only takes effect on the *next* read of
-    // the computed value, not retroactively on an already-read one.
-    const [themeColor, setThemeColor] = useState(FALLBACK_ACCENT);
-    useEffect(() => {
-      const computed = getComputedStyle(
-        document.documentElement,
-      ).getPropertyValue("--ui-accent-color");
-      setThemeColor(accentSeed(computed, FALLBACK_ACCENT));
-    }, [viewState.uiOptions.customStyles]);
-
-    const themeScheme =
-      viewState.uiOptions.darkMode === undefined
-        ? "auto"
-        : viewState.uiOptions.darkMode
-          ? "dark"
-          : "light";
+    // The whole app-bar/floating-toolbar/theme chrome, derived by
+    // `m3e_chrome`'s `useAppChrome` from this view state + the client edge
+    // (push state, computed accent, body text) it owns.
+    const chrome = useAppChrome(client, viewState);
 
     const navSlots = {
       lhs: useNavigatorSlot("lhs"),
@@ -520,83 +411,6 @@ export class MainUI {
       () => ProfileAvatar(profile),
       [profile],
     );
-    // Gates both TopBar's own live toggle (below) and the Std static
-    // "lock" button filter (visibleActionButtons) — undefined when the
-    // command isn't registered (e.g. system.getMode() !== "rw", see
-    // "Read Only Mode.md"), same guard the fork used.
-    const readOnlyToggleShown = viewState.commands.has(
-      "Editor: Toggle Read Only Mode",
-    );
-
-    const pushActionable =
-      pushState !== undefined && isPushActionable(pushState);
-    const pushLabel = pushMenuLabel(pushState, pushPending);
-    const onPushClick = () => {
-      setPushPending(true);
-      void togglePush(client)
-        .then(() => readPushState(client.bootConfig))
-        .then(setPushState)
-        .finally(() => setPushPending(false));
-    };
-    const appBarMenuItems: AppBarMenuItem[] = [
-      {
-        key: "push",
-        icon: notificationsIconFor(
-          pushState === undefined
-            ? undefined
-            : {
-                active: pushState === "on",
-                unavailable: !pushActionable,
-                pending: pushPending,
-                label: pushLabel,
-                onClick: onPushClick,
-              },
-        ),
-        label: pushLabel,
-        detail:
-          pushState === undefined
-            ? CHECKING_LABEL
-            : PUSH_STATE_DETAILS[pushState],
-        disabled: pushPending || !pushActionable,
-        onClick: onPushClick,
-      },
-      {
-        key: "open-config",
-        icon: "settings",
-        label: "Open Config",
-        onClick: () => void client.navigate({ path: "CONFIG.md" }),
-      },
-    ];
-
-    // App-bar breadcrumb: root runs "Navigate: Home", intermediate segments
-    // open the page navigator, the last segment is the current page.
-    const currentPageName = viewState.current
-      ? getNameFromPath(viewState.current.path)
-      : undefined;
-    const pathSegments = currentPageName
-      ? currentPageName.split("/").filter((s) => s.length > 0)
-      : [];
-    const breadcrumbItems: BreadcrumbItem[] = [
-      {
-        key: "sb-breadcrumb-root",
-        label: "Space",
-        current: pathSegments.length === 0,
-        onClick: viewState.commands.has("Navigate: Home")
-          ? () => void client.runCommandByName("Navigate: Home")
-          : undefined,
-      },
-      ...pathSegments.map((segment, i) => {
-        const isLast = i === pathSegments.length - 1;
-        return {
-          key: `sb-breadcrumb-${i}`,
-          label: segment,
-          current: isLast,
-          onClick: isLast
-            ? undefined
-            : () => void client.startPageNavigate("page"),
-        };
-      }),
-    ];
 
     // Only one modal may occupy the slot; close the plug panel before the
     // navigator takes its backdrop and focus.
@@ -607,19 +421,7 @@ export class MainUI {
       }
     }, [navSlots.modal, plugModalMode]);
     const modalVisible = plugModalMode !== undefined && !navSlots.modal;
-    const modalInset = plugModalMode;
-    // PanelMode is a px inset (number) or a CSS length (string); m3e-dialog
-    // has no inset, so it becomes explicit width/max-height tokens.
-    const modalDialogWidth = typeof modalInset === "number"
-      ? `calc(100% - ${modalInset * 2}px)`
-      : `calc(100% - 2 * (${modalInset}))`;
-    const modalDialogHeight = typeof modalInset === "number"
-      ? `calc(100dvh - ${modalInset * 2}px)`
-      : `calc(100dvh - 2 * (${modalInset}))`;
-    // m3e-dialog's `.base` only caps height, so `.sb-modal` needs an explicit
-    // one; reserve ~88px for the dialog's own header row inside the cap.
-    const modalPanelHeight =
-      `calc(${modalDialogHeight} - 88px)`;
+    const modalInset = plugModalMode!;
 
     const bhsVisible = viewState.panels.bhs.mode !== undefined;
     const plugBhsMode = viewState.panels.bhs.mode;
@@ -630,7 +432,7 @@ export class MainUI {
     }, [navSlots.bhs, plugBhsMode]);
 
     return (
-      <m3e-theme color={themeColor} scheme={themeScheme}>
+      <>
         {viewState.showFilterBox && (
           <FilterList
             label={viewState.filterBoxLabel}
@@ -664,6 +466,7 @@ export class MainUI {
           />
         )}
         <TopBar
+          chrome={chrome.appBar}
           pageName={
             !viewState.current ? "" : getNameFromPath(viewState.current.path)
           }
@@ -704,13 +507,29 @@ export class MainUI {
               client.focus();
             }
           }}
-          menuItems={appBarMenuItems}
           actionButtons={[
+            ...(viewState.isMobile &&
+            client.config
+              .get<string>("mobileMenuStyle", "hamburger")
+              .includes("hamburger")
+              ? [
+                  {
+                    icon: featherIcons.Menu,
+                    description: "Open Menu",
+                    class: "expander",
+                    callback: () => {
+                      document
+                        .querySelector("#sb-top .sb-actions.hamburger")
+                        ?.classList.toggle("open");
+                    },
+                  },
+                ]
+              : []),
             ...visibleActionButtons(actionButtons, {
               isMobile: viewState.isMobile,
               isStandalone: viewState.isStandalone,
               accountManaged: !!client.bootConfig.accountManaged,
-              readOnlyToggleShown,
+              readOnlyToggleShown: chrome.readOnlyToggleShown,
             })
               // Until the profile request settles we do not know who the
               // visitor is, and offering "Log in" to someone who is signed in
@@ -800,22 +619,8 @@ export class MainUI {
               ? client.config.get<string>("mobileMenuStyle", "hamburger")
               : undefined
           }
-          readOnly={isReadOnly}
-          breadcrumbItems={breadcrumbItems}
-          lastModified={client.currentPageMeta()?.lastModified}
-          bodyText={computeBodyText(client)}
-          readOnlyToggle={
-            readOnlyToggleShown
-              ? {
-                  active: isReadOnly,
-                  label: isReadOnly ? "Disable read-only" : "Enable read-only",
-                  onClick: () => {
-                    void client.runCommandByName(
-                      "Editor: Toggle Read Only Mode",
-                    );
-                  },
-                }
-              : undefined
+          readOnly={
+            viewState.uiOptions.forcedROMode || client.bootConfig.readOnly
           }
         />
         {menuTrigger && (
@@ -826,17 +631,7 @@ export class MainUI {
             onClose={() => setMenuTrigger(undefined)}
           />
         )}
-        <FloatingToolbar
-          onSearchClick={() => {
-            void client.startPageNavigate("page");
-          }}
-          journal={{
-            available: viewState.commands.has("Journal: Today"),
-            onClick: () => {
-              void client.runCommandByName("Journal: Today");
-            },
-          }}
-        />
+        <FloatingToolbar {...chrome.floatingToolbar} />
         <div id="sb-main">
           <NavigatorDock slot="lhs" state={navSlots.lhs} client={client} />
           {viewState.panels.lhs.mode !== undefined && (
@@ -851,32 +646,16 @@ export class MainUI {
         <NavigatorModal state={navSlots.modal} client={client} />
         <RevisionPreviewModal />
         {modalVisible && (
-          // Escape/backdrop close -> one `closed` event -> one hide-panel.
-          // Inner `.sb-modal` kept: extensions.test.ts targets `.sb-modal iframe`.
-          <m3e-dialog
-            open
-            style={{
-              "--m3e-dialog-min-width": modalDialogWidth,
-              "--m3e-dialog-max-width": modalDialogWidth,
-              "--m3e-dialog-max-height": modalDialogHeight,
-            }}
-            onclosed={() => dispatch({ type: "hide-panel", id: "modal" })}
+          <PlugModal
+            inset={modalInset}
+            onClose={() => dispatch({ type: "hide-panel", id: "modal" })}
           >
-            <div
-              className="sb-modal"
-              style={{
-                position: "relative",
-                width: "100%",
-                height: modalPanelHeight,
-              }}
-            >
-              <Panel
-                config={viewState.panels.modal}
-                editor={client}
-                slot="modal"
-              />
-            </div>
-          </m3e-dialog>
+            <Panel
+              config={viewState.panels.modal}
+              editor={client}
+              slot="modal"
+            />
+          </PlugModal>
         )}
         {navSlots.bhs ? (
           <div className="sb-bhs" style={{ flex: navSlots.bhs.mode }}>
@@ -887,12 +666,12 @@ export class MainUI {
             <Panel config={viewState.panels.bhs} editor={client} slot="bhs" />
           </div>
         ) : null}
-      </m3e-theme>
+      </>
     );
   }
 
   render(container: Element) {
     container.innerHTML = "";
-    preactRender(h(this.ViewComponent.bind(this), {}), container);
+    preactRender(h(this.ViewComponent.bind(this), {}), mountThemeRoot(container));
   }
 }
