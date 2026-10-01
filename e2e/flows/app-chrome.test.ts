@@ -29,9 +29,7 @@ test.describe("app chrome: single theme root, layout ancestry", () => {
       const themeEl = root?.querySelector(":scope > m3e-theme");
       return {
         isDirectChild: !!themeEl && themeEl.parentElement === root,
-        ancestorOfTop: !!themeEl?.contains(
-          document.querySelector("#sb-top"),
-        ),
+        ancestorOfTop: !!themeEl?.contains(document.querySelector("#sb-top")),
         ancestorOfFloatingToolbar: !!themeEl?.contains(
           document.querySelector(".sb-floating-toolbar"),
         ),
@@ -125,9 +123,7 @@ test.describe("app chrome: mobile hamburger overflow drops the expander", () => 
     );
     await kebab.click();
     const menu = page.locator("m3e-menu#sb-app-bar-menu");
-    await expect
-      .poll(() => menu.evaluate((el: any) => el.isOpen))
-      .toBe(true);
+    await expect.poll(() => menu.evaluate((el: any) => el.isOpen)).toBe(true);
     await expect(
       menu.locator("m3e-menu-item", { hasText: "Open Menu" }),
     ).toHaveCount(0);
