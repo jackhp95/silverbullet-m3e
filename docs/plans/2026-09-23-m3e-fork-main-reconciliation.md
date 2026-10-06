@@ -6,7 +6,7 @@ Status: IN EXECUTION — living plan doc. Slices 1–4, 6-boot, 6-codemirror, 6b
 
 ## 0. Ground truth (verified via read-only git inspection)
 
-> **2026-09-24 correction (planner `bed795ff`):** Slice 2's real merge made the cards tip `4cfc3763` an *ancestor of `main`*, so `git merge-base main 4cfc3763` = `4cfc3763` and `git merge`/`merge-tree` against the fork now report nothing left. Every "what's left to port" analysis must 3-way explicitly against the original merge-base `2b2a7c719bb3546df8c78ddeaf95256535ee2dd3` (`git merge-file` base=`2b2a7c71` ours=`main` theirs=`4cfc3763`).
+> **2026-09-24 correction (planner `bed795ff`):** Slice 2's real merge made the cards tip `4cfc3763` an *ancestor of `main`*, so `git merge-base main 4cfc3763` = `4cfc3763` and `git merge`/`merge-tree` against the fork now report nothing left. Every "what's left to port" analysis must 3-way explicitly against the original merge-base `2b2a7c719bb3546df8c78ddeaf95256535ee2dd3` (`git merge-file` base=`2b2a7c71` ours=`main` theirs=`4cfc3763`). [`scripts/reconcile/whats-left.sh`](../../scripts/reconcile/whats-left.sh) does exactly that for every path the fork changed and prints `LANDED` / `fork-adds:N` / `CONFLICT:N` / `ours-deleted` / `fork-deletes` per path (`--pending` hides what has landed).
 
 - `main` @ `e1d8eb18` (`origin/main`).
 - `m3e-fork` @ `c77ccb1d` (`origin/m3e-fork: ahead 28`), forked at merge-base `2b2a7c7`.
