@@ -569,7 +569,7 @@ mod tests {
         let manifest: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(manifest["scope"], "/work/");
         assert_eq!(manifest["start_url"], "/work/#boot");
-        assert_eq!(manifest["icons"][0]["src"], "/work/.client/logo-dock.png");
+        assert_eq!(manifest["icons"][0]["src"], "/work/.client/icon-192.png");
     }
 
     #[tokio::test]

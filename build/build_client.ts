@@ -177,6 +177,15 @@ async function copyAssets(dist: string) {
   );
   await cp("client/images/logo.png", `${dist}/logo.png`);
   await cp("client/images/logo-dock.png", `${dist}/logo-dock.png`);
+  // PWA manifest icons (any + maskable); see scripts/icons/build-app-icons.sh.
+  for (const f of [
+    "icon-192.png",
+    "icon-512.png",
+    "maskable-192.png",
+    "maskable-512.png",
+  ]) {
+    await cp(`client/images/app-icon/${f}`, `${dist}/${f}`);
+  }
   // Avoid loading the 405 KB original for a ~26 CSS px wordmark.
   await cp("client/images/logo-dock-96x96.png", `${dist}/logo-dock-96x96.png`);
 

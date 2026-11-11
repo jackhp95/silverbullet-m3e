@@ -58,6 +58,7 @@ struct ManifestIcon {
     #[serde(rename = "type")]
     icon_type: String,
     sizes: String,
+    purpose: String,
 }
 
 /// The PWA `manifest.json` document. Field names match the web app manifest
@@ -83,11 +84,20 @@ pub async fn handle_manifest(State(state): State<Arc<ServerState>>) -> impl Into
     let manifest = Manifest {
         short_name: state.boot_config.space_name.clone(),
         name: state.boot_config.space_name.clone(),
-        icons: vec![ManifestIcon {
-            src: format!("{prefix}/.client/logo-dock.png"),
+        icons: [
+            ("icon-192.png", "192x192", "any"),
+            ("icon-512.png", "512x512", "any"),
+            ("maskable-192.png", "192x192", "maskable"),
+            ("maskable-512.png", "512x512", "maskable"),
+        ]
+        .into_iter()
+        .map(|(file, sizes, purpose)| ManifestIcon {
+            src: format!("{prefix}/.client/{file}"),
             icon_type: "image/png".to_string(),
-            sizes: "512x512".to_string(),
-        }],
+            sizes: sizes.to_string(),
+            purpose: purpose.to_string(),
+        })
+        .collect(),
         capture_links: "new-client".to_string(),
         start_url: format!("{prefix}/#boot"),
         display: "standalone".to_string(),
@@ -256,8 +266,10 @@ mod tests {
         assert_eq!(v["start_url"], "/#boot");
         assert_eq!(v["scope"], "/");
         assert_eq!(v["display"], "standalone");
-        assert_eq!(v["icons"][0]["src"], "/.client/logo-dock.png");
+        assert_eq!(v["icons"][0]["src"], "/.client/icon-192.png");
         assert_eq!(v["icons"][0]["type"], "image/png");
+        assert_eq!(v["icons"][3]["src"], "/.client/maskable-512.png");
+        assert_eq!(v["icons"][3]["purpose"], "maskable");
         assert_eq!(v["theme_color"], "#e1e1e1");
     }
 }
