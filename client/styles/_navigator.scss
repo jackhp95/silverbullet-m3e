@@ -67,6 +67,9 @@
 }
 
 .sb-nav-header {
+  // Lets the row below react to the panel's own width (a docked sidebar is
+  // ~260px; the modal is far wider), not the viewport's.
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -77,7 +80,9 @@
 
 .sb-nav-header-row {
   display: flex;
-  align-items: baseline;
+  // Centre, not baseline: the search bar is a 56px pill whose text baseline
+  // is deep inside it, so baseline alignment dropped the title off its edge.
+  align-items: center;
   gap: 6px;
   // A dock this narrow can still shrink the input (min-width: 0 below); the
   // row itself must not overflow it.
@@ -118,6 +123,24 @@
 .sb-nav-search-bar {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+// A narrow panel (the docked sidebar) puts the title and its buttons on one
+// line and gives the filter the full width under them, instead of squeezing
+// the filter to a stub beside them.
+@container (max-width: 22rem) {
+  .sb-nav-header-row {
+    flex-wrap: wrap;
+  }
+
+  .sb-nav-title {
+    flex: 1 1 auto;
+  }
+
+  .sb-nav-search-bar {
+    order: 1;
+    flex: 1 0 100%;
+  }
 }
 
 .sb-nav-input {

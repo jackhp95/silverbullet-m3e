@@ -35,6 +35,7 @@ const baseProps = {
     pageName: "Hello",
     isReadOnly: false,
     accent: "#3569b8",
+    narrow: false,
     push: { state: "not-configured", pending: false },
     lastModified: "2026-09-20T12:00:00.000Z",
     bodyText: "hello world",

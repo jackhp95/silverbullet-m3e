@@ -9,6 +9,7 @@ import { findFrontmatterBlock } from "../codemirror/frontmatter_folding.ts";
 import { accentSeed } from "../lib/theme_seed.ts";
 import { readPushState, togglePush } from "../push_toggle.ts";
 import type { PushState } from "../lib/push_ui.ts";
+import { MOBILE_MEDIA_QUERY } from "../lib/mobile.ts";
 import type { AppViewState } from "../types/ui.ts";
 import {
   deriveChrome,
@@ -88,6 +89,18 @@ export function useAppChrome(
     setAccent(accentSeed(computed, FALLBACK_ACCENT));
   }, [viewState.uiOptions.customStyles]);
 
+  // Narrow-screen layout, live: rotating the phone or resizing re-derives.
+  const [narrow, setNarrow] = useState(
+    () => globalThis.matchMedia?.(MOBILE_MEDIA_QUERY).matches ?? false,
+  );
+  useEffect(() => {
+    const mql = globalThis.matchMedia?.(MOBILE_MEDIA_QUERY);
+    if (!mql) return;
+    const onChange = (ev: MediaQueryListEvent) => setNarrow(ev.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+
   const onPushClick = () => {
     setPushPending(true);
     void togglePush(client)
@@ -121,6 +134,7 @@ export function useAppChrome(
     isReadOnly,
     darkMode: viewState.uiOptions.darkMode,
     accent,
+    narrow,
     push: { state: pushState, pending: pushPending },
     lastModified: client.currentPageMeta()?.lastModified,
     bodyText: computeBodyText(client),

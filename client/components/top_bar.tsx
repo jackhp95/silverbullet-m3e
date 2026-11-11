@@ -169,6 +169,7 @@ function SyncProgressIndicator({
           </span>
         )}
         <m3e-circular-progress-indicator
+          aria-label={type === "sync" ? "Syncing space" : "Indexing"}
           indeterminate={indeterminate}
           value={indeterminate ? undefined : percentage}
         >
@@ -286,6 +287,7 @@ function PageNameEditor({
     // `field-sizing: content` in top.scss, capped at 2 lines.
     <textarea
       class="sb-input sb-page-name-editor"
+      aria-label="Page name"
       rows={1}
       value={name}
       readOnly={readOnly}

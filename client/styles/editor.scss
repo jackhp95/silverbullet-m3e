@@ -403,7 +403,10 @@ $comment-border: 1px;
     // without moving adjacent text or growing the line.
     padding: 0 5px;
     margin: 0 -5px;
-    text-decoration: none;
+    // Colour alone does not set a link apart from body text (primary vs
+    // on-surface is under 3:1): underline it too.
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
     cursor: pointer;
   }
 

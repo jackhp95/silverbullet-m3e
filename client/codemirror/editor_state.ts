@@ -177,6 +177,7 @@ export function createEditorState(
         spellcheck: "true",
         autocorrect: "on",
         autocapitalize: "on",
+        "aria-label": "Page content",
       }),
       inlineContentPlugin(client),
       codeCopyPlugin(client),

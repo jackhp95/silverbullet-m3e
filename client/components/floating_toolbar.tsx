@@ -1,18 +1,22 @@
-// Bottom-right vertical floating toolbar (decomposition D3): Search opens
-// main's page picker, Journal runs "Journal: Today" when that command exists.
+// Bottom-right floating toolbar (decomposition D3): Search opens main's page
+// picker, Journal runs "Journal: Today" when that command exists. Vertical on
+// wide screens; horizontal on a narrow one (`chrome_model` decides), where
+// `#sb-main` reserves a strip for it (top.scss) instead of it covering text.
 // `m3e-toolbar` has no selection state, so every button is a stateless
 // onClick icon-button. Registrations live in editor_ui.tsx (vitest sibling).
 
 export function FloatingToolbar({
+  vertical,
   onSearchClick,
   journal,
 }: {
+  vertical: boolean;
   onSearchClick: () => void;
   journal: { available: boolean; onClick: () => void };
 }) {
   return (
     <m3e-toolbar
-      vertical
+      vertical={vertical}
       shape="rounded"
       elevated
       className="sb-floating-toolbar"

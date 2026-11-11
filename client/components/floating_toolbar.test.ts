@@ -10,6 +10,7 @@ import { FloatingToolbar } from "./floating_toolbar.tsx";
 
 test("renders exactly 2 icon-buttons, in order Search/Journal", () => {
   const vnode = FloatingToolbar({
+    vertical: true,
     onSearchClick: () => {},
     journal: { available: true, onClick: () => {} },
   });
@@ -27,6 +28,7 @@ test("renders exactly 2 icon-buttons, in order Search/Journal", () => {
 
 test("each button's slotted m3e-icon carries the expected, glyph-verified icon name", () => {
   const vnode = FloatingToolbar({
+    vertical: true,
     onSearchClick: () => {},
     journal: { available: true, onClick: () => {} },
   });
@@ -39,6 +41,7 @@ test("each button's slotted m3e-icon carries the expected, glyph-verified icon n
 test("clicking Search calls onSearchClick and prevents default", () => {
   const onSearchClick = vi.fn();
   const vnode = FloatingToolbar({
+    vertical: true,
     onSearchClick,
     journal: { available: true, onClick: () => {} },
   });
@@ -55,6 +58,7 @@ test("Journal button: disabled-interactive + onClick reflect journal.available",
   const onClick = vi.fn();
 
   const available = FloatingToolbar({
+    vertical: true,
     onSearchClick: () => {},
     journal: { available: true, onClick },
   });
@@ -64,6 +68,7 @@ test("Journal button: disabled-interactive + onClick reflect journal.available",
   expect(onClick).toHaveBeenCalledOnce();
 
   const unavailable = FloatingToolbar({
+    vertical: true,
     onSearchClick: () => {},
     journal: { available: false, onClick },
   });
@@ -75,6 +80,7 @@ test("Journal button: disabled-interactive + onClick reflect journal.available",
 test("renders to a real (non-empty, non-tofu) HTML string via preact-render-to-string", () => {
   const html = render(
     FloatingToolbar({
+      vertical: true,
       onSearchClick: () => {},
       journal: { available: true, onClick: () => {} },
     }),

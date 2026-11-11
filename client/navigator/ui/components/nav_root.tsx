@@ -287,7 +287,7 @@ export function NavRoot({
                 aria-label={
                   noFilter
                     ? (view?.meta.label ?? view?.meta.title)
-                    : undefined
+                    : placeholder
                 }
                 value={phrase}
                 onInput={(e) => {

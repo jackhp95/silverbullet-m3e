@@ -101,6 +101,9 @@ body {
   flex-direction: row;
   flex-grow: 1;
   height: 0;
+  // Painted here, not on `#sb-root`: the theme's surface role only resolves
+  // below `<m3e-theme>` (theme.scss).
+  background-color: var(--root-background-color);
 
   .sb-panel {
     flex: 1;

@@ -370,6 +370,18 @@
   z-index: 30;
 }
 
+// Narrow screens: the toolbar lies horizontal (chrome_model's `vertical`),
+// and `#sb-main` stops above it instead of text scrolling underneath it.
+// Same breakpoint as MOBILE_MEDIA_QUERY (client/lib/mobile.ts).
+@media only screen and (max-width: 600px) {
+  #sb-main {
+    padding-bottom: calc(
+      var(--sb-floating-toolbar-height, 64px) + 8px +
+        max(24px, env(safe-area-inset-bottom, 0px) + 24px)
+    );
+  }
+}
+
 // App-bar kebab menu (#sb-app-bar-menu): m3e-menu-item's shadow `.wrapper`
 // is missing `min-width: 0` (upstream @m3e/web v2.7.3 bug), so a long label
 // floors the menu's width instead of shrinking into it and its own

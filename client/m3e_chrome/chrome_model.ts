@@ -32,6 +32,9 @@ export type ChromeInput = {
   isReadOnly: boolean;
   darkMode?: boolean;
   accent: string;
+  /** Narrow-screen layout (`MOBILE_MEDIA_QUERY`): the floating toolbar lies
+   * horizontal there so `#sb-main` can reserve one strip for it. */
+  narrow: boolean;
   push: { state?: PushState; pending: boolean };
   lastModified?: string;
   bodyText: string;
@@ -39,6 +42,7 @@ export type ChromeInput = {
 };
 
 export type FloatingToolbarProps = {
+  vertical: boolean;
   onSearchClick: () => void;
   journal: { available: boolean; onClick: () => void };
 };
@@ -161,6 +165,7 @@ export function deriveChrome(input: ChromeInput): AppChrome {
       menuItems,
     },
     floatingToolbar: {
+      vertical: !input.narrow,
       onSearchClick: input.actions.openPageNavigator,
       journal: {
         available: input.actions.journalToday !== undefined,

@@ -145,10 +145,18 @@ const baseInput = {
   pageName: undefined,
   isReadOnly: false,
   accent: "#3569b8",
+  narrow: false,
   push: { state: undefined, pending: false },
   bodyText: "",
   actions: baseActions,
 };
+
+test("deriveChrome: floating toolbar is vertical wide, horizontal narrow", () => {
+  expect(deriveChrome(baseInput).floatingToolbar.vertical).toBe(true);
+  expect(
+    deriveChrome({ ...baseInput, narrow: true }).floatingToolbar.vertical,
+  ).toBe(false);
+});
 
 test("deriveChrome: darkMode undefined maps to 'auto'", () => {
   expect(deriveChrome(baseInput).theme.scheme).toBe("auto");

@@ -400,3 +400,31 @@ html[data-markdown-syntax-rendering="on"] {
   --admonition-icon: url('data:image/svg+xml,<svg  width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-check-circle"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>');
   --admonition-color: #00c853;
 }
+// Chrome colours from the m3e theme. `<m3e-theme>` publishes its
+// `--md-sys-color-*` roles on itself (not on `html`), so the legacy chrome
+// tokens that should follow them are re-declared HERE, where the roles
+// resolve -- and so is everything the html blocks above derived from them
+// (a `var()` is resolved where it is declared, not where it is used). The
+// roles flip with the scheme, so one block serves light and dark.
+//   - one surface role for the app bar, the editor and the gap beside the
+//     nav dock (no grey `#eee` seam under the lavender bar, no white editor)
+//   - links use the theme's primary role instead of an off-palette blue
+m3e-theme {
+  --link-color: var(--md-sys-color-primary);
+  --editor-naked-url-color: var(--link-color);
+  --editor-link-color: var(--link-color);
+  --editor-link-url-color: var(--link-color);
+  --editor-wiki-link-page-color: var(--link-color);
+
+  --root-background-color: var(--md-sys-color-surface);
+  --ui-surface-background-color: var(--root-background-color);
+
+  --top-background-color: var(--md-sys-color-surface);
+  --top-border-color: var(--md-sys-color-outline-variant);
+
+  --modal-background-color: var(--md-sys-color-surface-container);
+  --modal-selected-option-background-color: color-mix(in srgb, var(--ui-accent-color) 12%, var(--modal-background-color));
+  --notification-info-background-color: color-mix(in srgb, var(--alert-info-color) 10%, var(--modal-background-color));
+  --notification-error-background-color: color-mix(in srgb, var(--alert-error-color) 10%, var(--modal-background-color));
+  --notification-warning-background-color: color-mix(in srgb, var(--alert-warning-color) 10%, var(--modal-background-color));
+}

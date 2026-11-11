@@ -632,7 +632,7 @@ export class MainUI {
           />
         )}
         <FloatingToolbar {...chrome.floatingToolbar} />
-        <div id="sb-main">
+        <main id="sb-main">
           <NavigatorDock slot="lhs" state={navSlots.lhs} client={client} />
           {viewState.panels.lhs.mode !== undefined && (
             <Panel config={viewState.panels.lhs} editor={client} slot="lhs" />
@@ -642,7 +642,7 @@ export class MainUI {
             <Panel config={viewState.panels.rhs} editor={client} slot="rhs" />
           )}
           <NavigatorDock slot="rhs" state={navSlots.rhs} client={client} />
-        </div>
+        </main>
         <NavigatorModal state={navSlots.modal} client={client} />
         <RevisionPreviewModal />
         {modalVisible && (
